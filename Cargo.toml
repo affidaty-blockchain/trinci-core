@@ -1,0 +1,47 @@
+[package]
+name = "trinci-core"
+version = "2.0.0"
+authors = ["The Affidaty Team <trinci@affidaty.io>"]
+edition = "2018"
+description = "TRINCI Blockchain Core"
+keywords = ["trinci", "blockchain", "core"]
+
+[dependencies]
+# Foundations
+log = "0.4.14"
+bs58 = "0.4.0"
+hex = "0.4.3"
+bitflags = "1.2.1"
+async-std = "1.9.0"
+futures = "0.3.15"
+parking_lot = "0.11.1"
+# Serialization
+serde = { version = "1.0.126", features = [ "derive" ] }
+serde_bytes = "0.11.5"
+rmp-serde = "0.15.5"
+# Cryptography primitives
+ring = { version = "0.16.20", default-features = false, features = [ "std" ] }
+ed25519-dalek = "1.0.1"
+# Exonum MerkleDB
+exonum-merkledb = { version = "1.0.0", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
+# WasmTime
+wasmtime = { version = "0.29.0", default-features = false, features = [ "parallel-compilation" ], optional = true }
+# P2P framework
+libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "gossipsub"], optional = true }
+# HTTP framework
+tide = { version = "0.16", default-features = false, features = [ "h1-server" ], optional = true }
+
+[dev-dependencies]
+lazy_static = "1.4.0"
+mockall = "0.10.0"
+tempfile = "3.2.0"
+serde-value = { git = "https://github.com/affidaty-blockchain/serde-value", branch = "helper_macro" }
+ureq = { version = "2.1.1", default-features = false }
+
+[features]
+default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
+with-rocksdb = [ "exonum-merkledb" ]
+with-wasmtime = [ "wasmtime" ]
+p2p = [ "libp2p" ]
+rest = [ "tide" ]
+bridge = []
