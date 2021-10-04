@@ -34,7 +34,7 @@ use crate::{
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Block, Error, ErrorKind, Receipt, Result,
+    Block, Error, ErrorKind, Receipt, Result, Transaction,
 };
 use std::sync::Arc;
 
@@ -77,6 +77,55 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
+    fn exec_transaction(
+        &mut self,
+        tx: &Transaction,
+        fork: &mut <D as Db>::DbForkType,
+        height: u64,
+        index: u32,
+    ) -> Receipt {
+        let data = &tx.data;
+
+        fork.flush();
+        let result = self.wm.lock().call(
+            fork,
+            0,
+            &data.network,
+            &data.caller.to_account_id(),
+            &data.account,
+            &data.caller.to_account_id(),
+            data.contract,
+            &data.method,
+            &data.args,
+        );
+        if result.is_err() {
+            fork.rollback();
+        }
+
+        // On error, receipt data shall contain the full error description
+        // only if error kind is a SmartContractFailure. This is to prevent
+        // internal error conditions leaks to the user.
+        let (success, returns) = match result {
+            Ok(value) => (true, value),
+            Err(err) => {
+                let msg = match err.kind {
+                    ErrorKind::SmartContractFault | ErrorKind::ResourceNotFound => {
+                        err.to_string_full()
+                    }
+                    _ => err.to_string(),
+                };
+                debug!("Execution failure: {}", msg);
+                (false, msg.as_bytes().to_vec())
+            }
+        };
+        Receipt {
+            height,
+            index: index as u32,
+            success,
+            returns,
+        }
+    }
+
     /// Returns a vector of executed transactions
     fn exec_transactions(
         &mut self,
@@ -97,47 +146,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     hex::encode(hash)
                 ),
             };
-            let data = &tx.data;
 
-            fork.flush();
-            let result = self.wm.lock().call(
-                fork,
-                0,
-                &data.network,
-                &data.caller.to_account_id(),
-                &data.account,
-                &data.caller.to_account_id(),
-                data.contract,
-                &data.method,
-                &data.args,
-            );
-            if result.is_err() {
-                fork.rollback();
-            }
-
-            // On error, receipt data shall contain the full error description
-            // only if error kind is a SmartContractFailure. This is to prevent
-            // internal error conditions leaks to the user.
-            let (success, returns) = match result {
-                Ok(value) => (true, value),
-                Err(err) => {
-                    let msg = match err.kind {
-                        ErrorKind::SmartContractFault | ErrorKind::ResourceNotFound => {
-                            err.to_string_full()
-                        }
-                        _ => err.to_string(),
-                    };
-                    debug!("Execution failure: {}", msg);
-                    (false, msg.as_bytes().to_vec())
-                }
-            };
-
-            let rx = Receipt {
-                height,
-                index: index as u32,
-                success,
-                returns,
-            };
+            let rx = self.exec_transaction(&tx, fork, height, index as u32);
 
             rxs_hashes.push(rx.primary_hash());
 
