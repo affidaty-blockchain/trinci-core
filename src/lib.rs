@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-#![feature(map_first_last)]
-
 // External crates macros.
 #[macro_use]
 extern crate serde;
