@@ -1,0 +1,33 @@
+image: davxy/rust-builder
+
+variables:
+    CARGO_HOME: /tmp/cache/cargo
+    CARGO_TARGET_DIR: /tmp/cache/target/$CI_COMMIT_REF_SLUG
+
+stages:
+    - lints
+    - build
+    - test
+
+lints:
+    stage: lints
+    script:
+        - export CARGO_TARGET_DIR=${CARGO_TARGET_DIR}/lints_core
+        - cargo fmt --all -- --check
+        - cargo clippy --all -- -D warnings
+
+build:
+    stage: build
+    dependencies:
+        - lints
+    script:
+        - export CARGO_TARGET_DIR=${CARGO_TARGET_DIR}/core
+        - cargo build
+
+test:
+    stage: test
+    dependencies:
+        - build
+    script:
+        - export CARGO_TARGET_DIR=${CARGO_TARGET_DIR}/core
+        - cargo test
