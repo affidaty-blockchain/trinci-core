@@ -79,7 +79,7 @@ impl<'de> Deserialize<'de> for Event {
 
 #[derive(Clone)]
 struct SubscriberInfo {
-    packed: bool,
+    pack_level: usize,
     chan: BlockResponseSender,
 }
 
@@ -121,7 +121,7 @@ impl PubSub {
         &mut self,
         id: String,
         events: Event,
-        packed: bool,
+        pack_level: usize,
         chan: BlockResponseSender,
     ) {
         for i in 0..EVENTS_NUM {
@@ -130,11 +130,11 @@ impl PubSub {
                     continue;
                 }
                 debug!(
-                    "[sub] '{}' subscribed to '{:?}' event (packed = {})",
-                    id, event, packed
+                    "[sub] '{}' subscribed to '{:?}' event (pack-level = {})",
+                    id, event, pack_level
                 );
                 let subscriber_info = SubscriberInfo {
-                    packed,
+                    pack_level,
                     chan: chan.clone(),
                 };
                 match self.events_sub.get_mut(&event) {
@@ -185,9 +185,11 @@ impl PubSub {
                 let mut msg_clone = msg.clone();
                 async_std::task::spawn(async move {
                     debug!("[sub] '{}' notified about '{:?}' event", id_clone, event);
-                    if info_clone.packed {
+                    let mut pack_level = info_clone.pack_level;
+                    while pack_level > 0 {
                         let buf = rmp_serialize(&msg_clone).unwrap_or_default();
                         msg_clone = Message::Packed { buf };
+                        pack_level -= 1;
                     }
                     let res = info_clone.chan.send(msg_clone).await;
                     if res.is_err() {
@@ -225,7 +227,7 @@ mod tests {
         pubsub.subscribe(
             "foo".to_string(),
             Event::BLOCK | Event::TRANSACTION,
-            false,
+            0,
             sender,
         );
 
@@ -240,7 +242,7 @@ mod tests {
         pubsub.subscribe(
             "foo".to_string(),
             Event::BLOCK | Event::TRANSACTION,
-            false,
+            0,
             sender,
         );
 
@@ -267,7 +269,7 @@ mod tests {
         pubsub.subscribe(
             "foo".to_string(),
             Event::BLOCK | Event::TRANSACTION,
-            false,
+            0,
             sender,
         );
         let msg = Message::GetBlockResponse {
@@ -293,7 +295,7 @@ mod tests {
         pubsub.subscribe(
             "foo".to_string(),
             Event::BLOCK | Event::TRANSACTION,
-            false,
+            0,
             sender,
         );
         let msg = Message::GetBlockResponse {

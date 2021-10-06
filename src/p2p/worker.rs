@@ -16,10 +16,7 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 use super::{behaviour::Behavior, service::PeerConfig};
-use crate::{
-    blockchain::{pubsub::Event, BlockRequestSender, Message},
-    crypto,
-};
+use crate::{base::serialize::rmp_serialize, blockchain::{pubsub::Event, BlockRequestSender, Message}, crypto};
 use futures::{future, prelude::*};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
@@ -76,14 +73,14 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     info!("P2P PeerId: {}", peer_id);
 
     // Subscribe to blockchain events of interest.
-    let mut block_rx = match block_tx
-        .send(Message::Subscribe {
-            id: "p2p".to_owned(),
-            events: Event::BLOCK | Event::TRANSACTION | Event::REQUEST,
-            packed: true,
-        })
-        .await
-    {
+    let req = Message::Subscribe {
+        id: "p2p".to_owned(),
+        events: Event::BLOCK | Event::TRANSACTION | Event::REQUEST,
+    };
+    // We like to receive the payloads already in packed form...
+    let buf = rmp_serialize(&req).unwrap();
+    let req = Message::Packed { buf };
+    let mut block_rx = match block_tx.send(req).await {
         Ok(chan) => chan,
         Err(_err) => {
             error!("Starting p2p worker. Blockchain channel is closed");
