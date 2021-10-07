@@ -16,7 +16,11 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 use super::{behaviour::Behavior, service::PeerConfig};
-use crate::{base::serialize::rmp_serialize, blockchain::{pubsub::Event, BlockRequestSender, Message}, crypto};
+use crate::{
+    base::serialize::rmp_serialize,
+    blockchain::{pubsub::Event, BlockRequestSender, Message},
+    crypto,
+};
 use futures::{future, prelude::*};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
