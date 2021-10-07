@@ -244,9 +244,15 @@ impl<D: Db> Dispatcher<D> {
         &self,
         buf: Vec<u8>,
         res_chan: &BlockResponseSender,
+        pack_level: usize,
     ) -> Option<Message> {
         trace!("RX ({}): {}", buf.len(), hex::encode(&buf));
         const ARRAY_HIGH_NIBBLE: u8 = 0x90;
+        const MAX_PACK_LEVEL: usize = 32;
+
+        if pack_level >= MAX_PACK_LEVEL {
+            return None;
+        }
 
         // Be sure that the client is using anonymous serialization format.
         let tag = buf.get(0).cloned().unwrap_or_default();
@@ -260,12 +266,12 @@ impl<D: Db> Dispatcher<D> {
 
         let res = match rmp_deserialize(&buf) {
             Ok(MultiMessage::Simple(req)) => self
-                .message_handler(req, res_chan)
+                .message_handler(req, res_chan, pack_level)
                 .map(MultiMessage::Simple),
             Ok(MultiMessage::Sequence(requests)) => {
                 let mut responses = Vec::with_capacity(requests.len());
                 for req in requests.into_iter() {
-                    if let Some(res) = self.message_handler(req, res_chan) {
+                    if let Some(res) = self.message_handler(req, res_chan, pack_level) {
                         responses.push(res);
                     };
                 }
@@ -286,7 +292,12 @@ impl<D: Db> Dispatcher<D> {
         })
     }
 
-    pub fn message_handler(&self, req: Message, res_chan: &BlockResponseSender) -> Option<Message> {
+    pub fn message_handler(
+        &self,
+        req: Message,
+        res_chan: &BlockResponseSender,
+        pack_level: usize,
+    ) -> Option<Message> {
         match req {
             Message::PutTransactionRequest { confirm, tx } => {
                 let res = self.put_transaction_handler(tx);
@@ -308,10 +319,10 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_account_handler(id, data);
                 Some(res)
             }
-            Message::Subscribe { id, events, packed } => {
+            Message::Subscribe { id, events } => {
                 self.pubsub
                     .lock()
-                    .subscribe(id, events, packed, res_chan.clone());
+                    .subscribe(id, events, pack_level, res_chan.clone());
                 None
             }
             Message::Unsubscribe { id, events } => {
@@ -326,7 +337,7 @@ impl<D: Db> Dispatcher<D> {
                 self.get_transaction_res_handler(tx);
                 None
             }
-            Message::Packed { buf } => self.packed_message_handler(buf, res_chan),
+            Message::Packed { buf } => self.packed_message_handler(buf, res_chan, pack_level + 1),
             _ => None,
         }
     }
@@ -385,7 +396,7 @@ mod tests {
     impl Dispatcher<MockDb> {
         fn message_handler_wrap(&self, req: Message) -> Option<Message> {
             let (tx_chan, _rx_chan) = simple_channel::<Message>();
-            self.message_handler(req, &tx_chan)
+            self.message_handler(req, &tx_chan, 0)
         }
     }
 
@@ -407,13 +418,12 @@ mod tests {
 
     #[test]
     fn put_bad_signature_transaction() {
-        let (tx_chan, _rx_chan) = simple_channel::<Message>();
         let dispatcher = create_dispatcher(false);
         let mut tx = create_test_tx();
         tx.signature[0] += 1;
         let req = Message::PutTransactionRequest { confirm: true, tx };
 
-        let res = dispatcher.message_handler(req, &tx_chan).unwrap();
+        let res = dispatcher.message_handler_wrap(req).unwrap();
 
         match res {
             Message::Exception(err) => {
@@ -425,15 +435,14 @@ mod tests {
 
     #[test]
     fn put_duplicated_unconfirmed_transaction() {
-        let (tx_chan, _rx_chan) = simple_channel::<Message>();
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_tx(),
         };
-        dispatcher.message_handler(req.clone(), &tx_chan).unwrap();
+        dispatcher.message_handler_wrap(req.clone()).unwrap();
 
-        let res = dispatcher.message_handler(req, &tx_chan).unwrap();
+        let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::Exception(Error::new(ErrorKind::DuplicatedUnconfirmedTx));
         assert_eq!(res, exp_res);
@@ -441,14 +450,13 @@ mod tests {
 
     #[test]
     fn put_duplicated_confirmed_transaction() {
-        let (tx_chan, _rx_chan) = simple_channel::<Message>();
         let dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_tx(),
         };
 
-        let res = dispatcher.message_handler(req, &tx_chan).unwrap();
+        let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::Exception(Error::new(ErrorKind::DuplicatedConfirmedTx));
         assert_eq!(res, exp_res);

@@ -46,8 +46,6 @@ pub enum Message {
         id: String,
         /// Events set (bitflags).
         events: Event,
-        /// Subscribe to packed messages.
-        packed: bool,
     },
     /// Unsubscribe from a set of blockchain events.
     #[serde(rename = "2")]
@@ -176,7 +174,7 @@ mod tests {
 
     const EXCEPTION_HEX: &str = "93a130ab626164206e6574776f726bac6572726f7220736f75726365";
     const STOP_HEX: &str = "91a3323534";
-    const SUBSCRIBE_HEX: &str = "94a131a44a6f686e03c2";
+    const SUBSCRIBE_HEX: &str = "93a131a44a6f686e03";
     const UNSUBSCRIBE_HEX: &str = "93a132a44a6f686e03";
     const PUT_TRANSACTION_REQ_HEX: &str = "93a133c39297d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460573ede84b30185e5a3c87834b46e13f00554a3202f9d82b610337338e34353f371962a0f440727ee6080ba0414674c526f1cafce74d2d051e3a935a1e1a0f9ad3a410fa0c10c5a79d458f9ff6fec81e29d86e023665aaab49a96ad5362892bef";
     const PUT_TRANSACTION_RES_HEX: &str =
@@ -194,7 +192,6 @@ mod tests {
         Message::Subscribe {
             id: "John".to_owned(),
             events: Event::BLOCK | Event::TRANSACTION,
-            packed: false,
         }
     }
 
