@@ -15,6 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+//! KADEMLIA examples:
+//! https://github.com/libp2p/rust-libp2p/blob/master/examples/ipfs-kad.rs
+//! https://github.com/libp2p/rust-libp2p/discussions/2177
+//! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
+
 use crate::{
     base::serialize::rmp_serialize,
     blockchain::{BlockRequestSender, Message},
@@ -26,6 +31,7 @@ use libp2p::{
         error::PublishError, Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic,
         MessageAuthenticity, ValidationMode,
     },
+    kad::{record::store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
     NetworkBehaviour, PeerId,
@@ -38,6 +44,8 @@ pub(crate) struct Behavior {
     pub gossip: Gossipsub,
     /// mDNS for peer discovery.
     pub mdns: Mdns,
+    /// Kademlia for peer discovery.
+    pub kad: Kademlia<MemoryStore>,
     /// To forward incoming messages to blockchain service.
     #[behaviour(ignore)]
     pub bc_chan: BlockRequestSender,
@@ -46,27 +54,50 @@ pub(crate) struct Behavior {
 const MAX_TRANSMIT_SIZE: usize = 524288;
 
 impl Behavior {
-    pub fn new(peer_id: PeerId, topic: IdentTopic, bc_chan: BlockRequestSender) -> Result<Self> {
+    fn mdns_new() -> Result<Mdns> {
+        debug!("[p2p] mdns start");
         let mdns_fut = Mdns::new(MdnsConfig::default());
         let mdns = task::block_on(mdns_fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
-        let config = GossipsubConfigBuilder::default()
+        Ok(mdns)
+    }
+
+    fn kad_new(peer_id: PeerId) -> Result<Kademlia<MemoryStore>> {
+        debug!("[p2p] kad start");
+        let store = MemoryStore::new(peer_id);
+        let config = KademliaConfig::default();
+        let kad = Kademlia::with_config(peer_id, store, config);
+
+        Ok(kad)
+    }
+
+    fn gossip_new(peer_id: PeerId, topic: IdentTopic) -> Result<Gossipsub> {
+        debug!("[p2p] gossip start");
+        let privacy = MessageAuthenticity::Author(peer_id);
+        let gossip_config = GossipsubConfigBuilder::default()
             .validation_mode(ValidationMode::Permissive)
             .max_transmit_size(MAX_TRANSMIT_SIZE)
             .build()
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
-        //let privacy = MessageAuthenticity::Anonymous;
-        let privacy = MessageAuthenticity::Author(peer_id);
-        let mut gossip =
-            Gossipsub::new(privacy, config).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        let mut gossip = Gossipsub::new(privacy, gossip_config)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         gossip
             .subscribe(&topic)
             .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
+        Ok(gossip)
+    }
+
+    pub fn new(peer_id: PeerId, topic: IdentTopic, bc_chan: BlockRequestSender) -> Result<Self> {
+        let gossip = Self::gossip_new(peer_id, topic)?;
+        let mdns = Self::mdns_new()?;
+        let kad = Self::kad_new(peer_id)?;
+
         Ok(Behavior {
             gossip,
             mdns,
+            kad,
             bc_chan,
         })
     }
@@ -86,6 +117,17 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
                     debug!("expired: {} @ {}", peer, addr);
                     self.gossip.remove_explicit_peer(&peer);
                 }
+            }
+        }
+    }
+}
+
+impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
+    fn inject_event(&mut self, event: KademliaEvent) {
+        #[allow(clippy::match_single_binding)]
+        match event {
+            _ => {
+                warn!("Kad event: {:?}", event);
             }
         }
     }

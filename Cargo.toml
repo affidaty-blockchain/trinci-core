@@ -27,7 +27,7 @@ exonum-merkledb = { version = "1.0.0", default-features = false, features = [ "r
 # WasmTime
 wasmtime = { version = "0.29.0", default-features = false, features = [ "parallel-compilation" ], optional = true }
 # P2P framework
-libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "gossipsub"], optional = true }
+libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub"], optional = true }
 # HTTP framework
 tide = { version = "0.16", default-features = false, features = [ "h1-server" ], optional = true }
 
