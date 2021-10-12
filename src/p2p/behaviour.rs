@@ -31,11 +31,13 @@ use libp2p::{
         error::PublishError, Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic,
         MessageAuthenticity, ValidationMode,
     },
+    identity,
     kad::{record::store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
-    NetworkBehaviour, PeerId,
+    Multiaddr, NetworkBehaviour, PeerId,
 };
+use std::str::FromStr;
 
 /// Network behavior for application level message processing.
 #[derive(NetworkBehaviour)]
@@ -53,6 +55,8 @@ pub(crate) struct Behavior {
 
 const MAX_TRANSMIT_SIZE: usize = 524288;
 
+const BOOTNODES: [&str; 1] = ["12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"];
+
 impl Behavior {
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
@@ -62,11 +66,23 @@ impl Behavior {
         Ok(mdns)
     }
 
-    fn kad_new(peer_id: PeerId) -> Result<Kademlia<MemoryStore>> {
+    fn kad_new(peer_id: PeerId, bootaddr: Option<String>) -> Result<Kademlia<MemoryStore>> {
         debug!("[p2p] kad start");
         let store = MemoryStore::new(peer_id);
         let config = KademliaConfig::default();
-        let kad = Kademlia::with_config(peer_id, store, config);
+        let mut kad = Kademlia::with_config(peer_id, store, config);
+
+        if let Some(bootaddr) = bootaddr {
+            let bootaddr = Multiaddr::from_str(&bootaddr).unwrap();
+            for peer in &BOOTNODES {
+                let peer_id = PeerId::from_str(peer)
+                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+                kad.add_address(&peer_id, bootaddr.clone());
+            }
+
+            let rand_peer: PeerId = identity::Keypair::generate_ed25519().public().into();
+            kad.get_closest_peers(rand_peer);
+        }
 
         Ok(kad)
     }
@@ -89,10 +105,15 @@ impl Behavior {
         Ok(gossip)
     }
 
-    pub fn new(peer_id: PeerId, topic: IdentTopic, bc_chan: BlockRequestSender) -> Result<Self> {
+    pub fn new(
+        peer_id: PeerId,
+        topic: IdentTopic,
+        bootaddr: Option<String>,
+        bc_chan: BlockRequestSender,
+    ) -> Result<Self> {
         let gossip = Self::gossip_new(peer_id, topic)?;
         let mdns = Self::mdns_new()?;
-        let kad = Self::kad_new(peer_id)?;
+        let kad = Self::kad_new(peer_id, bootaddr)?;
 
         Ok(Behavior {
             gossip,
@@ -126,6 +147,14 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
     fn inject_event(&mut self, event: KademliaEvent) {
         #[allow(clippy::match_single_binding)]
         match event {
+            KademliaEvent::RoutingUpdated {
+                peer, addresses, ..
+            } => {
+                for addr in addresses.iter() {
+                    debug!("kad discovered: {} @ {}", peer, addr);
+                }
+                self.gossip.add_explicit_peer(&peer);
+            }
             _ => {
                 warn!("Kad event: {:?}", event);
             }

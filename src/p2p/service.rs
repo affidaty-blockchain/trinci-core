@@ -31,6 +31,8 @@ pub struct PeerConfig {
     pub addr: String,
     /// Network identifier.
     pub network: String,
+    /// Bootstrap address.
+    pub bootstrap_addr: Option<String>,
 }
 
 /// Peer2Peer service data.

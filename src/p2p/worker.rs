@@ -96,7 +96,13 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     let topic = IdentTopic::new(topic);
 
     let transport = build_transport(&keypair);
-    let behaviour = Behavior::new(peer_id, topic.clone(), block_tx).unwrap();
+    let behaviour = Behavior::new(
+        peer_id,
+        topic.clone(),
+        config.bootstrap_addr.clone(),
+        block_tx,
+    )
+    .unwrap();
     let mut swarm: Swarm<Behavior> = Swarm::new(transport, behaviour, peer_id);
 
     let addr = format!("/ip4/{}/tcp/0", config.addr);
