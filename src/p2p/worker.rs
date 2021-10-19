@@ -41,7 +41,6 @@ fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
     let tcp_config = TcpConfig::new();
 
     // TODO: use NOISE protocol for production usage.
-    //
     // let noise_keys = libp2p::noise::Keypair::<libp2p::noise::X25519Spec>::new()
     //     .into_authentic(&keypair)
     //     .unwrap();
@@ -73,7 +72,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
         }
         _ => panic!("Node supports only ed25519 keypairs"),
     };
-    let peer_id = keypair.public().into_peer_id();
+    let public_key = keypair.public();
+    let peer_id = public_key.clone().into_peer_id();
     info!("P2P PeerId: {}", peer_id);
 
     // Subscribe to blockchain events of interest.
@@ -92,12 +92,13 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
         }
     };
 
-    let topic = config.network.to_owned() + "-" + NODE_TOPIC;
+    let topic = config.network.clone() + "-" + NODE_TOPIC;
     let topic = IdentTopic::new(topic);
 
     let transport = build_transport(&keypair);
     let behaviour = Behavior::new(
         peer_id,
+        public_key,
         topic.clone(),
         config.bootstrap_addr.clone(),
         block_tx,

@@ -27,11 +27,12 @@ use crate::{
 };
 use async_std::task;
 use libp2p::{
+    core::PublicKey,
     gossipsub::{
         error::PublishError, Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic,
         MessageAuthenticity, ValidationMode,
     },
-    identity,
+    identify::{Identify, IdentifyConfig, IdentifyEvent},
     kad::{record::store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
@@ -42,10 +43,12 @@ use std::str::FromStr;
 /// Network behavior for application level message processing.
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behavior {
+    /// Peer identification protocol.
+    pub identify: Identify,
     /// Gossip-sub as sub/sub protocol.
     pub gossip: Gossipsub,
     /// mDNS for peer discovery.
-    pub mdns: Mdns,
+    //pub mdns: Mdns,
     /// Kademlia for peer discovery.
     pub kad: Kademlia<MemoryStore>,
     /// To forward incoming messages to blockchain service.
@@ -58,10 +61,18 @@ const MAX_TRANSMIT_SIZE: usize = 524288;
 const BOOTNODES: [&str; 1] = ["12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"];
 
 impl Behavior {
+    fn identify_new(public_key: PublicKey) -> Result<Identify> {
+        debug!("[p2p] identify start");
+        let mut config = IdentifyConfig::new("trinci/1.0.0".to_owned(), public_key);
+        config.push_listen_addr_updates = true;
+        let identify = Identify::new(config);
+        Ok(identify)
+    }
+
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
-        let mdns_fut = Mdns::new(MdnsConfig::default());
-        let mdns = task::block_on(mdns_fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        let fut = Mdns::new(MdnsConfig::default());
+        let mdns = task::block_on(fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         Ok(mdns)
     }
@@ -80,8 +91,9 @@ impl Behavior {
                 kad.add_address(&peer_id, bootaddr.clone());
             }
 
-            let rand_peer: PeerId = identity::Keypair::generate_ed25519().public().into();
-            kad.get_closest_peers(rand_peer);
+            // let rand_peer: PeerId = identity::Keypair::generate_ed25519().public().into();
+            // kad.get_closest_peers(rand_peer);
+            kad.bootstrap().unwrap();
         }
 
         Ok(kad)
@@ -107,20 +119,29 @@ impl Behavior {
 
     pub fn new(
         peer_id: PeerId,
+        public_key: PublicKey,
         topic: IdentTopic,
         bootaddr: Option<String>,
         bc_chan: BlockRequestSender,
     ) -> Result<Self> {
+        let identify = Self::identify_new(public_key)?;
         let gossip = Self::gossip_new(peer_id, topic)?;
-        let mdns = Self::mdns_new()?;
+        //let mdns = Self::mdns_new()?;
         let kad = Self::kad_new(peer_id, bootaddr)?;
 
         Ok(Behavior {
+            identify,
             gossip,
-            mdns,
+            //mdns,
             kad,
             bc_chan,
         })
+    }
+}
+
+impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
+    fn inject_event(&mut self, event: IdentifyEvent) {
+        warn!("[ident event] {:?}", event);
     }
 }
 
