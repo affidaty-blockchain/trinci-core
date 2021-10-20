@@ -139,9 +139,40 @@ impl Behavior {
     }
 }
 
+// Received {
+//     peer_id: PeerId("12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"),
+//     info: IdentifyInfo {
+//         public_key: Ed25519(PublicKey(compressed): 587b8d516e965a6ee57a19e2734f1ab3bb8b45e6062801dff3e648d8594063),
+//         protocol_version: "trinci/1.0.0",
+//         agent_version: "rust-libp2p/0.30.0",
+//         listen_addrs: [
+//             "/ip4/127.0.0.1/tcp/41907",
+//             "/ip4/192.168.1.125/tcp/41907",
+//             "/ip4/172.18.0.1/tcp/41907",
+//             "/ip4/172.17.0.1/tcp/41907"
+//         ],
+//         protocols: [
+//             "/ipfs/id/1.0.0",
+//             "/ipfs/id/push/1.0.0",
+//             "/meshsub/1.1.0",
+//             "/meshsub/1.0.0",
+//             "/ipfs/kad/1.0.0"
+//         ],
+//         observed_addr: "/ip4/192.168.1.116/tcp/54612"
+//     }
+// }
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
     fn inject_event(&mut self, event: IdentifyEvent) {
-        warn!("[ident event] {:?}", event);
+        match event {
+            IdentifyEvent::Received { peer_id, info } => {
+                // TODO: may be a good idea to eventually discard peers not supporting meshsub protocol and kad.
+                for addr in info.listen_addrs {
+                    warn!("[kad] adding {} to routing table @ {}", peer_id, addr);
+                    self.kad.add_address(&peer_id, addr);
+                }
+            }
+            _ => warn!("[ident event] {:?}", event),
+        }
     }
 }
 
