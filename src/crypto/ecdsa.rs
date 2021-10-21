@@ -22,44 +22,58 @@ use crate::{
 use ring::{
     rand::SystemRandom,
     signature::{
-        self, EcdsaKeyPair as EcdsaKeyPairImpl, KeyPair as RingKeyPair,
-        UnparsedPublicKey as RingPublicKey,
+        self, EcdsaKeyPair as EcdsaKeyPairImpl, EcdsaSigningAlgorithm, EcdsaVerificationAlgorithm,
+        KeyPair as RingKeyPair, UnparsedPublicKey as RingPublicKey,
     },
 };
 use serde::{Deserialize, Serialize};
 
+crate::named_unit_variant!(secp256r1);
+crate::named_unit_variant!(secp384r1);
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum CurveId {
+    #[serde(with = "secp256r1")]
+    Secp256R1,
+    #[serde(with = "secp384r1")]
+    Secp384R1,
+}
+
 #[derive(Debug)]
 pub struct KeyPair {
+    curve_id: CurveId,
     imp: EcdsaKeyPairImpl,
     rng: SystemRandom,
 }
 
 impl KeyPair {
-    pub fn new(private_bytes: &[u8], public_bytes: &[u8]) -> Result<KeyPair> {
-        let imp = EcdsaKeyPairImpl::from_private_key_and_public_key(
-            &signature::ECDSA_P384_SHA384_FIXED_SIGNING,
-            private_bytes,
-            public_bytes,
-        )
-        .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+    /// Instantiante new keypair given its private and public components.
+    pub fn new(curve_id: CurveId, private_bytes: &[u8], public_bytes: &[u8]) -> Result<KeyPair> {
+        let alg = Self::get_alg(curve_id);
+        let imp =
+            EcdsaKeyPairImpl::from_private_key_and_public_key(alg, private_bytes, public_bytes)
+                .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
         Ok(KeyPair {
+            curve_id,
             imp,
             rng: SystemRandom::new(),
         })
     }
 
-    pub fn from_pkcs8_bytes(bytes: &[u8]) -> Result<KeyPair> {
-        let imp = EcdsaKeyPairImpl::from_pkcs8(&signature::ECDSA_P384_SHA384_FIXED_SIGNING, bytes)
+    /// Load keypair from pkcs#8 byte array.
+    pub fn from_pkcs8_bytes(curve_id: CurveId, bytes: &[u8]) -> Result<KeyPair> {
+        let alg = Self::get_alg(curve_id);
+        let imp = EcdsaKeyPairImpl::from_pkcs8(alg, bytes)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         Ok(KeyPair {
+            curve_id,
             imp,
             rng: SystemRandom::new(),
         })
     }
 
-    /// ECDSA P-384 digital signature generation.
-    /// `public_key`, `private_key` are expected in Base58.
-    /// Returns the data digital signature in Base58.
+    /// Digital signature.
     pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
         let sig = self
             .imp
@@ -70,65 +84,96 @@ impl KeyPair {
         Ok(sig)
     }
 
+    /// Get public key from keypair.
     pub fn public_key(&self) -> PublicKey {
         let public = self.imp.public_key().as_ref().to_vec();
         PublicKey {
-            curve: CurveId::Secp384R1,
+            curve_id: self.curve_id,
             value: public,
+        }
+    }
+
+    fn get_alg(curve_id: CurveId) -> &'static EcdsaSigningAlgorithm {
+        match curve_id {
+            CurveId::Secp256R1 => &signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+            CurveId::Secp384R1 => &signature::ECDSA_P384_SHA384_FIXED_SIGNING,
         }
     }
 }
 
-crate::named_unit_variant!(secp384r1);
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(untagged)]
-pub enum CurveId {
-    #[serde(with = "secp384r1")]
-    Secp384R1,
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PublicKey {
-    pub curve: CurveId,
+    pub curve_id: CurveId,
     #[serde(with = "serde_bytes")]
     pub value: Vec<u8>,
 }
 
 impl PublicKey {
+    /// Signature verification procedure.
     pub fn verify(&self, data: &[u8], sig: &[u8]) -> bool {
-        let imp = RingPublicKey::new(&signature::ECDSA_P384_SHA384_FIXED, &self.value);
+        let alg = Self::get_alg(self.curve_id);
+        let imp = RingPublicKey::new(alg, &self.value);
         imp.verify(data, sig).is_ok()
     }
 
+    /// Public key to account id.
+    /// The implementation is compatible with libp2p PeerId generation.
     pub fn to_account_id(&self) -> String {
         let bytes = self.value.to_owned();
-        let bytes = add_asn1_x509_header(bytes);
+        let bytes = add_asn1_x509_header(self.curve_id, bytes);
         let bytes = add_protobuf_header(bytes);
-
         let hash = Hash::from_data(HashAlgorithm::Sha256, &bytes);
-
         bs58::encode(hash).into_string()
+    }
+
+    fn get_alg(curve_id: CurveId) -> &'static EcdsaVerificationAlgorithm {
+        match curve_id {
+            CurveId::Secp256R1 => &signature::ECDSA_P256_SHA256_FIXED,
+            CurveId::Secp384R1 => &signature::ECDSA_P384_SHA384_FIXED,
+        }
+    }
+}
+
+// SECG named elliptic curve)
+fn get_curve_oid(curve_id: CurveId) -> Vec<u8> {
+    match curve_id {
+        // secp256v1 OID: 1.2.840.10045.3.1.7
+        CurveId::Secp256R1 => vec![0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07],
+        // secp384r1 OID: 1.3.132.0.34
+        CurveId::Secp384R1 => vec![0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22],
     }
 }
 
 // ASN1 header.
-// WARNING: this is an ad-hoc rough implementation for secp384r1.
 #[rustfmt::skip]
-fn add_asn1_x509_header(mut key_bytes: Vec<u8>) -> Vec<u8> {
-    let mut res: Vec<u8> = vec![
+fn add_asn1_x509_header(curve_id: CurveId, mut key_bytes: Vec<u8>) -> Vec<u8> {
+    let mut res = vec![
         // ASN.1 struct type and length.
-        0x30, 0x76,
+        0x30, 0x00,
         // ASN.1 struct type and length.
-        0x30, 0x10,
-        // OID: 1.2.840.10045.2.1 ecPublicKey (ANSI X9.62 public key type)
-        0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
-        // OID: 1.3.132.0.34 secp384r1 (SECG named elliptic curve)
-        0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x22,
-        // Bitstring (type and length)
-        0x03, 0x62, 0x00,
+        0x30, 0x00,
     ];
+
+    // OIDS: 1.2.840.10045.2.1 ecPublicKey (ANSI X9.62 public key type)
+    let mut ec_oid = vec![ 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 ];
+    let mut curve_oid = get_curve_oid(curve_id);
+    let oids_len = ec_oid.len() + curve_oid.len();
+    res.append(&mut ec_oid);
+    res.append(&mut curve_oid);
+
+    // Update oids length field
+    res[3] = oids_len as u8;
+
+    // Append key bitstring type and length.
+    let mut bitstring_type_len = vec![
+        0x03, (key_bytes.len() + 1) as u8, 0x00,
+    ];
+    res.append(&mut bitstring_type_len);
+    // Append key bitstring.
     res.append(&mut key_bytes);
+    // Update overall length field.
+    res[1] = (res.len() - 2) as u8;
+
     res
 }
 
@@ -163,7 +208,7 @@ pub(crate) mod tests {
     pub fn ecdsa_secp384_test_keypair() -> KeyPair {
         let private_bytes = hex::decode(PRIVATE_KEY_BYTES).unwrap();
         let public_bytes = hex::decode(PUBLIC_KEY_BYTES).unwrap();
-        KeyPair::new(&private_bytes, &public_bytes).unwrap()
+        KeyPair::new(CurveId::Secp384R1, &private_bytes, &public_bytes).unwrap()
     }
 
     pub fn ecdsa_secp384_test_public_key() -> PublicKey {
