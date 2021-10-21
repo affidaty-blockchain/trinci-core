@@ -172,10 +172,8 @@ fn add_asn1_x509_header(curve_id: CurveId, mut key_bytes: Vec<u8>) -> Vec<u8> {
     // Append key bitstring.
     res.append(&mut key_bytes);
     // Update overall length field.
-    res[1] = (res.len() - 2) as u8; 
+    res[1] = (res.len() - 2) as u8;
 
-    let id = hex::encode(&res);
-    println!("{}", id);
     res
 }
 
