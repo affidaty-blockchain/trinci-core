@@ -58,14 +58,13 @@ pub(crate) struct Behavior {
 
 const MAX_TRANSMIT_SIZE: usize = 524288;
 
-const BOOTNODES: [&str; 1] = ["12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"];
-
 impl Behavior {
     fn identify_new(public_key: PublicKey) -> Result<Identify> {
         debug!("[p2p] identify start");
         let mut config = IdentifyConfig::new("trinci/1.0.0".to_owned(), public_key);
         config.push_listen_addr_updates = true;
         let identify = Identify::new(config);
+
         Ok(identify)
     }
 
@@ -77,6 +76,9 @@ impl Behavior {
         Ok(mdns)
     }
 
+    // TODO: random walk
+    // let rand_peer: PeerId = identity::Keypair::generate_ed25519().public().into();
+    // kad.get_closest_peers(rand_peer);
     fn kad_new(peer_id: PeerId, bootaddr: Option<String>) -> Result<Kademlia<MemoryStore>> {
         debug!("[p2p] kad start");
         let store = MemoryStore::new(peer_id);
@@ -84,15 +86,18 @@ impl Behavior {
         let mut kad = Kademlia::with_config(peer_id, store, config);
 
         if let Some(bootaddr) = bootaddr {
-            let bootaddr = Multiaddr::from_str(&bootaddr).unwrap();
-            for peer in &BOOTNODES {
-                let peer_id = PeerId::from_str(peer)
+            let (boot_peer, boot_addr) = match bootaddr.split_once('@') {
+                Some((peer, addr)) => (peer, addr),
+                None => {
+                    return Err(Error::new_ext(ErrorKind::MalformedData, "address format should be <peer@multiaddr>"));
+                }
+            };
+            let boot_peer = PeerId::from_str(boot_peer)
                     .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
-                kad.add_address(&peer_id, bootaddr.clone());
-            }
+            let boot_addr = Multiaddr::from_str(boot_addr)
+                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+            kad.add_address(&boot_peer, boot_addr);
 
-            // let rand_peer: PeerId = identity::Keypair::generate_ed25519().public().into();
-            // kad.get_closest_peers(rand_peer);
             kad.bootstrap().unwrap();
         }
 
