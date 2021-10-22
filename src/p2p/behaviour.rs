@@ -170,7 +170,8 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received { peer_id, info } => {
-                // TODO: may be a good idea to eventually discard peers not supporting meshsub protocol and kad.
+                // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
+                self.gossip.add_explicit_peer(&peer_id);
                 for addr in info.listen_addrs {
                     warn!("[kad] adding {} to routing table @ {}", peer_id, addr);
                     self.kad.add_address(&peer_id, addr);
