@@ -102,9 +102,9 @@ mod local_host_func {
         buf: Vec<u8>,
     ) -> std::result::Result<WasmSlice, Trap> {
         let alloc = caller
-            .get_export("my_alloc")
+            .get_export("alloc")
             .and_then(|val| val.into_func())
-            .ok_or_else(|| Trap::new("get `my_alloc` fail"))?;
+            .ok_or_else(|| Trap::new("get `alloc` fail"))?;
         let alloc = alloc.typed::<i32, i32, StoreContext<CallContext>>(caller.as_context())?;
 
         // Copy the vector into wasm memory
@@ -532,9 +532,9 @@ impl Wm for WmLocal {
         // Get wasm allocator reference (this component is able to reserve
         // memory that lives within the wasm module).
         let alloc_func = instance
-            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "my_alloc")
+            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
             .map_err(|_err| {
-                error!("Function 'my_alloc' not found");
+                error!("Function 'alloc' not found");
                 Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
             })?;
 
