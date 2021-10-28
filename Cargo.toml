@@ -1,7 +1,7 @@
 [package]
 name = "trinci-core"
-version = "2.0.0"
-authors = ["The Affidaty Team <trinci@affidaty.io>"]
+version = "0.2.1"
+authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2018"
 description = "TRINCI Blockchain Core"
 keywords = ["trinci", "blockchain", "core"]
@@ -23,7 +23,6 @@ rmp-serde = "0.15.5"
 ring = { version = "0.16.20", default-features = false, features = [ "std" ] }
 ed25519-dalek = "1.0.1"
 # Exonum MerkleDB
-#merkledb = { path = "/home/davxy/devel/merkledb", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
 merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
 # WasmTime
 wasmtime = { version = "0.29.0", default-features = false, features = [ "parallel-compilation" ], optional = true }
