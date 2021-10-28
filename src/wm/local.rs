@@ -941,6 +941,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn get_random_sequence() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_random_sequence", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        assert_eq!(
+            vec![
+                147, 206, 21, 0, 11, 52, 206, 76, 128, 38, 222, 207, 0, 10, 128, 0, 76, 130, 188,
+                60
+            ],
+            output
+        );
+    }
+
+    #[test]
+    fn get_hashmap() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_hashmap", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let input = vec![
+            131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
+            51, 205, 3, 21,
+        ];
+
+        assert_eq!(input, output);
+    }
+
     // Need to be handle with an interrupt_handle
     // https://docs.rs/wasmtime/0.26.0/wasmtime/struct.Store.html#method.interrupt_handle
     #[test]

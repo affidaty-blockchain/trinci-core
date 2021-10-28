@@ -89,13 +89,16 @@ impl Behavior {
             let (boot_peer, boot_addr) = match bootaddr.split_once('@') {
                 Some((peer, addr)) => (peer, addr),
                 None => {
-                    return Err(Error::new_ext(ErrorKind::MalformedData, "address format should be <peer@multiaddr>"));
+                    return Err(Error::new_ext(
+                        ErrorKind::MalformedData,
+                        "address format should be <peer@multiaddr>",
+                    ));
                 }
             };
             let boot_peer = PeerId::from_str(boot_peer)
-                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+                .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             let boot_addr = Multiaddr::from_str(boot_addr)
-                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+                .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             kad.add_address(&boot_peer, boot_addr);
 
             kad.bootstrap().unwrap();
