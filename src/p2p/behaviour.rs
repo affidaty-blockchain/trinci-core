@@ -48,7 +48,7 @@ pub(crate) struct Behavior {
     /// Gossip-sub as sub/sub protocol.
     pub gossip: Gossipsub,
     /// mDNS for peer discovery.
-    //pub mdns: Mdns,
+    pub mdns: Mdns,
     /// Kademlia for peer discovery.
     pub kad: Kademlia<MemoryStore>,
     /// To forward incoming messages to blockchain service.
@@ -89,13 +89,16 @@ impl Behavior {
             let (boot_peer, boot_addr) = match bootaddr.split_once('@') {
                 Some((peer, addr)) => (peer, addr),
                 None => {
-                    return Err(Error::new_ext(ErrorKind::MalformedData, "address format should be <peer@multiaddr>"));
+                    return Err(Error::new_ext(
+                        ErrorKind::MalformedData,
+                        "address format should be <peer@multiaddr>",
+                    ));
                 }
             };
             let boot_peer = PeerId::from_str(boot_peer)
-                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+                .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             let boot_addr = Multiaddr::from_str(boot_addr)
-                    .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+                .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             kad.add_address(&boot_peer, boot_addr);
 
             kad.bootstrap().unwrap();
@@ -131,13 +134,13 @@ impl Behavior {
     ) -> Result<Self> {
         let identify = Self::identify_new(public_key)?;
         let gossip = Self::gossip_new(peer_id, topic)?;
-        //let mdns = Self::mdns_new()?;
+        let mdns = Self::mdns_new()?;
         let kad = Self::kad_new(peer_id, bootaddr)?;
 
         Ok(Behavior {
             identify,
             gossip,
-            //mdns,
+            mdns,
             kad,
             bc_chan,
         })

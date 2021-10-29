@@ -9,7 +9,6 @@ The required dependencies to build correctly the project are the following:
 
 - clang
 - libclang-dev (ver. 11 suggested)
-- protobuf-compiler
 
 follow the installations for the most common Unix/Linux systems 
 
@@ -24,7 +23,7 @@ sudo apt-get update
 install the dependencies:
 
 ```
-sudo apt-get install clang libclang-dev protobuf-compiler
+sudo apt-get install clang libclang-dev
 ```
 
 ### Fedora/RHEL
@@ -37,7 +36,7 @@ sudo dnf check-update
 
 install the dependencies:
 ```
-sudo dnf install clang rust-clang-sys+clang_11_0-devel protobuf-compiler
+sudo dnf install clang rust-clang-sys+clang_11_0-devel
 ```
 
 ## Build

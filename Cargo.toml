@@ -1,7 +1,7 @@
 [package]
 name = "trinci-core"
-version = "2.0.0"
-authors = ["The Affidaty Team <trinci@affidaty.io>"]
+version = "0.2.1"
+authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2018"
 description = "TRINCI Blockchain Core"
 keywords = ["trinci", "blockchain", "core"]
@@ -23,9 +23,9 @@ rmp-serde = "0.15.5"
 ring = { version = "0.16.20", default-features = false, features = [ "std" ] }
 ed25519-dalek = "1.0.1"
 # Exonum MerkleDB
-exonum-merkledb = { version = "1.0.0", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
+merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
 # WasmTime
-wasmtime = { version = "0.29.0", default-features = false, features = [ "parallel-compilation" ], optional = true }
+wasmtime = { version = "0.30.0", default-features = false, features = [ "parallel-compilation", "cranelift" ], optional = true }
 # P2P framework
 libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub", "identify"], optional = true }
 # HTTP framework
@@ -40,7 +40,7 @@ ureq = { version = "2.1.1", default-features = false }
 
 [features]
 default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
-with-rocksdb = [ "exonum-merkledb" ]
+with-rocksdb = [ "merkledb" ]
 with-wasmtime = [ "wasmtime" ]
 p2p = [ "libp2p" ]
 rest = [ "tide" ]

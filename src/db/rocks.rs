@@ -26,17 +26,17 @@ use crate::{
     db::{Db, DbFork},
     Error, ErrorKind,
 };
-use exonum_merkledb::{
+use merkledb::{
     access::CopyAccessExt,
     BinaryKey, BinaryValue, Database, DbOptions, Fork, ListIndex, MapIndex, ObjectHash,
     ProofListIndex, ProofMapIndex, RocksDB, Snapshot,
-    _reexports::{Error as MisteryError, Hash as ExonumHash},
+    _reexports::{Error as MisteryError, Hash as MerkleDbHash},
 };
 use std::borrow::Cow;
 
-impl From<ExonumHash> for Hash {
-    fn from(hash: ExonumHash) -> Self {
-        // This is safe as far as ExoHash is using SHA256.
+impl From<MerkleDbHash> for Hash {
+    fn from(hash: MerkleDbHash) -> Self {
+        // This is safe as far as MerkleDbHash is using SHA256.
         Hash::new(HashAlgorithm::Sha256, hash.as_ref()).unwrap()
     }
 }
