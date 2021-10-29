@@ -38,12 +38,12 @@ pub mod wm;
 // Optional public modules.
 #[cfg(feature = "bridge")]
 pub mod bridge;
-#[cfg(feature = "tpm")]
-pub mod tpm;
 #[cfg(feature = "p2p")]
 pub mod p2p;
 #[cfg(feature = "rest")]
 pub mod rest;
+#[cfg(feature = "tpm")]
+pub mod tpm;
 
 pub use base::{Account, Block, Receipt, Transaction, TransactionData};
 pub use blockchain::{BlockConfig, BlockService, Message};

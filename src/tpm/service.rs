@@ -37,10 +37,7 @@ impl Tpm2 {
 
         let result = tpm_context_result.is_err();
         if result {
-            Err(Error::new_ext(
-                ErrorKind::Tpm2Error,
-                "unuable to find tpm",
-            ))
+            Err(Error::new_ext(ErrorKind::Tpm2Error, "unuable to find tpm"))
         } else {
             Ok(tpm_context_result.unwrap())
         }
@@ -211,14 +208,14 @@ mod tests {
     #[test]
     fn test_tpm_init() {
         let tpm = Tpm2::new(None);
-        match  tpm {
+        match tpm {
             Ok(_tpm) => {
                 assert!(true);
-            },
+            }
             Err(error) => {
                 assert_eq!(error.kind, ErrorKind::Tpm2Error);
                 assert_eq!(error.to_string(), "tpm interaction error");
-            },
+            }
         }
     }
 
@@ -230,11 +227,11 @@ mod tests {
             Ok(tpm) => {
                 println!("public key:   {}", hex::encode(&tpm.public_key.value));
                 assert!(!tpm.public_key.value.is_empty())
-            },
+            }
             Err(error) => {
                 assert_eq!(error.kind, ErrorKind::Tpm2Error);
                 assert_eq!(error.to_string(), "tpm interaction error");
-            },
+            }
         }
     }
 
@@ -254,17 +251,17 @@ mod tests {
                     Ok(sign) => {
                         println!("sign:   {}", hex::encode(&sign));
                         assert!(!sign.is_empty())
-                    },
+                    }
                     Err(error) => {
                         assert_eq!(error.kind, ErrorKind::Tpm2Error);
                         assert_eq!(error.to_string(), "tpm interaction error");
-                    },
+                    }
                 }
-            },
+            }
             Err(error) => {
                 assert_eq!(error.kind, ErrorKind::Tpm2Error);
                 assert_eq!(error.to_string(), "tpm interaction error");
-            },
+            }
         }
     }
 }
