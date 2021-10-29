@@ -1,3 +1,4 @@
+mod misc;
 // This file is part of TRINCI.
 //
 // Copyright (C) 2021 Affidaty Spa.
@@ -41,6 +42,8 @@ pub mod bridge;
 pub mod p2p;
 #[cfg(feature = "rest")]
 pub mod rest;
+#[cfg(feature = "tpm")]
+pub mod misc;
 
 pub use base::{Account, Block, Receipt, Transaction, TransactionData};
 pub use blockchain::{BlockConfig, BlockService, Message};

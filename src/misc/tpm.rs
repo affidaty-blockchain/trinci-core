@@ -36,7 +36,7 @@ impl Tpm2 {
 
         let result = tpm_context_result.is_err();
         if result {
-            Err(Error::new_ext(ErrorKind::Other, "unable to find tpm module"))
+            Err(Error::new_ext(ErrorKind::Tpm2Error, "unable to find tpm module"))
         } else {
             Ok(tpm_context_result.unwrap())
         }
@@ -68,10 +68,10 @@ impl Tpm2 {
     
                 match result {
                     Ok(_) => Ok(context.set_sessions((session, None, None))),
-                    Err(_) =>  Err(Error::new_ext(ErrorKind::Other, "error during sessions attributes setup")),
+                    Err(_) =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "error during sessions attributes setup")),
                 }
             }
-            Err(_) =>  Err(Error::new_ext(ErrorKind::Other, "error during start authentication session")),
+            Err(_) =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "error during start authentication session")),
         }
     }
 
@@ -92,14 +92,14 @@ impl Tpm2 {
     
                 match key_handle {
                     Ok(result) => Ok(result),
-                    Err(_) =>  Err(Error::new_ext(ErrorKind::Other, "something went wrong during key handle creation")),
+                    Err(_) =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "something went wrong during key handle creation")),
                 }
             }
-            Err(_) =>  Err(Error::new_ext(ErrorKind::Other, "something went wrong during TPM2B_public structure creation")),
+            Err(_) =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "something went wrong during TPM2B_public structure creation")),
         }
     }
     
-    fn retrieve_ecc_public_key(
+    pub fn retrieve_ecc_public_key(
         context: &mut Context,
         primary_key: &mut CreatePrimaryKeyResult
     ) -> Result<TPMS_ECC_POINT> {
@@ -107,54 +107,35 @@ impl Tpm2 {
     
         match public_key {
             Ok(public_key) => Ok(unsafe { public_key.0.publicArea.unique.ecc }),
-            Err(_) =>  Err(Error::new_ext(ErrorKind::Other, "something went wrong during key handle creation")),
+            Err(_) =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "something went wrong during key handle creation")),
         }
     }
 
     pub fn new(optional_device: Option<&str>) -> Result<Tpm2> {
-        let mut context = Self::create_context(optional_device);
-        match context {
-            Ok(mut context) => {
-                let is_established = Self::set_session(&mut context);
-                match is_established {
-                    Ok(_) => {
-                        let primary_key_result = Self::create_ecdsa_p256_primary_key_from_context(&mut context);
-                        match primary_key_result {
-                            Ok(mut primary_key_result) => {
-                                let primary_key = Self::retrieve_ecc_public_key(&mut context, &mut primary_key_result);
-                                match primary_key {
-                                    Ok(primary_key) => {
-                                        let mut public_key_value: Vec<u8> = primary_key.x.buffer[..primary_key.x.size as usize].iter().cloned().collect(); 
-                                        let mut public_key_value_y: Vec<u8> = primary_key.y.buffer[..primary_key.x.size as usize].iter().cloned().collect(); 
-                                        public_key_value.append(&mut public_key_value_y);
+        let mut context = Self::create_context(optional_device)?;
+        
+        Self::set_session(&mut context)?;
+        let mut primary_key_result = Self::create_ecdsa_p256_primary_key_from_context(&mut context)?;
+        let primary_key = Self::retrieve_ecc_public_key(&mut context, &mut primary_key_result)?;
+        
+        let mut public_key_value: Vec<u8> = primary_key.x.buffer[..primary_key.x.size as usize].iter().cloned().collect(); 
+        let mut public_key_value_y: Vec<u8> = primary_key.y.buffer[..primary_key.x.size as usize].iter().cloned().collect(); 
+        
+        public_key_value.append(&mut public_key_value_y);
 
-                                        let public_key = PublicKey {
-                                            curve_id: ecdsa::CurveId::Secp256R1,
-                                            value: public_key_value, 
-                                        }; 
-                                        
-                                        Ok(Tpm2 {
-                                            context,
-                                            primary_key: primary_key_result.key_handle.clone(),
-                                            public_key , 
-                                        })
-                                    },
-                                    Err(error) => Err(Error::new_ext(ErrorKind::Other, error)),
-                                } 
-                            },
-                            Err(error) => Err(Error::new_ext(ErrorKind::Other, error)),
-                        }
-                    },
-                    Err(error) => Err(Error::new_ext(ErrorKind::Other, error)),
-
-                }
-            },
-            Err(error) => Err(Error::new_ext(ErrorKind::Other, error)),
-        }
-
+        let public_key = PublicKey {
+            curve_id: ecdsa::CurveId::Secp256R1,
+            value: public_key_value, 
+        }; 
+        
+        Ok(Tpm2 {
+            context,
+            primary_key: primary_key_result.key_handle.clone(),
+            public_key , 
+        })
     }
 
-    fn sign_data(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
+    pub fn sign_data(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
     
         let scheme = TPMT_SIG_SCHEME {
             scheme: TPM2_ALG_NULL,
@@ -186,10 +167,10 @@ impl Tpm2 {
                         sign_vector.append(s);
                         Ok(sign_vector)
                     },
-                    _ =>  Err(Error::new_ext(ErrorKind::Other, "wrong sign elaboration")),
+                    _ =>  Err(Error::new_ext(ErrorKind::Tpm2Error, "wrong sign elaboration")),
                 }
             },
-            Err(_) => Err(Error::new_ext(ErrorKind::Other, "errore while signing digest")),
+            Err(_) => Err(Error::new_ext(ErrorKind::Tpm2Error, "errore while signing digest")),
         }
                                 
     }
@@ -197,7 +178,13 @@ impl Tpm2 {
 
 #[cfg(test)]
 mod tests {
+
     use super::Tpm2;
+    #[test]
+    fn test_tpm_init() {
+        let tpm = Tpm2::new(None);
+        assert!(tpm.is_ok());
+    }
  
     #[test]
     fn test_key_creation() {
@@ -205,9 +192,36 @@ mod tests {
         
         match tpm {
             Ok(tpm) => {
-                todo!()
+                println!("public key:   {}", hex::encode(&tpm.public_key.value));
+                assert!(!tpm.public_key.value.is_empty())
             }
             Err(_) => println!("error during tpm creation"),
         }
+    }
+
+    
+    use sha2::{Sha256, Digest};
+   
+    #[test]
+    fn test_sign() {
+        let mut tpm = Tpm2::new(None);
+        match tpm {
+            Ok(mut tpm) => {
+                let mut hasher = Sha256::new();
+                hasher.update(b"hello world");
+                let hash = hasher.finalize();            
+                let sign = tpm.sign_data(&hash.as_slice());
+
+                match sign {
+                    Ok(sign) => {
+                        println!("sign:   {}", hex::encode(&sign));
+                        assert!(!sign.is_empty())
+                    },
+                    _ => println!("error during sign"),
+                }
+            }
+            Err(_) => println!("error during tpm creation"),
+        }
+
     }
 }
