@@ -40,6 +40,7 @@ Changed
 * Exonum merkledb project has been forked to replace the original version.
   The new merkledb is a more lightweight, flexible and portable (see fixed issue
   below)
+* Bump "wasmtime" from v0.29 to v0.30.
 
 Fixed
 
