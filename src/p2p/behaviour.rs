@@ -48,7 +48,7 @@ pub(crate) struct Behavior {
     /// Gossip-sub as sub/sub protocol.
     pub gossip: Gossipsub,
     /// mDNS for peer discovery.
-    //pub mdns: Mdns,
+    pub mdns: Mdns,
     /// Kademlia for peer discovery.
     pub kad: Kademlia<MemoryStore>,
     /// To forward incoming messages to blockchain service.
@@ -134,13 +134,13 @@ impl Behavior {
     ) -> Result<Self> {
         let identify = Self::identify_new(public_key)?;
         let gossip = Self::gossip_new(peer_id, topic)?;
-        //let mdns = Self::mdns_new()?;
+        let mdns = Self::mdns_new()?;
         let kad = Self::kad_new(peer_id, bootaddr)?;
 
         Ok(Behavior {
             identify,
             gossip,
-            //mdns,
+            mdns,
             kad,
             bc_chan,
         })
