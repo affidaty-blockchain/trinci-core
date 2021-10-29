@@ -39,7 +39,7 @@ impl Tpm2 {
         if result {
             Err(Error::new_ext(
                 ErrorKind::Tpm2Error,
-                "unable to find tpm module",
+                "unuable to find tpm",
             ))
         } else {
             Ok(tpm_context_result.unwrap())
@@ -196,7 +196,7 @@ impl Tpm2 {
             }
             Err(_) => Err(Error::new_ext(
                 ErrorKind::Tpm2Error,
-                "errore while signing digest",
+                "error while signing digest",
             )),
         }
     }
@@ -205,11 +205,21 @@ impl Tpm2 {
 #[cfg(test)]
 mod tests {
 
+    use crate::ErrorKind;
+
     use super::Tpm2;
     #[test]
     fn test_tpm_init() {
         let tpm = Tpm2::new(None);
-        assert!(tpm.is_ok());
+        match  tpm {
+            Ok(_tpm) => {
+                assert!(true);
+            },
+            Err(error) => {
+                assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                assert_eq!(error.to_string(), "tpm interaction error");
+            },
+        }
     }
 
     #[test]
@@ -220,8 +230,11 @@ mod tests {
             Ok(tpm) => {
                 println!("public key:   {}", hex::encode(&tpm.public_key.value));
                 assert!(!tpm.public_key.value.is_empty())
-            }
-            Err(_) => println!("error during tpm creation"),
+            },
+            Err(error) => {
+                assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                assert_eq!(error.to_string(), "tpm interaction error");
+            },
         }
     }
 
@@ -229,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_sign() {
-        let mut tpm = Tpm2::new(None);
+        let tpm = Tpm2::new(None);
         match tpm {
             Ok(mut tpm) => {
                 let mut hasher = Sha256::new();
@@ -241,11 +254,17 @@ mod tests {
                     Ok(sign) => {
                         println!("sign:   {}", hex::encode(&sign));
                         assert!(!sign.is_empty())
-                    }
-                    _ => println!("error during sign"),
+                    },
+                    Err(error) => {
+                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                        assert_eq!(error.to_string(), "tpm interaction error");
+                    },
                 }
-            }
-            Err(_) => println!("error during tpm creation"),
+            },
+            Err(error) => {
+                assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                assert_eq!(error.to_string(), "tpm interaction error");
+            },
         }
     }
 }
