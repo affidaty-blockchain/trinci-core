@@ -381,7 +381,7 @@ impl WmLocal {
 
         let wasm_bin = (self.loader)(*target)?;
 
-        let module = Module::from_binary(&self.engine, &wasm_bin)
+        let module = Module::new(&self.engine, &wasm_bin)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         let entry = CachedModule {
@@ -1009,7 +1009,7 @@ mod tests {
         println!("Contract Hash: {}", hex::encode(test_contract_hash()));
 
         let store: Store<()> = Store::default();
-        let module = Module::from_binary(store.engine(), TEST_WASM).unwrap();
+        let module = Module::new(store.engine(), TEST_WASM).unwrap();
 
         println!("Checking the module exports...");
         let exports = module.exports();
