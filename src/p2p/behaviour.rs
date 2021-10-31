@@ -105,7 +105,9 @@ impl Behavior {
             kad.add_address(&boot_peer, boot_addr);
 
             //kad.bootstrap().unwrap();
-            let peer: PeerId = libp2p::identity::Keypair::generate_ed25519().public().into();
+            let peer: PeerId = libp2p::identity::Keypair::generate_ed25519()
+                .public()
+                .into();
             kad.get_closest_peers(peer);
         }
 
