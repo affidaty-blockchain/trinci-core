@@ -33,7 +33,10 @@ use libp2p::{
         MessageAuthenticity, ValidationMode,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
-    kad::{record::store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent},
+    kad::{
+        record::store::MemoryStore, GetClosestPeersError, Kademlia, KademliaConfig, KademliaEvent,
+        QueryResult,
+    },
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
     Multiaddr, NetworkBehaviour, PeerId,
@@ -101,7 +104,11 @@ impl Behavior {
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             kad.add_address(&boot_peer, boot_addr);
 
-            kad.bootstrap().unwrap();
+            //kad.bootstrap().unwrap();
+            let peer: PeerId = libp2p::identity::Keypair::generate_ed25519()
+                .public()
+                .into();
+            kad.get_closest_peers(peer);
         }
 
         Ok(kad)
@@ -215,6 +222,31 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
                     debug!("kad discovered: {} @ {}", peer, addr);
                 }
                 self.gossip.add_explicit_peer(&peer);
+            }
+            KademliaEvent::OutboundQueryCompleted {
+                result: QueryResult::GetClosestPeers(result),
+                ..
+            } => {
+                match result {
+                    Ok(ok) => {
+                        if !ok.peers.is_empty() {
+                            warn!("Query finished with closest peers: {:#?}", ok.peers)
+                        } else {
+                            // The example is considered failed as there
+                            // should always be at least 1 reachable peer.
+                            warn!("Query finished with no closest peers.")
+                        }
+                    }
+                    Err(GetClosestPeersError::Timeout { peers, .. }) => {
+                        if !peers.is_empty() {
+                            warn!("Query timed out with closest peers: {:#?}", peers)
+                        } else {
+                            // The example is considered failed as there
+                            // should always be at least 1 reachable peer.
+                            warn!("Query timed out with no closest peers.");
+                        }
+                    }
+                }
             }
             _ => {
                 warn!("Kad event: {:?}", event);
