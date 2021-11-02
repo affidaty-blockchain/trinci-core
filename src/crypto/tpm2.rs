@@ -309,7 +309,7 @@ mod tests {
                     Ok(sign) => {
                         println!("\nsign:   {}", hex::encode(&sign));
                         println!("---");
-                        assert!(tpm.public_key.verify(msg, &sign));
+                        assert!(tpm.public_key.verify(msg.as_bytes(), &sign));
                     }
                     Err(error) => {
                         assert_eq!(error.kind, ErrorKind::Tpm2Error);
