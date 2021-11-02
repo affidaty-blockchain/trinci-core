@@ -346,9 +346,10 @@ impl WmLocal {
     /// backend fails to initialize.  Failure details are given in the `panic`
     /// error string.
     pub fn new(loader: impl WasmLoader, cache_max: usize) -> Self {
-        if cache_max == 0 {
-            panic!("Fatal: Wm cache size shall be greater than 0");
-        }
+        assert!(
+            !(cache_max == 0),
+            "Fatal: Wm cache size shall be greater than 0"
+        );
 
         let mut config = Config::default();
         config.interruptable(true);
@@ -434,13 +435,13 @@ fn alloc_mem(
 
 /// Allocate and write the serialized data in the wasm memory
 fn write_mem(
-    mut store: &mut StoreContextMut<CallContext>,
+    store: &mut StoreContextMut<CallContext>,
     alloc: &TypedFunc<i32, i32>,
     mem: &Memory,
     data: &[u8],
 ) -> Result<i32> {
     let length = data.len() as i32;
-    let offset = alloc_mem(&mut store, alloc, length)?;
+    let offset = alloc_mem(store, alloc, length)?;
 
     mem.write(store, offset as usize, data).map_err(|err| {
         error!(

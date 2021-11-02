@@ -218,7 +218,7 @@ impl Error {
     pub fn to_string_full(&self) -> String {
         let mut err_string = self.to_string();
         if let Some(ref source) = self.source {
-            let detail = format!(": {}", source.to_string());
+            let detail = format!(": {}", source);
             let max_len = std::cmp::min(detail.len(), MAX_ERROR_SOURCE_STRING_LENGTH);
             err_string.push_str(&detail[..max_len]);
         }
