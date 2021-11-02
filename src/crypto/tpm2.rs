@@ -20,6 +20,7 @@ use tss_esapi::{
     Context, Tcti,
 };
 use tss_esapi_sys::TPMS_ECC_POINT;
+use ring::digest;
 
 /// The TPM2 structure handles the device module, it let to sign digests and access the module pubic key.
 /// context handles the interaction with the TPM2 module.
