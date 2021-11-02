@@ -19,6 +19,7 @@ pub mod ecdsa;
 pub mod ed25519;
 pub mod hash;
 pub mod sign;
+pub mod tpm2;
 
 pub use hash::{Hash, HashAlgorithm, Hashable};
 pub use sign::{KeyPair, PublicKey};

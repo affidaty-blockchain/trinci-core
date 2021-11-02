@@ -2,20 +2,23 @@ use crate::crypto::ecdsa;
 use crate::crypto::ecdsa::PublicKey;
 use crate::{Error, ErrorKind, Result};
 
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
 
-use tss_esapi::attributes::SessionAttributesBuilder;
-use tss_esapi::constants::tss::{TPM2_ALG_NULL, TPM2_RH_NULL, TPM2_ST_HASHCHECK};
-use tss_esapi::handles::KeyHandle;
-use tss_esapi::interface_types::{algorithm::HashingAlgorithm, ecc::EccCurve};
-use tss_esapi::structures::{CreatePrimaryKeyResult, Digest};
-use tss_esapi::tcti_ldr::DeviceConfig;
-use tss_esapi::tss2_esys::{TPMT_SIG_SCHEME, TPMT_TK_HASHCHECK};
-use tss_esapi::utils::SignatureData::EcdsaSignature;
-use tss_esapi::utils::{create_unrestricted_signing_ecc_public, AsymSchemeUnion};
-use tss_esapi::{Context, Tcti};
+use tss_esapi::{
+    attributes::SessionAttributesBuilder,
+    constants::tss::{TPM2_ALG_NULL, TPM2_RH_NULL, TPM2_ST_HASHCHECK},
+    handles::KeyHandle,
+    interface_types::{algorithm::HashingAlgorithm, ecc::EccCurve},
+    structures::{CreatePrimaryKeyResult, Digest},
+    tcti_ldr::DeviceConfig,
+    tss2_esys::{TPMT_SIG_SCHEME, TPMT_TK_HASHCHECK},
+    utils::{
+        create_unrestricted_signing_ecc_public, AsymSchemeUnion, SignatureData::EcdsaSignature,
+    },
+    Context, Tcti,
+};
+
 use tss_esapi_sys::TPMS_ECC_POINT;
 
 pub struct Tpm2 {
