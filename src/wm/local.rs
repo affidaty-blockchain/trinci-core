@@ -346,7 +346,10 @@ impl WmLocal {
     /// backend fails to initialize.  Failure details are given in the `panic`
     /// error string.
     pub fn new(loader: impl WasmLoader, cache_max: usize) -> Self {
-        assert!(!(cache_max == 0), "Fatal: Wm cache size shall be greater than 0");
+        assert!(
+            !(cache_max == 0),
+            "Fatal: Wm cache size shall be greater than 0"
+        );
 
         let mut config = Config::default();
         config.interruptable(true);
