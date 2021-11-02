@@ -6,7 +6,6 @@ use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
 
 use ring::digest;
-use ring::digest;
 use tss_esapi::{
     attributes::SessionAttributesBuilder,
     constants::tss::{TPM2_ALG_NULL, TPM2_RH_NULL, TPM2_ST_HASHCHECK},
