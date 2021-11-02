@@ -249,7 +249,7 @@ mod tests {
 
         match tpm {
             Ok(tpm) => {
-                println!("public key:   {}", hex::encode(&tpm.public_key.value));
+                println!("\npublic key:   {}", hex::encode(&tpm.public_key.value));
                 assert!(!tpm.public_key.value.is_empty())
             }
             Err(error) => {
@@ -267,14 +267,42 @@ mod tests {
         match tpm {
             Ok(mut tpm) => {
                 let hash = digest::digest(&digest::SHA256, b"hello world");
-                println!("digest:   {}", hex::encode(hash.as_ref()));
+                println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
                 let sign = tpm.sign_data(hash.as_ref());
 
                 match sign {
                     Ok(sign) => {
-                        println!("sign:   {}", hex::encode(&sign));
+                        println!("\nsign:   {}", hex::encode(&sign));
                         assert!(!sign.is_empty())
+                    }
+                    Err(error) => {
+                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                        assert_eq!(error.to_string(), "tpm interaction error");
+                    }
+                }
+            }
+            Err(error) => {
+                assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                assert_eq!(error.to_string(), "tpm interaction error");
+            }
+        }
+    }
+
+    #[test]
+    fn test_sign_verify() {
+        let tpm = Tpm2::new(None);
+        match tpm {
+            Ok(mut tpm) => {
+                let hash = digest::digest(&digest::SHA256, b"hello world");
+                println!("\ndigest:   {}", hex::encode(hash.as_ref()));
+
+                let sign = tpm.sign_data(hash.as_ref());
+
+                match sign {
+                    Ok(sign) => {
+                        println!("\nsign:   {}", hex::encode(&sign));
+                        assert!(tpm.public_key.verify(hash.as_ref(), &sign));
                     }
                     Err(error) => {
                         assert_eq!(error.kind, ErrorKind::Tpm2Error);
