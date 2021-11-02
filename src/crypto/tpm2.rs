@@ -60,37 +60,35 @@ impl Tpm2 {
         );
 
         match session {
-            Ok(session) => {
-                
-                match session {
-                    Some(auth_session) => {
-                        let (session_attributes, session_attributes_mask) = SessionAttributesBuilder::new()
+            Ok(session) => match session {
+                Some(auth_session) => {
+                    let (session_attributes, session_attributes_mask) =
+                        SessionAttributesBuilder::new()
                             .with_decrypt(true)
                             .with_encrypt(true)
                             .build();
-                        let result = context.tr_sess_set_attributes(
-                            auth_session,
-                            session_attributes,
-                            session_attributes_mask,
-                        );
+                    let result = context.tr_sess_set_attributes(
+                        auth_session,
+                        session_attributes,
+                        session_attributes_mask,
+                    );
 
-                        match result {
-                            Ok(_) => {
-                                context.set_sessions((session, None, None));
-                                Ok(())
-                            }
-                            Err(_) => Err(Error::new_ext(
-                                ErrorKind::Tpm2Error,
-                                "error during sessions attributes setup",
-                            )),
+                    match result {
+                        Ok(_) => {
+                            context.set_sessions((session, None, None));
+                            Ok(())
                         }
-                    },
-                    None => Err(Error::new_ext(
-                                ErrorKind::Tpm2Error,
-                                "error during auth session generation",
-                            )),
+                        Err(_) => Err(Error::new_ext(
+                            ErrorKind::Tpm2Error,
+                            "error during sessions attributes setup",
+                        )),
+                    }
                 }
-            }
+                None => Err(Error::new_ext(
+                    ErrorKind::Tpm2Error,
+                    "error during auth session generation",
+                )),
+            },
             Err(_) => Err(Error::new_ext(
                 ErrorKind::Tpm2Error,
                 "error during start authentication session",
