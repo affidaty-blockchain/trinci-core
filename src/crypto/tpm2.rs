@@ -31,7 +31,6 @@ pub struct Tpm2 {
     pub public_key: ecdsa::PublicKey,
 }
 
-#[allow(dead_code)]
 impl Tpm2 {
     fn create_context(optional_device: Option<&str>) -> Result<Context> {
         let tpm_context_result;
@@ -158,10 +157,13 @@ impl Tpm2 {
             Self::create_ecdsa_p256_primary_key_from_context(&mut context)?;
         let primary_key = Self::retrieve_ecc_public_key(&mut context, &mut primary_key_result)?;
 
-        let mut public_key_value: Vec<u8> =
+        let mut public_key_value: Vec<u8> = vec![0x04];
+        let mut public_key_value_x: Vec<u8> =
             primary_key.x.buffer[..primary_key.x.size as usize].to_vec();
         let mut public_key_value_y: Vec<u8> =
-            primary_key.y.buffer[..primary_key.x.size as usize].to_vec();
+            primary_key.y.buffer[..primary_key.y.size as usize].to_vec();
+
+        public_key_value.append(&mut public_key_value_x);
         public_key_value.append(&mut public_key_value_y);
 
         let public_key = PublicKey {
@@ -250,6 +252,7 @@ mod tests {
         match tpm {
             Ok(tpm) => {
                 println!("\npublic key:   {}", hex::encode(&tpm.public_key.value));
+                println!("---");
                 assert!(!tpm.public_key.value.is_empty())
             }
             Err(error) => {
@@ -274,6 +277,7 @@ mod tests {
                 match sign {
                     Ok(sign) => {
                         println!("\nsign:   {}", hex::encode(&sign));
+                        println!("---");
                         assert!(!sign.is_empty())
                     }
                     Err(error) => {
@@ -288,7 +292,8 @@ mod tests {
             }
         }
     }
-
+    
+    
     #[test]
     fn test_sign_verify() {
         let tpm = Tpm2::new(None);
@@ -298,11 +303,13 @@ mod tests {
                 println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
                 let sign = tpm.sign_data(hash.as_ref());
+                let msg = "hello world";
 
                 match sign {
                     Ok(sign) => {
                         println!("\nsign:   {}", hex::encode(&sign));
-                        assert!(tpm.public_key.verify(hash.as_ref(), &sign));
+                        println!("---");
+                        assert!(tpm.public_key.verify(msg, &sign));
                     }
                     Err(error) => {
                         assert_eq!(error.kind, ErrorKind::Tpm2Error);
