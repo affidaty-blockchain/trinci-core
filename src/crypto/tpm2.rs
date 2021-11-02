@@ -6,6 +6,7 @@ use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
 
 use ring::digest;
+use ring::digest;
 use tss_esapi::{
     attributes::SessionAttributesBuilder,
     constants::tss::{TPM2_ALG_NULL, TPM2_RH_NULL, TPM2_ST_HASHCHECK},
@@ -20,7 +21,6 @@ use tss_esapi::{
     Context, Tcti,
 };
 use tss_esapi_sys::TPMS_ECC_POINT;
-use ring::digest;
 
 /// The TPM2 structure handles the device module, it let to sign digests and access the module pubic key.
 /// context handles the interaction with the TPM2 module.
