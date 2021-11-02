@@ -18,8 +18,8 @@ use tss_esapi::{
     },
     Context, Tcti,
 };
-
 use tss_esapi_sys::TPMS_ECC_POINT;
+use ring::digest;
 
 /// The TPM2 structure handles the device module, it let to sign digests and access the module pubic key.
 /// context handles the interaction with the TPM2 module.
@@ -182,7 +182,7 @@ impl Tpm2 {
     /// hash: a buffer that contains the hashed digest to sign.
     /// it returns a Result that in case of success contains the sign in a buffer.
     /// Otherwise it contains an error that specify the problem in question.
-    pub fn sign_data(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
+    pub fn sign_hash(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
         let scheme = TPMT_SIG_SCHEME {
             scheme: TPM2_ALG_NULL,
             details: Default::default(),
@@ -221,6 +221,20 @@ impl Tpm2 {
                 ErrorKind::Tpm2Error,
                 "error while signing digest",
             )),
+        }
+    }
+
+    /// It sign the data passed as argument in the method.
+    /// data: a slice that contains the digest to hash and sign.
+    /// it returns a Result that in case of success contains the sign in a buffer.
+    /// Otherwise it contains an error that specify the problem in question.
+    pub fn sign_data(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        let hash = digest::digest(&digest::SHA256, data);
+        let sign = self.sign_hash(hash.as_ref());
+
+        match sign {
+            Ok(sign) => Ok(sign),
+            Err(error) => Err(error),
         }
     }
 }
@@ -265,14 +279,14 @@ mod tests {
     use ring::digest;
 
     #[test]
-    fn test_sign() {
+    fn test_sign_hash() {
         let tpm = Tpm2::new(None);
         match tpm {
             Ok(mut tpm) => {
                 let hash = digest::digest(&digest::SHA256, b"hello world");
                 println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
-                let sign = tpm.sign_data(hash.as_ref());
+                let sign = tpm.sign_hash(hash.as_ref());
 
                 match sign {
                     Ok(sign) => {
@@ -295,15 +309,15 @@ mod tests {
     
     
     #[test]
-    fn test_sign_verify() {
+    fn test_sign_hash_verify() {
         let tpm = Tpm2::new(None);
         match tpm {
             Ok(mut tpm) => {
                 let hash = digest::digest(&digest::SHA256, b"hello world");
+                let msg = "hello world";
                 println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
-                let sign = tpm.sign_data(hash.as_ref());
-                let msg = "hello world";
+                let sign = tpm.sign_hash(hash.as_ref());
 
                 match sign {
                     Ok(sign) => {
@@ -323,4 +337,33 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_sign_data_verify() {
+        let tpm = Tpm2::new(None);
+        match tpm {
+            Ok(mut tpm) => {
+                let data = "hello world";
+                println!("\ndata:   {}", data);
+
+                let sign = tpm.sign_data(data.as_bytes());
+                match sign {
+                    Ok(sign) => {
+                        println!("\nsign:   {}", hex::encode(&sign));
+                        println!("---");
+                        assert!(tpm.public_key.verify(data.as_bytes(), &sign));
+                    }
+                    Err(error) => {
+                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                        assert_eq!(error.to_string(), "tpm interaction error");
+                    }
+                }
+            }
+            Err(error) => {
+                assert_eq!(error.kind, ErrorKind::Tpm2Error);
+                assert_eq!(error.to_string(), "tpm interaction error");
+            }
+        }
+    }
+
 }
