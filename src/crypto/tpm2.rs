@@ -259,17 +259,17 @@ mod tests {
         }
     }
 
-    use sha2::{Digest, Sha256};
+    use ring::digest;
 
     #[test]
     fn test_sign() {
         let tpm = Tpm2::new(None);
         match tpm {
             Ok(mut tpm) => {
-                let mut hasher = Sha256::new();
-                hasher.update(b"hello world");
-                let hash = hasher.finalize();
-                let sign = tpm.sign_data(&hash.as_slice());
+                let hash = digest::digest(&digest::SHA256, b"hello world");
+                println!("digest:   {}", hex::encode(hash.as_ref()));
+
+                let sign = tpm.sign_data(hash.as_ref());
 
                 match sign {
                     Ok(sign) => {

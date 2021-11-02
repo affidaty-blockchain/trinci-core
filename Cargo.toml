@@ -40,7 +40,6 @@ mockall = "0.10.0"
 tempfile = "3.2.0"
 serde-value = { git = "https://github.com/affidaty-blockchain/serde-value", branch = "helper_macro" }
 ureq = { version = "2.1.1", default-features = false }
-sha2 = "0.9.8"
 
 [features]
 default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge", "tpm2"]
