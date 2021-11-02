@@ -21,6 +21,10 @@ use tss_esapi::{
 
 use tss_esapi_sys::TPMS_ECC_POINT;
 
+/// The TPM2 structure handles the device module, it let to sign digests and access the module pubic key.
+/// context handles the interaction with the TPM2 module.
+/// primary key holds the structure to sign with the primary private key.
+/// public key is used to access the public key related to the primary private key
 pub struct Tpm2 {
     context: Context,
     primary_key: KeyHandle,
@@ -126,7 +130,7 @@ impl Tpm2 {
         }
     }
 
-    pub fn retrieve_ecc_public_key(
+    fn retrieve_ecc_public_key(
         context: &mut Context,
         primary_key: &mut CreatePrimaryKeyResult,
     ) -> Result<TPMS_ECC_POINT> {
@@ -141,6 +145,11 @@ impl Tpm2 {
         }
     }
 
+    /// It initialise the structure context, primary key and public key of the module passed as argument.
+    /// optional device: path to a tpm2 device. Expected format: /dir0/dir1/[...]/tpm1.
+    /// If no path is declared the default path is used: /dev/tpm0.
+    /// It returns a Tpm2 structure or an error in case something went wrong during the interaction with the module.
+    /// In case of success the Tpm2 structure has initialized with a public_key with a ecdsa::PublicKey structure.
     pub fn new(optional_device: Option<&str>) -> Result<Tpm2> {
         let mut context = Self::create_context(optional_device)?;
 
@@ -167,6 +176,10 @@ impl Tpm2 {
         })
     }
 
+    /// It sign the hashed data passed as argument in the method.
+    /// hash: a buffer that contains the hashed digest to sign.
+    /// it returns a Result that in case of success contains the sign in a buffer.
+    /// Otherwise it contains an error that specify the problem in question.
     pub fn sign_data(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
         let scheme = TPMT_SIG_SCHEME {
             scheme: TPM2_ALG_NULL,

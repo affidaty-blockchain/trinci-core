@@ -19,6 +19,7 @@ pub mod ecdsa;
 pub mod ed25519;
 pub mod hash;
 pub mod sign;
+#[cfg(feature = "tpm2")]
 pub mod tpm2;
 
 pub use hash::{Hash, HashAlgorithm, Hashable};
