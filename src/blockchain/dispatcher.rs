@@ -355,7 +355,7 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const TX_DATA_HASH_HEX: &str =
-        "1220b094e2d3d90373d8b65dbbfcb5a2eeb0b2cfbf82136018c6cedbe15c298ba6a0";
+        "1220a1626da0acb6d0ac8b6d10db846ae7c25cef0cb77c6355e7e128e91414364a4f";
 
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
         let pool = Arc::new(RwLock::new(Pool::default()));
