@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{
-    crypto::{Hash, HashAlgorithm},
-    Error, ErrorKind, Result,
-};
+use crate::{Error, ErrorKind, Result, crypto::{Hash, HashAlgorithm}, tpm2::Tpm2};
 use ring::{
     rand::SystemRandom,
     signature::{
@@ -41,9 +38,15 @@ pub enum CurveId {
 }
 
 #[derive(Debug)]
+enum TrinciEcdsaKeyPairImpl {
+    Ring(EcdsaKeyPairImpl),
+    Tpm2(Tpm2),
+} 
+
+#[derive(Debug)]
 pub struct KeyPair {
     curve_id: CurveId,
-    imp: EcdsaKeyPairImpl,
+    imp: TrinciEcdsaKeyPairImpl,
     rng: SystemRandom,
 }
 
@@ -56,10 +59,20 @@ impl KeyPair {
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
         Ok(KeyPair {
             curve_id,
-            imp,
+            imp: TrinciEcdsaKeyPairImpl::Ring(imp),
             rng: SystemRandom::new(),
         })
     }
+
+    pub fn new_tpm2(curve_id: CurveId, device: &str) -> Result<KeyPair> {
+        let imp = Tpm2::new(Some(device))?;
+        Ok(KeyPair {
+            curve_id,
+            imp: TrinciEcdsaKeyPairImpl::Tpm2(imp),
+            rng: SystemRandom::new(),
+        })
+    }
+
 
     /// Load keypair from pkcs#8 byte array.
     pub fn from_pkcs8_bytes(curve_id: CurveId, bytes: &[u8]) -> Result<KeyPair> {
@@ -68,28 +81,42 @@ impl KeyPair {
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         Ok(KeyPair {
             curve_id,
-            imp,
+            imp: TrinciEcdsaKeyPairImpl::Ring(imp),
             rng: SystemRandom::new(),
         })
     }
 
     /// Digital signature.
     pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let sig = self
-            .imp
-            .sign(&self.rng, data)
-            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?
-            .as_ref()
-            .to_vec();
-        Ok(sig)
+        match &self.imp {
+            TrinciEcdsaKeyPairImpl::Ring(imp) => {
+                let sig = imp
+                    .sign(&self.rng, data)
+                    .map_err(|err| Error::new_ext(ErrorKind::Other, err))?
+                    .as_ref()
+                    .to_vec();
+                Ok(sig)
+            },
+            TrinciEcdsaKeyPairImpl::Tpm2(imp) => {
+                let sig = imp.sign_data(data)?;
+                Ok(sig.to_vec())
+            },
+        }
     }
 
     /// Get public key from keypair.
     pub fn public_key(&self) -> PublicKey {
-        let public = self.imp.public_key().as_ref().to_vec();
-        PublicKey {
-            curve_id: self.curve_id,
-            value: public,
+        match &self.imp {
+            TrinciEcdsaKeyPairImpl::Ring(imp) => {
+                let public = imp.public_key().as_ref().to_vec();
+                PublicKey {
+                    curve_id: self.curve_id,
+                    value: public,
+                }
+            },
+            TrinciEcdsaKeyPairImpl::Tpm2(imp) => {
+                imp.public_key.clone()
+            },
         }
     }
 
@@ -198,6 +225,8 @@ fn add_protobuf_header(mut buf: Vec<u8>) -> Vec<u8> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use ring::signature::VerificationAlgorithm;
+
     use super::*;
     use crate::base::serialize::{rmp_deserialize, rmp_serialize};
 
@@ -241,5 +270,17 @@ pub(crate) mod tests {
 
         let expected = ecdsa_secp384_test_public_key();
         assert_eq!(public_key, expected);
+    }
+
+    #[test]
+    fn sign_data_tpm() {
+        let keypair = KeyPair::new_tpm2(CurveId::Secp256R1, "/dev/tpm0").unwrap();
+        let data = "hello world";
+
+        let sign = keypair.sign(data.as_bytes()).unwrap();
+        println!("\nsign:   {}", hex::encode(&sign));
+        println!("---");
+        assert!(keypair.public_key().verify(data.as_bytes(), &sign));
+
     }
 }

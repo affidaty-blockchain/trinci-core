@@ -1,6 +1,6 @@
 use crate::crypto::ecdsa;
 use crate::crypto::ecdsa::PublicKey;
-use crate::{Error, ErrorKind, Result};
+use crate::{Error, ErrorKind, Result, base::Mutex};
 
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
@@ -25,8 +25,9 @@ use tss_esapi_sys::TPMS_ECC_POINT;
 /// context handles the interaction with the TPM2 module.
 /// primary key holds the structure to sign with the primary private key.
 /// public key is used to access the public key related to the primary private key
+#[derive(Debug)]
 pub struct Tpm2 {
-    context: Context,
+    context: Mutex<Context>,
     primary_key: KeyHandle,
     pub public_key: ecdsa::PublicKey,
 }
@@ -172,7 +173,7 @@ impl Tpm2 {
         };
 
         Ok(Tpm2 {
-            context,
+            context: Mutex::new(context),
             primary_key: primary_key_result.key_handle,
             public_key,
         })
@@ -182,7 +183,7 @@ impl Tpm2 {
     /// hash: a buffer that contains the hashed digest to sign.
     /// it returns a Result that in case of success contains the sign in a buffer.
     /// Otherwise it contains an error that specify the problem in question.
-    pub fn sign_hash(&mut self, hash: &[u8]) -> Result<Vec<u8>> {
+    pub fn sign_hash(&self, hash: &[u8]) -> Result<Vec<u8>> {
         let scheme = TPMT_SIG_SCHEME {
             scheme: TPM2_ALG_NULL,
             details: Default::default(),
@@ -194,7 +195,7 @@ impl Tpm2 {
             digest: Default::default(),
         };
 
-        let sign_result = self.context.sign(
+        let sign_result = self.context.lock().sign(
             self.primary_key,
             &Digest::try_from(hash).unwrap(),
             scheme,
@@ -228,7 +229,7 @@ impl Tpm2 {
     /// data: a slice that contains the digest to hash and sign.
     /// it returns a Result that in case of success contains the sign in a buffer.
     /// Otherwise it contains an error that specify the problem in question.
-    pub fn sign_data(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+    pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>> {
         let hash = digest::digest(&digest::SHA256, data);
         let sign = self.sign_hash(hash.as_ref());
 
@@ -247,32 +248,18 @@ mod tests {
     use super::Tpm2;
     #[test]
     fn test_tpm_init() {
-        let tpm = Tpm2::new(None);
-        match tpm {
-            Ok(_tpm) => {
-                assert!(true);
-            }
-            Err(error) => {
-                assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                assert_eq!(error.to_string(), "tpm interaction error");
-            }
+        if let Err(error) = Tpm2::new(None) {
+            assert_eq!(error.kind, ErrorKind::Tpm2Error);
+            assert_eq!(error.to_string(), "tpm interaction error");
         }
     }
 
     #[test]
     fn test_key_creation() {
-        let tpm = Tpm2::new(None);
-
-        match tpm {
-            Ok(tpm) => {
-                println!("\npublic key:   {}", hex::encode(&tpm.public_key.value));
-                println!("---");
-                assert!(!tpm.public_key.value.is_empty())
-            }
-            Err(error) => {
-                assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                assert_eq!(error.to_string(), "tpm interaction error");
-            }
+        if let Ok(tpm) = Tpm2::new(None) {
+            println!("\npublic key:   {}", hex::encode(&tpm.public_key.value));
+            println!("---");
+            assert!(!tpm.public_key.value.is_empty())
         }
     }
 
@@ -280,88 +267,41 @@ mod tests {
 
     #[test]
     fn test_sign_hash() {
-        let tpm = Tpm2::new(None);
-        match tpm {
-            Ok(mut tpm) => {
-                let hash = digest::digest(&digest::SHA256, b"hello world");
-                println!("\ndigest:   {}", hex::encode(hash.as_ref()));
+        if let Ok(tpm) = Tpm2::new(None) {
+            let hash = digest::digest(&digest::SHA256, b"hello world");
+            println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
-                let sign = tpm.sign_hash(hash.as_ref());
+            let sign = tpm.sign_hash(hash.as_ref()).unwrap();
 
-                match sign {
-                    Ok(sign) => {
-                        println!("\nsign:   {}", hex::encode(&sign));
-                        println!("---");
-                        assert!(!sign.is_empty())
-                    }
-                    Err(error) => {
-                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                        assert_eq!(error.to_string(), "tpm interaction error");
-                    }
-                }
-            }
-            Err(error) => {
-                assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                assert_eq!(error.to_string(), "tpm interaction error");
-            }
+            println!("\nsign:   {}", hex::encode(&sign));
+            println!("---");
+            assert!(!sign.is_empty())
         }
     }
 
     #[test]
     fn test_sign_hash_verify() {
-        let tpm = Tpm2::new(None);
-        match tpm {
-            Ok(mut tpm) => {
-                let hash = digest::digest(&digest::SHA256, b"hello world");
-                let msg = "hello world";
-                println!("\ndigest:   {}", hex::encode(hash.as_ref()));
+        if let Ok(tpm) = Tpm2::new(None) {
+            let hash = digest::digest(&digest::SHA256, b"hello world");
+            let msg = "hello world";
+            println!("\ndigest:   {}", hex::encode(hash.as_ref()));
 
-                let sign = tpm.sign_hash(hash.as_ref());
+            let sign = tpm.sign_hash(hash.as_ref()).unwrap();
 
-                match sign {
-                    Ok(sign) => {
-                        println!("\nsign:   {}", hex::encode(&sign));
-                        println!("---");
-                        assert!(tpm.public_key.verify(msg.as_bytes(), &sign));
-                    }
-                    Err(error) => {
-                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                        assert_eq!(error.to_string(), "tpm interaction error");
-                    }
-                }
-            }
-            Err(error) => {
-                assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                assert_eq!(error.to_string(), "tpm interaction error");
-            }
+            println!("\nsign:   {}", hex::encode(&sign));
+            println!("---");
+            assert!(tpm.public_key.verify(msg.as_bytes(), &sign));
         }
     }
 
     #[test]
     fn test_sign_data_verify() {
-        let tpm = Tpm2::new(None);
-        match tpm {
-            Ok(mut tpm) => {
-                let data = "hello world";
-                println!("\ndata:   {}", data);
-
-                let sign = tpm.sign_data(data.as_bytes());
-                match sign {
-                    Ok(sign) => {
-                        println!("\nsign:   {}", hex::encode(&sign));
-                        println!("---");
-                        assert!(tpm.public_key.verify(data.as_bytes(), &sign));
-                    }
-                    Err(error) => {
-                        assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                        assert_eq!(error.to_string(), "tpm interaction error");
-                    }
-                }
-            }
-            Err(error) => {
-                assert_eq!(error.kind, ErrorKind::Tpm2Error);
-                assert_eq!(error.to_string(), "tpm interaction error");
-            }
+        if let Ok(tpm) = Tpm2::new(None) {
+            let data = "hello world";
+            let sign = tpm.sign_data(data.as_bytes()).unwrap();
+            println!("\nsign:   {}", hex::encode(&sign));
+            println!("---");
+            assert!(tpm.public_key.verify(data.as_bytes(), &sign));
         }
     }
 }
