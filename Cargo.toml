@@ -30,6 +30,9 @@ wasmtime = { version = "0.30.0", default-features = false, features = [ "paralle
 libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub", "identify"], optional = true }
 # HTTP framework
 tide = { version = "0.16", default-features = false, features = [ "h1-server" ], optional = true }
+# tpm interaction
+tss-esapi = { version = "6.1.1", default-features = false, optional = true }
+tss-esapi-sys = { version = "0.2.0", default-features = false, optional = true }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
@@ -39,9 +42,10 @@ serde-value = { git = "https://github.com/affidaty-blockchain/serde-value", bran
 ureq = { version = "2.1.1", default-features = false }
 
 [features]
-default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
+default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge", "tpm2"]
 with-rocksdb = [ "merkledb" ]
 with-wasmtime = [ "wasmtime" ]
 p2p = [ "libp2p" ]
 rest = [ "tide" ]
 bridge = []
+tpm2 = ["tss-esapi", "tss-esapi-sys"]
