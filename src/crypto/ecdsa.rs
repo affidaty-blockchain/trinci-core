@@ -15,7 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{Error, ErrorKind, Result, crypto::{Hash, HashAlgorithm}, tpm2::Tpm2};
+use crate::{
+    crypto::{Hash, HashAlgorithm},
+    tpm2::Tpm2,
+    Error, ErrorKind, Result,
+};
 use ring::{
     rand::SystemRandom,
     signature::{
@@ -41,7 +45,7 @@ pub enum CurveId {
 enum TrinciEcdsaKeyPairImpl {
     Ring(EcdsaKeyPairImpl),
     Tpm2(Tpm2),
-} 
+}
 
 #[derive(Debug)]
 pub struct KeyPair {
@@ -73,7 +77,6 @@ impl KeyPair {
         })
     }
 
-
     /// Load keypair from pkcs#8 byte array.
     pub fn from_pkcs8_bytes(curve_id: CurveId, bytes: &[u8]) -> Result<KeyPair> {
         let alg = Self::get_alg(curve_id);
@@ -96,11 +99,11 @@ impl KeyPair {
                     .as_ref()
                     .to_vec();
                 Ok(sig)
-            },
+            }
             TrinciEcdsaKeyPairImpl::Tpm2(imp) => {
                 let sig = imp.sign_data(data)?;
                 Ok(sig.to_vec())
-            },
+            }
         }
     }
 
@@ -113,10 +116,8 @@ impl KeyPair {
                     curve_id: self.curve_id,
                     value: public,
                 }
-            },
-            TrinciEcdsaKeyPairImpl::Tpm2(imp) => {
-                imp.public_key.clone()
-            },
+            }
+            TrinciEcdsaKeyPairImpl::Tpm2(imp) => imp.public_key.clone(),
         }
     }
 
@@ -281,6 +282,5 @@ pub(crate) mod tests {
         println!("\nsign:   {}", hex::encode(&sign));
         println!("---");
         assert!(keypair.public_key().verify(data.as_bytes(), &sign));
-
     }
 }

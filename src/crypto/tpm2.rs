@@ -1,6 +1,6 @@
 use crate::crypto::ecdsa;
 use crate::crypto::ecdsa::PublicKey;
-use crate::{Error, ErrorKind, Result, base::Mutex};
+use crate::{base::Mutex, Error, ErrorKind, Result};
 
 use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
