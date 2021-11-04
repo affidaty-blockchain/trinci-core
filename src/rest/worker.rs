@@ -36,6 +36,7 @@ impl From<ErrorKind> for StatusCode {
             WasmMachineFault | DatabaseFault => StatusCode::InternalServerError,
             SmartContractFault => StatusCode::BadRequest,
             NotImplemented => StatusCode::NotImplemented,
+            Tpm2Error => StatusCode::InternalServerError,
             Other => StatusCode::ImATeapot,
         }
     }

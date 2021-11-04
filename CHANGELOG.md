@@ -27,7 +27,7 @@ Additional labels for pre-release metadata:
 * rc.x: stable release candidate.
 
 
-0.2.1 - Unreleased
+0.2.1 - 04-11-2021
 ------------------
 
 Added
