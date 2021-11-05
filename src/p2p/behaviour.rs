@@ -34,8 +34,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     kad::{
-        record::store::MemoryStore, GetClosestPeersError, Kademlia, KademliaConfig, KademliaEvent,
-        QueryResult,
+        record::store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, Kademlia,
+        KademliaConfig, KademliaEvent, QueryResult,
     },
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
@@ -228,26 +228,11 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
                 result: QueryResult::GetClosestPeers(result),
                 ..
             } => {
-                match result {
-                    Ok(ok) => {
-                        if !ok.peers.is_empty() {
-                            warn!("[kad] query finished with closest peers: {:#?}", ok.peers)
-                        } else {
-                            // The example is considered failed as there
-                            // should always be at least 1 reachable peer.
-                            warn!("[kad] query finished with no closest peers.")
-                        }
-                    }
-                    Err(GetClosestPeersError::Timeout { peers, .. }) => {
-                        if !peers.is_empty() {
-                            warn!("[kad] query timed out with closest peers: {:#?}", peers)
-                        } else {
-                            // The example is considered failed as there
-                            // should always be at least 1 reachable peer.
-                            warn!("[kad] query timed out with no closest peers.");
-                        }
-                    }
-                }
+                let peers = match result {
+                    Ok(GetClosestPeersOk { peers, .. }) => peers,
+                    Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
+                };
+                self.identify.push(peers);
             }
             _ => {
                 debug!("[kad] event: {:?}", event);

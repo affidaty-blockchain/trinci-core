@@ -19,7 +19,6 @@ use super::{behaviour::Behavior, service::PeerConfig};
 use crate::{
     base::serialize::rmp_serialize,
     blockchain::{pubsub::Event, BlockRequestSender, Message},
-    crypto,
 };
 use futures::{future, prelude::*};
 use libp2p::{
@@ -40,7 +39,8 @@ const NODE_TOPIC: &str = "node";
 fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
     let tcp_config = TcpConfig::new();
 
-    // TODO: use NOISE protocol for production usage.
+    // TODO: use NOISE protocol for encrypted traffic.
+    // Currently is left as cleartext to allow traffic monitoring.
     // let noise_keys = libp2p::noise::Keypair::<libp2p::noise::X25519Spec>::new()
     //     .into_authentic(&keypair)
     //     .unwrap();
@@ -60,18 +60,7 @@ fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
 }
 
 pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
-    let keypair = match &config.keypair {
-        Some(crypto::KeyPair::Ed25519(keypair)) => {
-            let mut bytes = keypair.to_bytes();
-            let ed25519_keypair = libp2p::identity::ed25519::Keypair::decode(&mut bytes).unwrap();
-            libp2p::identity::Keypair::Ed25519(ed25519_keypair)
-        }
-        None => {
-            info!("[p2p] Generating random keypair");
-            libp2p::identity::Keypair::generate_ed25519()
-        }
-        _ => panic!("Node supports only ed25519 keypairs"),
-    };
+    let keypair = libp2p::identity::Keypair::generate_ed25519();
     let public_key = keypair.public();
     let peer_id = public_key.clone().into_peer_id();
     info!("P2P PeerId: {}", peer_id);
