@@ -27,8 +27,10 @@ pub struct PeerConfig {
     /// Peer key-pair (used to assign an identity to the peer)
     /// If `None` it will be dynamically generated.
     pub keypair: Option<KeyPair>,
-    /// Listening IP address
+    /// Listening IP address.
     pub addr: String,
+    /// Listening TCP port. If zero, a random port is used.
+    pub port: u16,
     /// Network identifier.
     pub network: String,
     /// Bootstrap address.

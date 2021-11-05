@@ -106,7 +106,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     .unwrap();
     let mut swarm: Swarm<Behavior> = Swarm::new(transport, behaviour, peer_id);
 
-    let addr = format!("/ip4/{}/tcp/0", config.addr);
+    let addr = format!("/ip4/{}/tcp/{}", config.addr, config.port);
     let addr = addr.parse::<Multiaddr>().unwrap();
     let res = Swarm::listen_on(&mut swarm, addr);
     if res.is_err() {
