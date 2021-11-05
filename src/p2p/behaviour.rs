@@ -274,16 +274,14 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
-                if self.gossip.all_peers().count() == 1 {
-                    let msg = Message::GetBlockRequest {
-                        height: u64::MAX,
-                        txs: false,
-                    };
-                    let topic = IdentTopic::new(topic.as_str());
-                    let buf = rmp_serialize(&msg).unwrap_or_default();
-                    if let Err(err) = self.gossip.publish(topic, buf) {
-                        error!("publishing announcement message {:?}", err);
-                    }
+                let msg = Message::GetBlockRequest {
+                    height: u64::MAX,
+                    txs: false,
+                };
+                let topic = IdentTopic::new(topic.as_str());
+                let buf = rmp_serialize(&msg).unwrap_or_default();
+                if let Err(err) = self.gossip.publish(topic, buf) {
+                    error!("publishing announcement message {:?}", err);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
