@@ -125,6 +125,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         };
         Receipt {
             height,
+            burned_fuel: 0, // TODO
             index: index as u32,
             success,
             returns,
