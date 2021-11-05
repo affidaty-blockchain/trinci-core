@@ -226,8 +226,6 @@ fn add_protobuf_header(mut buf: Vec<u8>) -> Vec<u8> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use ring::signature::VerificationAlgorithm;
-
     use super::*;
     use crate::base::serialize::{rmp_deserialize, rmp_serialize};
 
@@ -275,12 +273,13 @@ pub(crate) mod tests {
 
     #[test]
     fn sign_data_tpm() {
-        let keypair = KeyPair::new_tpm2(CurveId::Secp256R1, "/dev/tpm0").unwrap();
-        let data = "hello world";
+        if let Ok(keypair) = KeyPair::new_tpm2(CurveId::Secp256R1, "/dev/tpm0") {
+            let data = "hello world";
 
-        let sign = keypair.sign(data.as_bytes()).unwrap();
-        println!("\nsign:   {}", hex::encode(&sign));
-        println!("---");
-        assert!(keypair.public_key().verify(data.as_bytes(), &sign));
+            let sign = keypair.sign(data.as_bytes()).unwrap();
+            println!("\nsign:   {}", hex::encode(&sign));
+            println!("---");
+            assert!(keypair.public_key().verify(data.as_bytes(), &sign));
+        }
     }
 }
