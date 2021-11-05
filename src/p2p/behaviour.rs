@@ -177,20 +177,20 @@ impl Behavior {
 //     }
 // }
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
-   fn inject_event(&mut self, event: IdentifyEvent) {
-       match event {
-           IdentifyEvent::Received { peer_id, info } => {
-               // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
-               self.gossip.add_explicit_peer(&peer_id);
-               for addr in info.listen_addrs {
-                   warn!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
-                   // TODO
-                   self.kad.add_address(&peer_id, addr);
-               }
-           }
-           _ => warn!("[ident] event: {:?}", event),
-       }
-   }
+    fn inject_event(&mut self, event: IdentifyEvent) {
+        match event {
+            IdentifyEvent::Received { peer_id, info } => {
+                // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
+                self.gossip.add_explicit_peer(&peer_id);
+                for addr in info.listen_addrs {
+                    warn!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                    // TODO
+                    self.kad.add_address(&peer_id, addr);
+                }
+            }
+            _ => warn!("[ident] event: {:?}", event),
+        }
+    }
 }
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
@@ -260,7 +260,7 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
     fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message {
-                propagation_source,
+                propagation_source: _,
                 message,
                 message_id: _,
             } => {
@@ -302,7 +302,10 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
-                debug!("[pubsub] unsubscribed peer-id: {}, topic: {}", peer_id, topic);
+                debug!(
+                    "[pubsub] unsubscribed peer-id: {}, topic: {}",
+                    peer_id, topic
+                );
             }
         }
     }
