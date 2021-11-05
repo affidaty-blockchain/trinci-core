@@ -35,6 +35,7 @@ tss-esapi = { version = "6.1.1", default-features = false, optional = true }
 tss-esapi-sys = { version = "0.2.0", default-features = false, optional = true }
 # random handler
 rand = "0.7"
+
 [dev-dependencies]
 lazy_static = "1.4.0"
 mockall = "0.10.0"

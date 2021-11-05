@@ -22,9 +22,10 @@ use crate::{
 use ed25519_dalek::{
     Keypair as KeyPairImpl, PublicKey as PublicKeyImpl, Signer as _, Verifier as _,
 };
+use rand::rngs::OsRng;
 use serde::{self, de::Visitor, Deserialize, Serialize};
 use std::convert::TryFrom;
-use rand::rngs::OsRng;
+
 pub struct KeyPair(KeyPairImpl);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,11 +39,11 @@ impl KeyPair {
             .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
         Ok(KeyPair(internal))
     }
-    
-    pub fn from_random() -> Result<KeyPair> {
-        let mut csprng = OsRng{};
+
+    pub fn from_random() -> KeyPair {
+        let mut csprng = OsRng {};
         let internal = KeyPairImpl::generate(&mut csprng);
-        Ok(KeyPair(internal))
+        KeyPair(internal)
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -194,5 +195,18 @@ pub(crate) mod tests {
         let public: PublicKey = rmp_deserialize(&buf).unwrap();
 
         assert_eq!(public, expected);
+    }
+
+    #[test]
+    fn ed25519_keypair_random_generation_sign_test() {
+        let keypair = KeyPair::from_random();
+        let data = b"hello world";
+        let sign = keypair.sign(data).unwrap();
+        println!(
+            "public key: {}",
+            hex::encode(keypair.public_key().to_bytes())
+        );
+        println!("sign: {}", hex::encode(&sign));
+        assert!(keypair.public_key().verify(data, &sign));
     }
 }
