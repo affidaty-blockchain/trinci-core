@@ -24,7 +24,7 @@ use ed25519_dalek::{
 };
 use serde::{self, de::Visitor, Deserialize, Serialize};
 use std::convert::TryFrom;
-
+use rand::rngs::OsRng;
 pub struct KeyPair(KeyPairImpl);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +36,12 @@ impl KeyPair {
     pub fn from_bytes(bytes: &[u8]) -> Result<KeyPair> {
         let internal = KeyPairImpl::from_bytes(bytes)
             .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+        Ok(KeyPair(internal))
+    }
+    
+    pub fn from_random() -> Result<KeyPair> {
+        let mut csprng = OsRng{};
+        let internal = KeyPairImpl::generate(&mut csprng);
         Ok(KeyPair(internal))
     }
 
