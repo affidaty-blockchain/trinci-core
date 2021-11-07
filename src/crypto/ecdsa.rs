@@ -15,9 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+#[cfg(feature = "tpm2")]
+use crate::tpm2::Tpm2;
 use crate::{
     crypto::{Hash, HashAlgorithm},
-    tpm2::Tpm2,
     Error, ErrorKind, Result,
 };
 use ring::{
@@ -44,6 +45,7 @@ pub enum CurveId {
 #[derive(Debug)]
 enum TrinciEcdsaKeyPairImpl {
     Ring(EcdsaKeyPairImpl),
+    #[cfg(feature = "tpm2")]
     Tpm2(Tpm2),
 }
 
@@ -68,6 +70,7 @@ impl KeyPair {
         })
     }
 
+    #[cfg(feature = "tpm2")]
     pub fn new_tpm2(curve_id: CurveId, device: &str) -> Result<KeyPair> {
         let imp = Tpm2::new(Some(device))?;
         Ok(KeyPair {
@@ -100,6 +103,7 @@ impl KeyPair {
                     .to_vec();
                 Ok(sig)
             }
+            #[cfg(feature = "tpm2")]
             TrinciEcdsaKeyPairImpl::Tpm2(imp) => {
                 let sig = imp.sign_data(data)?;
                 Ok(sig.to_vec())
@@ -117,6 +121,7 @@ impl KeyPair {
                     value: public,
                 }
             }
+            #[cfg(feature = "tpm2")]
             TrinciEcdsaKeyPairImpl::Tpm2(imp) => imp.public_key.clone(),
         }
     }
@@ -271,6 +276,7 @@ pub(crate) mod tests {
         assert_eq!(public_key, expected);
     }
 
+    #[cfg(feature = "tpm2")]
     #[test]
     fn sign_data_tpm() {
         if let Ok(keypair) = KeyPair::new_tpm2(CurveId::Secp256R1, "/dev/tpm0") {
