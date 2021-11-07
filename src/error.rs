@@ -39,6 +39,7 @@ pub enum ErrorKind {
     SmartContractFault,
     ResourceNotFound,
     NotImplemented,
+    Tpm2Error,
     Other,
 }
 
@@ -54,6 +55,7 @@ pub(super) mod error_kind_str {
     pub const WASM_MACHINE_FAULT: &str = "wasm machine fault";
     pub const SMART_CONTRACT_FAULT: &str = "smart contract fault";
     pub const NOT_IMPLEMENTED: &str = "not implemented";
+    pub const TPM2_ERROR: &str = "tpm interaction error";
     pub const OTHER: &str = "other";
 }
 
@@ -71,6 +73,7 @@ impl Display for ErrorKind {
             WasmMachineFault => error_kind_str::WASM_MACHINE_FAULT,
             SmartContractFault => error_kind_str::SMART_CONTRACT_FAULT,
             NotImplemented => error_kind_str::NOT_IMPLEMENTED,
+            Tpm2Error => error_kind_str::TPM2_ERROR,
             Other => error_kind_str::OTHER,
         };
         write!(f, "{}", kind_str)
@@ -117,6 +120,7 @@ impl<'de> Deserialize<'de> for ErrorKind {
             error_kind_str::WASM_MACHINE_FAULT => ErrorKind::WasmMachineFault,
             error_kind_str::SMART_CONTRACT_FAULT => ErrorKind::SmartContractFault,
             error_kind_str::NOT_IMPLEMENTED => ErrorKind::NotImplemented,
+            error_kind_str::TPM2_ERROR => ErrorKind::Tpm2Error,
             _ => ErrorKind::Other,
         };
         Ok(kind)

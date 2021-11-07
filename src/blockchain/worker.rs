@@ -71,7 +71,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
         let builder = Builder::new(config.threshold, pool.clone(), db.clone());
-        let executor = Executor::new(pool.clone(), db.clone(), wm.clone(), pubsub.clone());
+        let executor = Executor::new(
+            pool.clone(),
+            db.clone(),
+            wm.clone(),
+            pubsub.clone(),
+            config.validator,
+        );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));
@@ -152,18 +158,24 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
     pub async fn run(&mut self) {
-        let timeout = self.config.timeout as u64;
         let threshold = self.config.threshold;
-        let mut sleep = Box::pin(task::sleep(Duration::from_secs(timeout)));
+        let exec_timeout = self.config.timeout as u64;
+        let sync_timeout = 3 * self.config.timeout as u64;
+        let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
+        let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            while sleep.poll_unpin(cx).is_ready() {
+            while exec_sleep.poll_unpin(cx).is_ready() {
                 if self.config.validator {
                     self.try_build_block(1);
                 }
                 self.try_exec_block();
+                exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
+            }
+
+            while sync_sleep.poll_unpin(cx).is_ready() {
                 self.try_synchronization();
-                sleep = Box::pin(task::sleep(Duration::from_secs(timeout)));
+                sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
             }
 
             loop {

@@ -41,6 +41,8 @@ pub mod bridge;
 pub mod p2p;
 #[cfg(feature = "rest")]
 pub mod rest;
+#[cfg(feature = "tpm2")]
+pub use crypto::tpm2;
 
 pub use base::{Account, Block, Receipt, Transaction, TransactionData};
 pub use blockchain::{BlockConfig, BlockService, Message};

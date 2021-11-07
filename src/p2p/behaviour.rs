@@ -34,8 +34,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     kad::{
-        record::store::MemoryStore, GetClosestPeersError, Kademlia, KademliaConfig, KademliaEvent,
-        QueryResult,
+        record::store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, Kademlia,
+        KademliaConfig, KademliaEvent, QueryResult,
     },
     mdns::{Mdns, MdnsConfig, MdnsEvent},
     swarm::NetworkBehaviourEventProcess,
@@ -183,11 +183,12 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
                 // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
                 self.gossip.add_explicit_peer(&peer_id);
                 for addr in info.listen_addrs {
-                    warn!("[kad] adding {} to routing table @ {}", peer_id, addr);
+                    warn!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                    // TODO
                     self.kad.add_address(&peer_id, addr);
                 }
             }
-            _ => warn!("[ident event] {:?}", event),
+            _ => warn!("[ident] event: {:?}", event),
         }
     }
 }
@@ -197,13 +198,13 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
         match event {
             MdnsEvent::Discovered(nodes) => {
                 for (peer, addr) in nodes {
-                    debug!("discovered: {} @ {}", peer, addr);
+                    debug!("[mdns] discovered: {} @ {}", peer, addr);
                     self.gossip.add_explicit_peer(&peer);
                 }
             }
             MdnsEvent::Expired(nodes) => {
                 for (peer, addr) in nodes {
-                    debug!("expired: {} @ {}", peer, addr);
+                    debug!("[mdns] expired: {} @ {}", peer, addr);
                     self.gossip.remove_explicit_peer(&peer);
                 }
             }
@@ -219,7 +220,7 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
                 peer, addresses, ..
             } => {
                 for addr in addresses.iter() {
-                    debug!("kad discovered: {} @ {}", peer, addr);
+                    debug!("[kad] discovered: {} @ {}", peer, addr);
                 }
                 self.gossip.add_explicit_peer(&peer);
             }
@@ -227,29 +228,14 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
                 result: QueryResult::GetClosestPeers(result),
                 ..
             } => {
-                match result {
-                    Ok(ok) => {
-                        if !ok.peers.is_empty() {
-                            warn!("Query finished with closest peers: {:#?}", ok.peers)
-                        } else {
-                            // The example is considered failed as there
-                            // should always be at least 1 reachable peer.
-                            warn!("Query finished with no closest peers.")
-                        }
-                    }
-                    Err(GetClosestPeersError::Timeout { peers, .. }) => {
-                        if !peers.is_empty() {
-                            warn!("Query timed out with closest peers: {:#?}", peers)
-                        } else {
-                            // The example is considered failed as there
-                            // should always be at least 1 reachable peer.
-                            warn!("Query timed out with no closest peers.");
-                        }
-                    }
-                }
+                let peers = match result {
+                    Ok(GetClosestPeersOk { peers, .. }) => peers,
+                    Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
+                };
+                self.identify.push(peers);
             }
             _ => {
-                warn!("Kad event: {:?}", event);
+                debug!("[kad] event: {:?}", event);
             }
         }
     }
@@ -263,6 +249,8 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
                 message,
                 message_id: _,
             } => {
+                //error!("SOURCE: {}", propagation_source);
+                //error!("DATA: {}", hex::encode(&message.data));
                 match self
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
@@ -271,6 +259,7 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
                         // Check if the blockchain has a response of if has dropped the response channel.
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
                             let topic = IdentTopic::new(message.topic.as_str());
+                            // TODO: maybe this should be sent in unicast only to the sender.
                             if let Err(err) = self.gossip.publish(topic, buf) {
                                 if !matches!(err, PublishError::InsufficientPeers) {
                                     error!("publish error: {:?}", err);
@@ -284,21 +273,22 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                debug!("SUBSCRIBED peer-id: {}, topic: {}", peer_id, topic);
-                if self.gossip.all_peers().count() == 1 {
-                    let msg = Message::GetBlockRequest {
-                        height: u64::MAX,
-                        txs: false,
-                    };
-                    let topic = IdentTopic::new(topic.as_str());
-                    let buf = rmp_serialize(&msg).unwrap_or_default();
-                    if let Err(err) = self.gossip.publish(topic, buf) {
-                        error!("publishing announcement message {:?}", err);
-                    }
+                debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                let msg = Message::GetBlockRequest {
+                    height: u64::MAX,
+                    txs: false,
+                };
+                let topic = IdentTopic::new(topic.as_str());
+                let buf = rmp_serialize(&msg).unwrap_or_default();
+                if let Err(err) = self.gossip.publish(topic, buf) {
+                    error!("publishing announcement message {:?}", err);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
-                debug!("UNSUBSCRIBED peer-id: {}, topic: {}", peer_id, topic);
+                debug!(
+                    "[pubsub] unsubscribed peer-id: {}, topic: {}",
+                    peer_id, topic
+                );
             }
         }
     }

@@ -27,6 +27,19 @@ Additional labels for pre-release metadata:
 * rc.x: stable release candidate.
 
 
+0.2.2 - 05-11-2021
+------------------
+
+Changed
+
+* User can choose p2p listening port. Previously the port was forced to random.
+* Always generate random ed25519 p2p keypair.
+
+Added
+
+* ECDSA digital signature backend can now optionally exploit TPM v2 hardware.
+
+
 0.2.1 - 04-11-2021
 ------------------
 
