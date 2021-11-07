@@ -23,7 +23,7 @@ rmp-serde = "0.15.5"
 ring = { version = "0.16.20", default-features = false, features = [ "std" ] }
 ed25519-dalek = "1.0.1"
 # Exonum MerkleDB
-merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy" ], optional = true }
+merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy", "sodiumoxide-crypto" ], optional = true }
 # WasmTime
 wasmtime = { version = "0.30.0", default-features = false, features = [ "parallel-compilation", "cranelift" ], optional = true }
 # P2P framework
