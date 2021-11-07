@@ -1,8 +1,8 @@
 [package]
 name = "trinci-core"
-version = "0.2.1"
+version = "0.2.3-rc1"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
-edition = "2018"
+edition = "2021"
 description = "TRINCI Blockchain Core"
 keywords = ["trinci", "blockchain", "core"]
 
@@ -26,7 +26,7 @@ ed25519-dalek = "1.0.1"
 # Exonum MerkleDB
 merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy", "sodiumoxide-crypto" ], optional = true }
 # WasmTime
-wasmtime = { version = "0.30.0", default-features = false, features = [ "parallel-compilation", "cranelift" ], optional = true }
+wasmtime = { version = "0.31.0", default-features = false, features = [ "parallel-compilation", "cranelift" ], optional = true }
 # P2P framework
 libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub", "identify"], optional = true }
 # HTTP framework
