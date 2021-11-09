@@ -17,7 +17,10 @@
 
 use super::AppInput;
 use crate::{
-    base::serialize::{self, rmp_serialize},
+    base::{
+        schema::SmartContractEvent,
+        serialize::{self, rmp_serialize},
+    },
     crypto::Hash,
     db::*,
     wm::{
@@ -132,6 +135,25 @@ mod local_host_func {
         Ok(())
     }
 
+    /// Notification facility for wasm code.
+    fn emit(
+        mut caller: Caller<'_, CallContext>,
+        id_offset: i32,
+        id_size: i32,
+        data_offset: i32,
+        data_size: i32,
+    ) -> std::result::Result<(), Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, id_offset, id_size)?;
+        let id = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let data = slice_from(&mut caller, &mem, data_offset, data_size)?;
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        host_func::emit(ctx, id, &data);
+        Ok(())
+    }
     /// Load data from the account
     fn load_data(
         mut caller: Caller<'_, CallContext>,
@@ -289,6 +311,7 @@ mod local_host_func {
         for import in imports_list {
             let func = match import.name().unwrap_or_default() {
                 "hf_log" => Func::wrap(&mut store, log),
+                "hf_emit" => Func::wrap(&mut store, emit),
                 "hf_load_data" => Func::wrap(&mut store, load_data),
                 "hf_store_data" => Func::wrap(&mut store, store_data),
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
@@ -499,6 +522,7 @@ impl Wm for WmLocal {
         contract: Option<Hash>,
         method: &str,
         args: &[u8],
+        events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>> {
         let app_hash = app_hash_check(db, owner, contract)?;
 
@@ -511,6 +535,7 @@ impl Wm for WmLocal {
             depth,
             network,
             origin,
+            events,
         };
 
         // Allocate execution context (aka Store).
@@ -650,6 +675,7 @@ mod tests {
             &mut self,
             db: &mut T,
             data: &TransactionData,
+            events: &mut Vec<SmartContractEvent>,
         ) -> Result<Vec<u8>> {
             self.call(
                 db,
@@ -661,6 +687,7 @@ mod tests {
                 data.contract,
                 data.method.as_str(),
                 &data.args,
+                events,
             )
         }
     }
@@ -747,7 +774,8 @@ mod tests {
         let data = create_test_data_transfer();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let mut events = Vec::new();
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, value!(null));
@@ -759,7 +787,8 @@ mod tests {
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let mut events = Vec::new();
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -770,9 +799,12 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data_balance();
         let mut db = create_test_db();
-        vm.exec_transaction(&mut db, &data).unwrap();
+        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let mut events = Vec::new();
+
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -784,8 +816,11 @@ mod tests {
         let args = value!({});
         let data = create_test_data("inexistent", args);
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::SmartContractFault);
         assert_eq!(
@@ -801,8 +836,11 @@ mod tests {
         data.contract = Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap());
         data.account = "NotExistingTestId".to_string();
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
         assert_eq!(
@@ -827,8 +865,9 @@ mod tests {
             },
         });
         let data = create_test_data("echo_generic", input.clone());
+        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -850,8 +889,9 @@ mod tests {
             },
         });
         let data = create_test_data("echo_typed", input.clone());
+        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -865,13 +905,48 @@ mod tests {
             "name": "Davide"
         });
         let data = create_test_data("echo_typed", input);
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         assert_eq!(
             err.to_string_full(),
             "smart contract fault: deserialization failure"
         );
+    }
+
+    #[test]
+    fn notify() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide",
+            "surname": "Galassi",
+
+        });
+        let data = create_test_data("notify", input.clone());
+        let mut events = Vec::new();
+
+        let _ = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+
+        assert_eq!(events.len(), 2);
+        let event = events.get(0).unwrap();
+
+        assert_eq!(event.name, data.caller.to_account_id());
+        let buf = event.data.as_ref().unwrap();
+        let event_data: Value = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, input);
+
+        let event = events.get(1).unwrap();
+
+        assert_eq!(event.name, data.caller.to_account_id());
+        let buf = event.data.as_ref().unwrap();
+        let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, vec![1u8, 2, 3]);
     }
 
     #[test]
@@ -882,8 +957,9 @@ mod tests {
             "name": "Davide"
         });
         let data = create_test_data("nested_call", input.clone());
+        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -894,8 +970,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_data_divide_by_zero();
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -907,8 +986,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("trigger_panic", value!(null));
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -920,8 +1002,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("exhaust_memory", value!(null));
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("range").next().unwrap();
@@ -933,8 +1018,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("infinite_recursion", value!(true));
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("exhausted").next().unwrap();
@@ -952,8 +1040,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("infinite_loop", value!(null));
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("access").next().unwrap();
@@ -965,8 +1056,11 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("null_pointer_indirection", value!(null));
         let mut db = create_test_db();
+        let mut events = Vec::new();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm
+            .exec_transaction(&mut db, &data, &mut events)
+            .unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
