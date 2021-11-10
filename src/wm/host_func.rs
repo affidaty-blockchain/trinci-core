@@ -17,7 +17,13 @@
 
 //! Generic host functions implementations.
 
-use crate::{crypto::PublicKey, db::DbFork, wm::Wm, Account, Error, ErrorKind, Result};
+use crate::{
+    base::schema::SmartContractEvent,
+    crypto::{Hash, PublicKey},
+    db::DbFork,
+    wm::Wm,
+    Account, Error, ErrorKind, Result,
+};
 
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
@@ -35,11 +41,25 @@ pub struct CallContext<'a> {
     pub network: &'a str,
     /// Original transaction submitter (from Tx)
     pub origin: &'a str,
+    /// Smart contracts events
+    pub events: &'a mut Vec<SmartContractEvent>,
 }
 
 /// WASM logging facility.
 pub fn log(ctx: &CallContext, msg: &str) {
     debug!("{}: {}", ctx.owner, msg);
+}
+
+/// WASM notification facility.
+pub fn emit(ctx: &mut CallContext, caller: &str, method: &str, data: &[u8]) {
+    ctx.events.push(SmartContractEvent {
+        account: ctx.owner.to_string(),
+        caller: caller.to_string(),
+        origin: ctx.origin.to_string(),
+        method: method.to_string(),
+        tx_ticket: Hash::default(),
+        data: data.to_vec(),
+    });
 }
 
 /// Load the data struct from the DB
@@ -99,6 +119,7 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
             None,
             method,
             data,
+            ctx.events,
         ),
         None => Err(Error::new_ext(
             ErrorKind::WasmMachineFault,
@@ -144,7 +165,16 @@ mod tests {
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
         wm.expect_call().returning(
-            |_db, _depth, _network, _origin, _owner, _caller, _app_hash, _method, _args| Ok(vec![]),
+            |_db,
+             _depth,
+             _network,
+             _origin,
+             _owner,
+             _caller,
+             _app_hash,
+             _method,
+             _args,
+             _events| Ok(vec![]),
         );
         wm
     }
@@ -163,6 +193,7 @@ mod tests {
         wm: MockWm,
         db: MockDbFork,
         owner: String,
+        events: Vec<SmartContractEvent>,
     }
 
     impl TestData {
@@ -171,6 +202,7 @@ mod tests {
                 wm: create_wm_mock(),
                 db: create_fork_mock(),
                 owner: account_id(0),
+                events: Vec::new(),
             }
         }
 
@@ -183,6 +215,7 @@ mod tests {
                 depth: 0,
                 network: "skynet",
                 origin: &self.owner,
+                events: &mut self.events,
             }
         }
     }
