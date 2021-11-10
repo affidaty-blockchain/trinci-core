@@ -151,7 +151,7 @@ mod local_host_func {
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
-        host_func::emit(ctx, id, &data);
+        host_func::emit(ctx, id, data);
         Ok(())
     }
     /// Load data from the account

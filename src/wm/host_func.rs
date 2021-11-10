@@ -112,7 +112,7 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
             None,
             method,
             data,
-            &mut ctx.events,
+            ctx.events,
         ),
         None => Err(Error::new_ext(
             ErrorKind::WasmMachineFault,
