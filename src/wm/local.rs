@@ -938,8 +938,6 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
-        let data_buf = serialize::rmp_serialize(&data).unwrap();
-
         assert_eq!(event.method, data.method);
         assert_eq!(event.account, data.account);
         assert_eq!(event.caller, data.caller.to_account_id());
