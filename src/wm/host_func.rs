@@ -18,8 +18,11 @@
 //! Generic host functions implementations.
 
 use crate::{
-    base::schema::SmartContractEvent, crypto::PublicKey, db::DbFork, wm::Wm, Account, Error,
-    ErrorKind, Result,
+    base::schema::SmartContractEvent,
+    crypto::{Hash, PublicKey},
+    db::DbFork,
+    wm::Wm,
+    Account, Error, ErrorKind, Result,
 };
 
 /// Data required to perform contract persistent actions.
@@ -48,10 +51,14 @@ pub fn log(ctx: &CallContext, msg: &str) {
 }
 
 /// WASM notification facility.
-pub fn emit(ctx: &mut CallContext, id: &str, data: &[u8]) {
+pub fn emit(ctx: &mut CallContext, caller: &str, method: &str, data: &[u8]) {
     ctx.events.push(SmartContractEvent {
-        name: id.to_string(),
-        data: Some(data.to_vec()),
+        account: ctx.owner.to_string(),
+        caller: caller.to_string(),
+        origin: ctx.origin.to_string(),
+        method: method.to_string(),
+        tx_ticket: Hash::default(),
+        data: data.to_vec(),
     });
 }
 

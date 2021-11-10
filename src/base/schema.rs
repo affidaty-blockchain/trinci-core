@@ -80,8 +80,18 @@ impl TransactionData {
 /// Events risen by the smart contract execution
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SmartContractEvent {
-    pub name: String,
-    pub data: Option<Vec<u8>>, // FIXME Remove the option (empty data will be an empty vector)
+    /// The account we were operating on
+    pub account: String,
+    /// Direct Caller
+    pub caller: String,
+    /// Origin Caller
+    pub origin: String,
+    /// Method name
+    pub method: String,
+    /// Transaction identifier
+    pub tx_ticket: Hash,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
 }
 
 /// Transaction execution receipt.
@@ -98,7 +108,8 @@ pub struct Receipt {
     // Follows contract specific result data.
     #[serde(with = "serde_bytes")]
     pub returns: Vec<u8>,
-
+    /// Optional Vector of smart contract events
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<SmartContractEvent>>,
 }
 

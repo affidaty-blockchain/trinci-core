@@ -138,20 +138,24 @@ mod local_host_func {
     /// Notification facility for wasm code.
     fn emit(
         mut caller: Caller<'_, CallContext>,
-        id_offset: i32,
-        id_size: i32,
+        caller_id_offset: i32,
+        caller_id_size: i32,
+        method_offset: i32,
+        method_size: i32,
         data_offset: i32,
         data_size: i32,
     ) -> std::result::Result<(), Trap> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
-        let buf = slice_from(&mut caller, &mem, id_offset, id_size)?;
-        let id = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let buf = slice_from(&mut caller, &mem, caller_id_offset, caller_id_size)?;
+        let caller_id = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
+        let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
         let data = slice_from(&mut caller, &mem, data_offset, data_size)?;
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
-        host_func::emit(ctx, id, data);
+        host_func::emit(ctx, caller_id, method, data);
         Ok(())
     }
     /// Load data from the account
@@ -934,16 +938,18 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
-        assert_eq!(event.name, data.caller.to_account_id());
-        let buf = event.data.as_ref().unwrap();
+        assert_eq!(event.method, data.method);
+        assert_eq!(event.account, data.account);
+        assert_eq!(event.caller, data.caller.to_account_id());
+        let buf = &event.data;
         let event_data: Value = rmp_deserialize(buf).unwrap();
 
         assert_eq!(event_data, input);
 
         let event = events.get(1).unwrap();
 
-        assert_eq!(event.name, data.caller.to_account_id());
-        let buf = event.data.as_ref().unwrap();
+        assert_eq!(event.origin, data.caller.to_account_id());
+        let buf = &event.data;
         let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
 
         assert_eq!(event_data, vec![1u8, 2, 3]);
