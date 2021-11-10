@@ -105,7 +105,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
             &data.args,
             &mut events,
         );
-        // TODO: read events
+        events
+            .iter_mut()
+            .for_each(|e| e.tx_ticket = tx.primary_hash());
+
         let events = if events.is_empty() {
             None
         } else {
@@ -115,6 +118,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         if result.is_err() {
             fork.rollback();
         }
+        // TODO: Send smart contract events to channel subscrivers in case of success.
 
         // On error, receipt data shall contain the full error description
         // only if error kind is a SmartContractFailure. This is to prevent

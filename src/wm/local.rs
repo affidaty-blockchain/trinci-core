@@ -938,9 +938,12 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
+        let data_buf = serialize::rmp_serialize(&data).unwrap();
+
         assert_eq!(event.method, data.method);
         assert_eq!(event.account, data.account);
         assert_eq!(event.caller, data.caller.to_account_id());
+
         let buf = &event.data;
         let event_data: Value = rmp_deserialize(buf).unwrap();
 
@@ -949,6 +952,7 @@ mod tests {
         let event = events.get(1).unwrap();
 
         assert_eq!(event.origin, data.caller.to_account_id());
+
         let buf = &event.data;
         let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
 
