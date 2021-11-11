@@ -820,10 +820,9 @@ mod tests {
         let args = value!({});
         let data = create_test_data("inexistent", args);
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::SmartContractFault);
@@ -840,10 +839,9 @@ mod tests {
         data.contract = Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap());
         data.account = "NotExistingTestId".to_string();
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
@@ -909,10 +907,9 @@ mod tests {
             "name": "Davide"
         });
         let data = create_test_data("echo_typed", input);
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         assert_eq!(
@@ -978,10 +975,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_data_divide_by_zero();
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();
@@ -994,10 +990,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("trigger_panic", value!(null));
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();
@@ -1010,10 +1005,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("exhaust_memory", value!(null));
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();
@@ -1026,10 +1020,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("infinite_recursion", value!(true));
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();
@@ -1048,10 +1041,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("infinite_loop", value!(null));
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();
@@ -1064,10 +1056,9 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data("null_pointer_indirection", value!(null));
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
         let err = vm
-            .exec_transaction(&mut db, &data, &mut events)
+            .exec_transaction(&mut db, &data, &mut Vec::new())
             .unwrap_err();
 
         let err_str = err.to_string_full();

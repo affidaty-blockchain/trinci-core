@@ -127,7 +127,7 @@ pub enum Message {
     /// Get the contracts events.
     #[serde(rename = "13")]
     GetContractEvent {
-        /// `Block` structure.
+        /// `Event` structure.
         event: SmartContractEvent,
     },
 
