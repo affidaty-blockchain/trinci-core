@@ -43,7 +43,7 @@ serde-value = { git = "https://github.com/affidaty-blockchain/serde-value", bran
 ureq = { version = "2.1.1", default-features = false }
 
 [features]
-default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge", "tpm2"]
+default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
 with-rocksdb = [ "merkledb" ]
 with-wasmtime = [ "wasmtime" ]
 p2p = [ "libp2p" ]
