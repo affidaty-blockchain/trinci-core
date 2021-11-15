@@ -128,7 +128,7 @@ pub enum Message {
     GetCoreStatsRequest,
     /// Get core stats respinse.
     #[serde(rename = "14")]
-    GetCoreStatsResponse((Hash, usize, Option<Block>)) ,
+    GetCoreStatsResponse((Hash, usize, Option<Block>)),
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,

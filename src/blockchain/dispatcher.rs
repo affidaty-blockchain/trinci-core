@@ -42,7 +42,7 @@ use crate::{
         pubsub::{Event, PubSub},
         BlockConfig,
     },
-    crypto::{Hash, Hashable, HashAlgorithm},
+    crypto::{Hash, HashAlgorithm, Hashable},
     db::Db,
     Block, Error, ErrorKind, Result, Transaction,
 };
@@ -253,7 +253,7 @@ impl<D: Db> Dispatcher<D> {
         let last_block = self.db.read().load_block(u64::MAX);
         Message::GetCoreStatsResponse((hash_pool, len_pool, last_block))
     }
-    
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
