@@ -42,7 +42,7 @@ use crate::{
         pubsub::{Event, PubSub},
         BlockConfig,
     },
-    crypto::{Hash, Hashable},
+    crypto::{Hash, Hashable, HashAlgorithm},
     db::Db,
     Block, Error, ErrorKind, Result, Transaction,
 };
@@ -240,6 +240,20 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
+    fn get_stats_handler(&self) -> Message {
+        // the turbofish (<Vec<_>>) thanks to _ makes te compiler infre the type
+        let hash_pool = self
+            .pool
+            .read()
+            .unconfirmed
+            .iter()
+            .collect::<Vec<_>>()
+            .hash(HashAlgorithm::Sha256);
+        let len_pool = self.pool.read().unconfirmed.len();
+        let last_block = self.db.read().load_block(u64::MAX);
+        Message::GetCoreStatsResponse((hash_pool, len_pool, last_block))
+    }
+    
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -317,6 +331,10 @@ impl<D: Db> Dispatcher<D> {
             }
             Message::GetAccountRequest { id, data } => {
                 let res = self.get_account_handler(id, data);
+                Some(res)
+            }
+            Message::GetCoreStatsRequest => {
+                let res = self.get_stats_handler();
                 Some(res)
             }
             Message::Subscribe { id, events } => {
@@ -542,5 +560,18 @@ mod tests {
             "expected anonymous serialization format",
         );
         assert_eq!(res, Message::Exception(err));
+    }
+
+    #[test]
+    fn test_get_core_stast() {
+        let dispatcher = create_dispatcher(false);
+        let req = Message::GetCoreStatsRequest;
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        match res {
+            Message::GetCoreStatsResponse(info) => println!("{:?}", info),
+            _ => panic!("Unexepcted response"),
+        }
     }
 }
