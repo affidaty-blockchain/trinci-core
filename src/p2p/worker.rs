@@ -62,6 +62,7 @@ fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
 pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     let keypair = match &config.p2p_keypair {
         Some(keypair) => {
+            info!("[p2p] Using given keypair from Node");
             let mut bytes = keypair.to_bytes();
             let ed25519_keypair = libp2p::identity::ed25519::Keypair::decode(&mut bytes).unwrap();
             libp2p::identity::Keypair::Ed25519(ed25519_keypair)
