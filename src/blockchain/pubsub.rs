@@ -38,10 +38,12 @@ bitflags::bitflags! {
         const BLOCK = 1 << 1;
         /// Any unsolicited request from the blockchain.
         const REQUEST = 1 << 2;
+        /// Contracts events
+        const CONTRACT_EVENTS = 1 << 3;
     }
 }
 
-const EVENTS_NUM: usize = 3;
+const EVENTS_NUM: usize = 4;
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -226,13 +228,14 @@ mod tests {
 
         pubsub.subscribe(
             "foo".to_string(),
-            Event::BLOCK | Event::TRANSACTION,
+            Event::BLOCK | Event::TRANSACTION | Event::CONTRACT_EVENTS,
             0,
             sender,
         );
 
         assert!(pubsub.has_subscribers(Event::BLOCK));
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
+        assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
     }
 
     #[test]
@@ -241,7 +244,7 @@ mod tests {
         let (sender, _) = channel::simple_channel();
         pubsub.subscribe(
             "foo".to_string(),
-            Event::BLOCK | Event::TRANSACTION,
+            Event::BLOCK | Event::TRANSACTION | Event::CONTRACT_EVENTS,
             0,
             sender,
         );
@@ -250,6 +253,7 @@ mod tests {
 
         assert!(!pubsub.has_subscribers(Event::BLOCK));
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
+        assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
     }
 
     fn receiver_mock(chan: BlockResponseReceiver) {
@@ -282,7 +286,7 @@ mod tests {
 
         handle.join().unwrap();
         // The subscriber is still in the subscriber list.
-        // Removal is lazy and is eventually performed on the next briadcast invocation.
+        // Removal is lazy and is eventually performed on the next broadcast invocation.
         assert!(pubsub.has_subscribers(Event::BLOCK));
         pubsub.publish(Event::BLOCK, msg);
         assert!(!pubsub.has_subscribers(Event::BLOCK));

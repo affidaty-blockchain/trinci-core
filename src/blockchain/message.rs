@@ -20,7 +20,7 @@
 //! "MessagePack" format.
 use super::Event;
 use crate::{
-    base::{Account, Block, Receipt, Transaction},
+    base::{schema::SmartContractEvent, Account, Block, Receipt, Transaction},
     channel,
     crypto::Hash,
     Error,
@@ -123,6 +123,14 @@ pub enum Message {
         /// Account data
         data: Vec<Option<Vec<u8>>>,
     },
+
+    /// Get the contracts events.
+    #[serde(rename = "13")]
+    GetContractEvent {
+        /// `Event` structure.
+        event: SmartContractEvent,
+    },
+
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
@@ -165,7 +173,7 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::tests::create_test_tx,
+            schema::tests::{create_test_contract_event, create_test_tx},
             serialize::{rmp_deserialize, rmp_serialize},
         },
         error::ErrorKind,
@@ -183,6 +191,8 @@ mod tests {
     const GET_TRANSACTION_REQ_HEX: &str =
         "92a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9";
     const GET_TRANSACTION_RES_HEX: &str = "92a1369299ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+    const GET_CONTRACTS_EVENTS_HEX: &str = "92a2313396ae7461726765745f6163636f756e74ae63616c6c65725f6163636f756e74ae6f726967696e5f6163636f756e74ab636f6f6c5f6d6574686f64c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aec403010203";
+
     const PACKED_HEX: &str = "92a3323535c42792a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9";
 
     fn exception_msg() -> Message {
@@ -225,6 +235,12 @@ mod tests {
     fn get_transaction_res_msg() -> Message {
         Message::GetTransactionResponse {
             tx: create_test_tx(),
+        }
+    }
+
+    fn get_contract_events_msg() -> Message {
+        Message::GetContractEvent {
+            event: create_test_contract_event(),
         }
     }
 
@@ -370,6 +386,24 @@ mod tests {
         let msg: Message = rmp_deserialize(&buf).unwrap();
 
         assert_eq!(msg, get_transaction_res_msg());
+    }
+
+    #[test]
+    fn get_contracts_events_serialize() {
+        let msg = get_contract_events_msg();
+
+        let buf = rmp_serialize(&msg).unwrap();
+
+        assert_eq!(hex::encode(&buf), GET_CONTRACTS_EVENTS_HEX);
+    }
+
+    #[test]
+    fn get_contracts_events_deserialize() {
+        let buf = hex::decode(GET_CONTRACTS_EVENTS_HEX).unwrap();
+
+        let msg: Message = rmp_deserialize(&buf).unwrap();
+
+        assert_eq!(msg, get_contract_events_msg());
     }
 
     #[test]
