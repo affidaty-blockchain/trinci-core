@@ -679,6 +679,14 @@ mod tests {
             &mut self,
             db: &mut T,
             data: &TransactionData,
+        ) -> Result<Vec<u8>> {
+            self.exec_transaction_with_events(db, data, &mut Vec::new())
+        }
+
+        fn exec_transaction_with_events<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
         ) -> Result<Vec<u8>> {
             self.call(
@@ -778,8 +786,7 @@ mod tests {
         let data = create_test_data_transfer();
         let mut db = create_test_db();
 
-        let mut events = Vec::new();
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, value!(null));
@@ -791,8 +798,7 @@ mod tests {
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
-        let mut events = Vec::new();
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -803,12 +809,10 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data_balance();
         let mut db = create_test_db();
-        let mut events = Vec::new();
 
-        vm.exec_transaction(&mut db, &data, &mut events).unwrap();
-        let mut events = Vec::new();
+        vm.exec_transaction(&mut db, &data).unwrap();
 
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -821,9 +825,7 @@ mod tests {
         let data = create_test_data("inexistent", args);
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::SmartContractFault);
         assert_eq!(
@@ -840,9 +842,7 @@ mod tests {
         data.account = "NotExistingTestId".to_string();
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
         assert_eq!(
@@ -867,9 +867,8 @@ mod tests {
             },
         });
         let data = create_test_data("echo_generic", input.clone());
-        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -891,9 +890,8 @@ mod tests {
             },
         });
         let data = create_test_data("echo_typed", input.clone());
-        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -908,9 +906,7 @@ mod tests {
         });
         let data = create_test_data("echo_typed", input);
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         assert_eq!(
             err.to_string_full(),
@@ -930,7 +926,9 @@ mod tests {
         let data = create_test_data("notify", input.clone());
         let mut events = Vec::new();
 
-        let _ = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let _ = vm
+            .exec_transaction_with_events(&mut db, &data, &mut events)
+            .unwrap();
 
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
@@ -962,9 +960,8 @@ mod tests {
             "name": "Davide"
         });
         let data = create_test_data("nested_call", input.clone());
-        let mut events = Vec::new();
 
-        let buf = vm.exec_transaction(&mut db, &data, &mut events).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -976,9 +973,7 @@ mod tests {
         let data = create_data_divide_by_zero();
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -991,9 +986,7 @@ mod tests {
         let data = create_test_data("trigger_panic", value!(null));
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -1006,9 +999,7 @@ mod tests {
         let data = create_test_data("exhaust_memory", value!(null));
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("range").next().unwrap();
@@ -1021,9 +1012,7 @@ mod tests {
         let data = create_test_data("infinite_recursion", value!(true));
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("exhausted").next().unwrap();
@@ -1031,6 +1020,39 @@ mod tests {
             err_str,
             "wasm machine fault: wasm trap: call stack exhausted"
         );
+    }
+
+    #[test]
+    fn get_random_sequence() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_random_sequence", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        assert_eq!(
+            vec![
+                147, 206, 21, 0, 11, 52, 206, 76, 128, 38, 222, 207, 0, 10, 128, 0, 76, 130, 188,
+                60
+            ],
+            output
+        );
+    }
+
+    #[test]
+    fn get_hashmap() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_hashmap", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let input = vec![
+            131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
+            51, 205, 3, 21,
+        ];
+
+        assert_eq!(input, output);
     }
 
     // Need to be handle with an interrupt_handle
@@ -1042,9 +1064,7 @@ mod tests {
         let data = create_test_data("infinite_loop", value!(null));
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("access").next().unwrap();
@@ -1057,9 +1077,7 @@ mod tests {
         let data = create_test_data("null_pointer_indirection", value!(null));
         let mut db = create_test_db();
 
-        let err = vm
-            .exec_transaction(&mut db, &data, &mut Vec::new())
-            .unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
