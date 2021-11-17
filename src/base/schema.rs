@@ -76,6 +76,23 @@ impl TransactionData {
     }
 }
 
+/// Events risen by the smart contract execution
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct SmartContractEvent {
+    /// The account we were operating on
+    pub account: String,
+    /// Direct Caller
+    pub caller: String,
+    /// Origin Caller
+    pub origin: String,
+    /// Method name
+    pub method: String,
+    /// Transaction identifier
+    pub tx_ticket: Hash,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
 /// Transaction execution receipt.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Receipt {
@@ -90,6 +107,9 @@ pub struct Receipt {
     // Follows contract specific result data.
     #[serde(with = "serde_bytes")]
     pub returns: Vec<u8>,
+    /// Optional Vector of smart contract events
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<SmartContractEvent>>,
 }
 
 /// Block structure.
@@ -192,9 +212,9 @@ pub mod tests {
     const TRANSACTION_HEX: &str = "9299ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
     const TRANSACTION_SIGN: &str = "cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
 
-    const RECEIPT_HEX: &str = "950309cd03e7c3c40a4f706171756544617461";
+    const RECEIPT_HEX: &str = "960309cd03e7c3c40a4f70617175654461746190";
     const RECEIPT_HASH_HEX: &str =
-        "12207efb756d35020774f2762f825b0a7f21526389a20122cae07e18dc07c9bb2c99";
+        "12202da9df047846a2c30866388c0650a1b126c421f4f3b55bea254edc1b4281cac3";
 
     const BLOCK_HEX: &str = "960103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
     const BLOCK_HASH_HEX: &str =
@@ -202,6 +222,8 @@ pub mod tests {
 
     const ACCOUNT_CONTRACT_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c422122087b6239079719fc7e4349ec54baac9e04c20c48cf0c6a9d2b29b0ccf7c31c727c0";
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
+
+    const CONTRACT_EVENT_HEX: &str = "96ae7461726765745f6163636f756e74ae63616c6c65725f6163636f756e74ae6f726967696e5f6163636f756e74ab636f6f6c5f6d6574686f64c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aec403010203";
 
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
@@ -235,6 +257,20 @@ pub mod tests {
         }
     }
 
+    pub fn create_test_contract_event() -> SmartContractEvent {
+        SmartContractEvent {
+            account: "target_account".to_string(),
+            caller: "caller_account".to_string(),
+            origin: "origin_account".to_string(),
+            method: "cool_method".to_string(),
+            tx_ticket: Hash::from_hex(
+                "12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+            )
+            .unwrap(),
+            data: vec![1, 2, 3],
+        }
+    }
+
     pub fn create_test_receipt() -> Receipt {
         // Opaque information returned by the smart contract.
         let returns = hex::decode("4f706171756544617461").unwrap();
@@ -244,6 +280,7 @@ pub mod tests {
             burned_fuel: 999,
             success: true,
             returns,
+            events: Some(Vec::new()),
         }
     }
 
@@ -405,6 +442,25 @@ pub mod tests {
         let hash = receipt.primary_hash();
 
         assert_eq!(RECEIPT_HASH_HEX, hex::encode(hash));
+    }
+
+    #[test]
+    fn contract_event_serialize() {
+        let event = create_test_contract_event();
+
+        let buf = event.serialize();
+
+        assert_eq!(hex::encode(buf), CONTRACT_EVENT_HEX);
+    }
+
+    #[test]
+    fn contract_event_deserialize() {
+        let expected = create_test_contract_event();
+        let buf = hex::decode(CONTRACT_EVENT_HEX).unwrap();
+
+        let event = SmartContractEvent::deserialize(&buf).unwrap();
+
+        assert_eq!(event, expected);
     }
 
     #[test]

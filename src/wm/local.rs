@@ -17,7 +17,10 @@
 
 use super::AppInput;
 use crate::{
-    base::serialize::{self, rmp_serialize},
+    base::{
+        schema::SmartContractEvent,
+        serialize::{self, rmp_serialize},
+    },
     crypto::Hash,
     db::*,
     wm::{
@@ -132,6 +135,29 @@ mod local_host_func {
         Ok(())
     }
 
+    /// Notification facility for wasm code.
+    fn emit(
+        mut caller: Caller<'_, CallContext>,
+        caller_id_offset: i32,
+        caller_id_size: i32,
+        method_offset: i32,
+        method_size: i32,
+        data_offset: i32,
+        data_size: i32,
+    ) -> std::result::Result<(), Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, caller_id_offset, caller_id_size)?;
+        let caller_id = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
+        let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let data = slice_from(&mut caller, &mem, data_offset, data_size)?;
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        host_func::emit(ctx, caller_id, method, data);
+        Ok(())
+    }
     /// Load data from the account
     fn load_data(
         mut caller: Caller<'_, CallContext>,
@@ -289,6 +315,7 @@ mod local_host_func {
         for import in imports_list {
             let func = match import.name().unwrap_or_default() {
                 "hf_log" => Func::wrap(&mut store, log),
+                "hf_emit" => Func::wrap(&mut store, emit),
                 "hf_load_data" => Func::wrap(&mut store, load_data),
                 "hf_store_data" => Func::wrap(&mut store, store_data),
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
@@ -499,6 +526,7 @@ impl Wm for WmLocal {
         contract: Option<Hash>,
         method: &str,
         args: &[u8],
+        events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>> {
         let app_hash = app_hash_check(db, owner, contract)?;
 
@@ -511,6 +539,7 @@ impl Wm for WmLocal {
             depth,
             network,
             origin,
+            events,
         };
 
         // Allocate execution context (aka Store).
@@ -651,6 +680,15 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
         ) -> Result<Vec<u8>> {
+            self.exec_transaction_with_events(db, data, &mut Vec::new())
+        }
+
+        fn exec_transaction_with_events<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            data: &TransactionData,
+            events: &mut Vec<SmartContractEvent>,
+        ) -> Result<Vec<u8>> {
             self.call(
                 db,
                 0,
@@ -661,6 +699,7 @@ mod tests {
                 data.contract,
                 data.method.as_str(),
                 &data.args,
+                events,
             )
         }
     }
@@ -770,6 +809,7 @@ mod tests {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let data = create_test_data_balance();
         let mut db = create_test_db();
+
         vm.exec_transaction(&mut db, &data).unwrap();
 
         let buf = vm.exec_transaction(&mut db, &data).unwrap();
@@ -875,6 +915,44 @@ mod tests {
     }
 
     #[test]
+    fn notify() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide",
+            "surname": "Galassi",
+
+        });
+        let data = create_test_data("notify", input.clone());
+        let mut events = Vec::new();
+
+        let _ = vm
+            .exec_transaction_with_events(&mut db, &data, &mut events)
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        let event = events.get(0).unwrap();
+
+        assert_eq!(event.method, data.method);
+        assert_eq!(event.account, data.account);
+        assert_eq!(event.caller, data.caller.to_account_id());
+
+        let buf = &event.data;
+        let event_data: Value = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, input);
+
+        let event = events.get(1).unwrap();
+
+        assert_eq!(event.origin, data.caller.to_account_id());
+
+        let buf = &event.data;
+        let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, vec![1u8, 2, 3]);
+    }
+
+    #[test]
     fn nested_call() {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let mut db = create_test_db();
@@ -942,6 +1020,39 @@ mod tests {
             err_str,
             "wasm machine fault: wasm trap: call stack exhausted"
         );
+    }
+
+    #[test]
+    fn get_random_sequence() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_random_sequence", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        assert_eq!(
+            vec![
+                147, 206, 21, 0, 11, 52, 206, 76, 128, 38, 222, 207, 0, 10, 128, 0, 76, 130, 188,
+                60
+            ],
+            output
+        );
+    }
+
+    #[test]
+    fn get_hashmap() {
+        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let data = create_test_data("get_hashmap", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let input = vec![
+            131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
+            51, 205, 3, 21,
+        ];
+
+        assert_eq!(input, output);
     }
 
     // Need to be handle with an interrupt_handle

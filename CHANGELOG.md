@@ -34,7 +34,8 @@ Changed
 
 * Upgrade to Rust 2021
 * Bump "wasmtime" from v0.30 to v0.31.
-
+* Added smartcontract events to tx receipt
+* Added smartcontracts events subscription
 
 0.2.2 - 05-11-2021
 ------------------

@@ -30,7 +30,7 @@ use super::{
     pubsub::{Event, PubSub},
 };
 use crate::{
-    base::{Mutex, RwLock},
+    base::{schema::SmartContractEvent, Mutex, RwLock},
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
@@ -92,6 +92,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let data = &tx.data;
 
         fork.flush();
+        let mut events: Vec<SmartContractEvent> = vec![];
         let result = self.wm.lock().call(
             fork,
             0,
@@ -102,10 +103,30 @@ impl<D: Db, W: Wm> Executor<D, W> {
             data.contract,
             &data.method,
             &data.args,
+            &mut events,
         );
+        events
+            .iter_mut()
+            .for_each(|e| e.tx_ticket = tx.data.primary_hash());
+
         if result.is_err() {
             fork.rollback();
+        } else if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+            events.iter().for_each(|event| {
+                // Notify subscribers about contract events
+                let msg = Message::GetContractEvent {
+                    event: event.clone(),
+                };
+
+                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+            });
         }
+
+        let events = if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        };
 
         // On error, receipt data shall contain the full error description
         // only if error kind is a SmartContractFailure. This is to prevent
@@ -129,6 +150,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             index: index as u32,
             success,
             returns,
+            events,
         }
     }
 
@@ -344,7 +366,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _| {
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {

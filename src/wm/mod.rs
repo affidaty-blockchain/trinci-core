@@ -20,7 +20,7 @@
 //! The module provides a generic WM trait plus a local implementation
 //! using wasmtime.
 
-use crate::{crypto::Hash, db::DbFork, Result};
+use crate::{base::schema::SmartContractEvent, crypto::Hash, db::DbFork, Result};
 
 pub mod host_func;
 #[cfg(feature = "with-wasmtime")]
@@ -49,6 +49,7 @@ pub trait Wm: Send + 'static {
         contract: Option<Hash>,
         method: &str,
         args: &[u8],
+        events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>>;
 }
 
