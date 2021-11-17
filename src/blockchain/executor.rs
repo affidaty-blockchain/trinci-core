@@ -107,18 +107,26 @@ impl<D: Db, W: Wm> Executor<D, W> {
         );
         events
             .iter_mut()
-            .for_each(|e| e.tx_ticket = tx.primary_hash());
+            .for_each(|e| e.tx_ticket = tx.data.primary_hash());
+
+        if result.is_err() {
+            fork.rollback();
+        } else if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+            events.iter().for_each(|event| {
+                // Notify subscribers about contract events
+                let msg = Message::GetContractEvent {
+                    event: event.clone(),
+                };
+
+                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+            });
+        }
 
         let events = if events.is_empty() {
             None
         } else {
             Some(events)
         };
-
-        if result.is_err() {
-            fork.rollback();
-        }
-        // TODO: Send smart contract events to channel subscrivers in case of success.
 
         // On error, receipt data shall contain the full error description
         // only if error kind is a SmartContractFailure. This is to prevent
