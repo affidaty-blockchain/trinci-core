@@ -209,15 +209,15 @@ mod local_host_func {
         let data;
         let data_buf;
 
-        let output = if &pattern[pattern.len() - 1..] == "*" {
+        let output = if pattern.is_empty() || &pattern[pattern.len() - 1..] != "*" {
             AppOutput {
                 success: false,
-                data: "last char of search pattern bust be '*'".as_bytes(),
+                data: "last char of search pattern must be '*'".as_bytes(),
             }
         } else {
             // Recover execution context.
             let ctx = caller.data_mut();
-            data = host_func::get_keys(ctx, &pattern[..pattern.len() - 2]);
+            data = host_func::get_keys(ctx, &pattern[..pattern.len() - 1]);
             data_buf = rmp_serialize(&data).unwrap_or_default();
             AppOutput {
                 success: true,

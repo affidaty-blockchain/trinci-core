@@ -81,12 +81,12 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
 
 /// Get the account keys that match with the key_pattern provided
 /// key must end with a wildcard `*`
-pub fn get_keys(ctx: &mut CallContext, patter: &str) -> Vec<String> {
+pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
     ctx.db
         .load_account_keys(ctx.owner)
         .iter()
         .cloned()
-        .filter(|s| s.starts_with(patter))
+        .filter(|s| pattern.is_empty() || s.starts_with(pattern))
         .collect()
 }
 
