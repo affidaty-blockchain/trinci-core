@@ -33,6 +33,7 @@
 //!   In case of messages that are not supposed to send out a real response
 use crate::{
     base::{
+        schema::TransactionDataType,
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
@@ -88,13 +89,15 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
-        tx.data.verify(&tx.data.caller, &tx.signature)?;
+        let TransactionDataType::Tx1(tx_data) = &tx.data;
+
+        tx.data.verify(&tx_data.caller, &tx.signature)?;
 
         let hash = tx.data.primary_hash();
         debug!("Received transaction: {}", hex::encode(hash));
 
         // Check the network.
-        if self.config.network != tx.data.network {
+        if self.config.network != tx_data.network {
             return Err(ErrorKind::BadNetwork.into());
         }
 
@@ -355,7 +358,8 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const TX_DATA_HASH_HEX: &str =
-        "1220a1626da0acb6d0ac8b6d10db846ae7c25cef0cb77c6355e7e128e91414364a4f";
+        // "1220a1626da0acb6d0ac8b6d10db846ae7c25cef0cb77c6355e7e128e91414364a4f";
+        "12207ed29f1dce6e6c5d887e46f32c94d6cebf37df183de2e7842f7c43a0e1b4c290";
 
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
         let pool = Arc::new(RwLock::new(Pool::default()));

@@ -30,7 +30,10 @@ use super::{
     pubsub::{Event, PubSub},
 };
 use crate::{
-    base::{schema::SmartContractEvent, Mutex, RwLock},
+    base::{
+        schema::{SmartContractEvent, TransactionDataType},
+        Mutex, RwLock,
+    },
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
@@ -89,20 +92,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
     ) -> Receipt {
-        let data = &tx.data;
+        let TransactionDataType::Tx1(tx_data) = &tx.data;
 
         fork.flush();
         let mut events: Vec<SmartContractEvent> = vec![];
         let result = self.wm.lock().call(
             fork,
             0,
-            &data.network,
-            &data.caller.to_account_id(),
-            &data.account,
-            &data.caller.to_account_id(),
-            data.contract,
-            &data.method,
-            &data.args,
+            &tx_data.network,
+            &tx_data.caller.to_account_id(),
+            &tx_data.account,
+            &tx_data.caller.to_account_id(),
+            tx_data.contract,
+            &tx_data.method,
+            &tx_data.args,
             &mut events,
         );
         events
