@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{blockchain::BlockRequestSender, p2p::worker};
+use crate::{blockchain::BlockRequestSender, crypto::ed25519::KeyPair, p2p::worker};
 //use libp2p::identity::Keypair;
 use std::{
     sync::Arc,
@@ -32,6 +32,8 @@ pub struct PeerConfig {
     pub network: String,
     /// Bootstrap address.
     pub bootstrap_addr: Option<String>,
+    /// keypair for p2p interaction
+    pub p2p_keypair: Option<KeyPair>,
 }
 
 /// Peer2Peer service data.
