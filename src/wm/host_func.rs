@@ -85,6 +85,17 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
     ctx.data_updated = true;
 }
 
+/// Get the account keys that match with the key_pattern provided
+/// key must end with a wildcard `*`
+pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
+    ctx.db
+        .load_account_keys(ctx.owner)
+        .iter()
+        .cloned()
+        .filter(|s| pattern.is_empty() || s.starts_with(pattern))
+        .collect()
+}
+
 /// Returns an account asset field for a given `asset_id`
 pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     match ctx.db.load_account(account_id) {

@@ -316,6 +316,11 @@ impl DbFork for RocksDbFork {
     fn rollback(&mut self) {
         self.0.rollback();
     }
+
+    fn load_account_keys(&self, id: &str) -> Vec<String> {
+        let map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map((ACCOUNTS, id));
+        map.keys().collect()
+    }
 }
 
 #[cfg(test)]
@@ -448,6 +453,27 @@ mod tests {
         assert_eq!(
             db.load_account_data(ACCOUNT_ID1, "data2"),
             Some(vec![4, 5, 6])
+        );
+    }
+
+    #[test]
+    fn get_account_keys() {
+        let mut db = TempDb::new();
+        let mut fork = db.fork_create();
+
+        fork.store_account_data(ACCOUNT_ID1, "data1", vec![1, 2, 3]);
+        fork.store_account_data(ACCOUNT_ID1, "data2", vec![1, 2, 3]);
+        fork.store_account_data(ACCOUNT_ID1, "data3", vec![1, 2, 3]);
+
+        let res = fork.load_account_keys(ACCOUNT_ID1);
+
+        assert_eq!(
+            res,
+            vec![
+                "data1".to_string(),
+                "data2".to_string(),
+                "data3".to_string()
+            ]
         );
     }
 

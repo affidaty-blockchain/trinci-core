@@ -88,6 +88,9 @@ pub trait DbFork: 'static {
     /// Remove data associated to the given account `id`.
     fn remove_account_data(&mut self, id: &str, key: &str);
 
+    /// Load full keys list associated to the account data.
+    fn load_account_keys(&self, id: &str) -> Vec<String>;
+
     /// Store transaction using transaction hash as the key.
     fn store_transaction(&mut self, hash: &Hash, tx: Transaction);
 

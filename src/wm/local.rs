@@ -158,6 +158,7 @@ mod local_host_func {
         host_func::emit(ctx, caller_id, method, data);
         Ok(())
     }
+
     /// Load data from the account
     fn load_data(
         mut caller: Caller<'_, CallContext>,
@@ -193,6 +194,40 @@ mod local_host_func {
         // Invoke portable host fuction
         host_func::store_data(ctx, key, data);
         Ok(())
+    }
+
+    /// Get the data keys from the account that match with the pattern
+    fn get_keys(
+        mut caller: Caller<'_, CallContext>,
+        pattern_offset: i32,
+        pattern_size: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, pattern_offset, pattern_size)?;
+        let pattern = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let data;
+        let data_buf;
+
+        let output = if pattern.is_empty() || &pattern[pattern.len() - 1..] != "*" {
+            AppOutput {
+                success: false,
+                data: "last char of search pattern must be '*'".as_bytes(),
+            }
+        } else {
+            // Recover execution context.
+            let ctx = caller.data_mut();
+            data = host_func::get_keys(ctx, &pattern[..pattern.len() - 1]);
+            data_buf = rmp_serialize(&data).unwrap_or_default();
+            AppOutput {
+                success: true,
+                data: &data_buf,
+            }
+        };
+
+        let buf = rmp_serialize(&output).unwrap_or_default();
+
+        return_buf(caller, mem, buf)
     }
 
     fn remove_data(
@@ -337,6 +372,7 @@ mod local_host_func {
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
                 "hf_load_asset" => Func::wrap(&mut store, load_asset),
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
+                "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
