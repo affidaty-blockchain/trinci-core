@@ -16,7 +16,6 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 //! Generic host functions implementations.
-
 use crate::{
     base::schema::SmartContractEvent,
     crypto::{Hash, PublicKey},
@@ -24,6 +23,7 @@ use crate::{
     wm::Wm,
     Account, Error, ErrorKind, Result,
 };
+use ring::digest;
 
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
@@ -48,6 +48,12 @@ pub struct CallContext<'a> {
 /// WASM logging facility.
 pub fn log(ctx: &CallContext, msg: &str) {
     debug!("{}: {}", ctx.owner, msg);
+}
+
+/// Compute Sha256 from given bytes
+pub fn sha256(_ctx: &CallContext, data: Vec<u8>) -> Vec<u8> {
+    let digest = digest::digest(&digest::SHA256, &data);
+    digest.as_ref().to_vec()
 }
 
 /// WASM notification facility.
@@ -263,6 +269,21 @@ mod tests {
         let res = verify(&ctx, &keypair.public_key(), &data, &sig);
 
         assert_eq!(res, 1);
+    }
+
+    #[test]
+    fn sha256_success() {
+        let mut ctx = prepare_env();
+        let ctx = ctx.as_wm_context();
+        let hash = sha256(&ctx, vec![0xfa, 0xfb, 0xfc]);
+        assert_eq!(
+            hash,
+            [
+                0x31, 0x46, 0x44, 0x50, 0xce, 0xd0, 0xcf, 0x9f, 0x47, 0x4c, 0x43, 0x55, 0x32, 0x80,
+                0xf4, 0x16, 0xd3, 0x89, 0x3f, 0x7e, 0x14, 0x4c, 0xce, 0x7d, 0x5b, 0x46, 0x2d, 0xc0,
+                0xe5, 0xd6, 0xe4, 0x98
+            ]
+        );
     }
 
     #[test]
