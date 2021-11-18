@@ -123,14 +123,18 @@ pub enum Message {
         /// Account data
         data: Vec<Option<Vec<u8>>>,
     },
-
-    /// Get the contracts events.
+    /// Get core stats requets.
     #[serde(rename = "13")]
+    GetCoreStatsRequest,
+    /// Get core stats respinse.
+    #[serde(rename = "14")]
+    GetCoreStatsResponse((Hash, usize, Option<Block>)),
+    /// Get the contracts events.
+    #[serde(rename = "15")]
     GetContractEvent {
         /// `Event` structure.
         event: SmartContractEvent,
     },
-
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,

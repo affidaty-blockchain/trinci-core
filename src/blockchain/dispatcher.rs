@@ -42,7 +42,7 @@ use crate::{
         pubsub::{Event, PubSub},
         BlockConfig,
     },
-    crypto::{Hash, Hashable},
+    crypto::{Hash, HashAlgorithm, Hashable},
     db::Db,
     Block, Error, ErrorKind, Result, Transaction,
 };
@@ -240,6 +240,20 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
+    fn get_stats_handler(&self) -> Message {
+        // the turbofish (<Vec<_>>) thanks to _ makes te compiler infre the type
+        let hash_pool = self
+            .pool
+            .read()
+            .unconfirmed
+            .iter()
+            .collect::<Vec<_>>()
+            .hash(HashAlgorithm::Sha256);
+        let len_pool = self.pool.read().unconfirmed.len();
+        let last_block = self.db.read().load_block(u64::MAX);
+        Message::GetCoreStatsResponse((hash_pool, len_pool, last_block))
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -319,6 +333,10 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_account_handler(id, data);
                 Some(res)
             }
+            Message::GetCoreStatsRequest => {
+                let res = self.get_stats_handler();
+                Some(res)
+            }
             Message::Subscribe { id, events } => {
                 self.pubsub
                     .lock()
@@ -355,7 +373,6 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const TX_DATA_HASH_HEX: &str =
-        // "1220a1626da0acb6d0ac8b6d10db846ae7c25cef0cb77c6355e7e128e91414364a4f";
         "12207ed29f1dce6e6c5d887e46f32c94d6cebf37df183de2e7842f7c43a0e1b4c290";
 
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
@@ -543,5 +560,18 @@ mod tests {
             "expected anonymous serialization format",
         );
         assert_eq!(res, Message::Exception(err));
+    }
+
+    #[test]
+    fn test_get_core_stast() {
+        let dispatcher = create_dispatcher(false);
+        let req = Message::GetCoreStatsRequest;
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        match res {
+            Message::GetCoreStatsResponse(info) => println!("{:?}", info),
+            _ => panic!("Unexepcted response"),
+        }
     }
 }

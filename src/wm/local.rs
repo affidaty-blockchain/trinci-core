@@ -304,6 +304,22 @@ mod local_host_func {
         return_buf(caller, mem, buf)
     }
 
+    /// Compute Sha256 from given bytes
+    fn sha256(
+        mut caller: Caller<'_, CallContext>,
+        data_offset: i32,
+        data_size: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let data = slice_from(&mut caller, &mem, data_offset, data_size)?.to_owned();
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host fuction
+        let hash = host_func::sha256(ctx, data);
+        return_buf(caller, mem, hash)
+    }
+
     /// Register the required host functions using the same order as the wasm imports list.
     pub(crate) fn host_functions_register(
         mut store: &mut Store<CallContext>,
@@ -323,6 +339,7 @@ mod local_host_func {
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),
+                "hf_sha256" => Func::wrap(&mut store, sha256),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
@@ -838,7 +855,6 @@ mod tests {
     fn load_not_existing_module() {
         let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
         let mut data = create_test_data_transfer();
-
         data.set_contract(Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()));
         data.set_account("NotExistingTestId".to_string());
         let mut db = create_test_db();

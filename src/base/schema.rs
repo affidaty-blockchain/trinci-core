@@ -49,7 +49,9 @@ pub struct TransactionData {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(tag = "type")]
 pub enum TransactionDataType {
+    #[serde(rename = "Schema_1")]
     Tx1(TransactionData),
 }
 

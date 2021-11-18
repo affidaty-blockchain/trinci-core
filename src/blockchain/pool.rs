@@ -71,7 +71,6 @@ pub mod tests {
         let mut tx_hashes = vec![];
         for i in 0..3 {
             let mut tx = create_test_tx();
-
             tx.data.set_nonce(vec![i as u8; 8]);
             let hash = tx.primary_hash();
             pool.txs.insert(hash, Some(tx));
