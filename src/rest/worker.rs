@@ -194,16 +194,13 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::{
-                tests::{
-                    create_test_account, create_test_block, create_test_receipt, create_test_tx,
-                },
-                TransactionDataType,
+            schema::tests::{
+                create_test_account, create_test_block, create_test_receipt, create_test_tx,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
         blockchain::BlockRequestReceiver,
-        channel, TransactionData,
+        channel,
     };
     use std::{
         io::Read,
@@ -215,18 +212,10 @@ mod tests {
     const HASH_HEX: &str = "1220ceb09a4dda3d8c0f900c75a6d826ae3296e31918e7b155b5dbe41d3d4f766aac";
     const ACCOUNT_ID: &str = "QmYHnEQLdf5h7KYbjFPuHSRk2SPgdXrJWFh5W696HPfq7i";
 
-    pub fn get_transaction_data(tx_data_type: &TransactionDataType) -> &TransactionData {
-        match tx_data_type {
-            TransactionDataType::Tx1(val) => val,
-        }
-    }
-
     fn msg_handler(req: Message) -> Message {
         match req {
             Message::PutTransactionRequest { confirm, tx } if confirm => {
-                let tx_data = get_transaction_data(&tx.data);
-
-                if tx.data.verify(&tx_data.caller, &tx.signature).is_err() {
+                if tx.data.verify(tx.data.get_caller(), &tx.signature).is_err() {
                     Message::Exception(Error::new(ErrorKind::InvalidSignature))
                 } else {
                     Message::PutTransactionResponse {

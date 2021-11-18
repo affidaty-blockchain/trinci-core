@@ -64,26 +64,15 @@ pub struct Pool {
 pub mod tests {
     use super::*;
     use crate::base::schema::tests::create_test_tx;
-    use crate::base::schema::TransactionDataType;
     use crate::crypto::Hashable;
-    use crate::TransactionData;
-
-    pub fn get_transaction_data_mut(
-        tx_data_type: &mut TransactionDataType,
-    ) -> &mut TransactionData {
-        match tx_data_type {
-            TransactionDataType::Tx1(val) => val,
-        }
-    }
 
     pub fn create_pool() -> Pool {
         let mut pool = Pool::default();
         let mut tx_hashes = vec![];
         for i in 0..3 {
             let mut tx = create_test_tx();
-            let tx_data = get_transaction_data_mut(&mut tx.data);
 
-            tx_data.nonce = vec![i as u8; 8];
+            tx.data.set_nonce(vec![i as u8; 8]);
             let hash = tx.primary_hash();
             pool.txs.insert(hash, Some(tx));
             tx_hashes.push(hash);

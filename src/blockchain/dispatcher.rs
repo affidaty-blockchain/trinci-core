@@ -33,7 +33,6 @@
 //!   In case of messages that are not supposed to send out a real response
 use crate::{
     base::{
-        schema::TransactionDataType,
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
@@ -89,15 +88,13 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
-        let TransactionDataType::Tx1(tx_data) = &tx.data;
-
-        tx.data.verify(&tx_data.caller, &tx.signature)?;
+        tx.data.verify(tx.data.get_caller(), &tx.signature)?;
 
         let hash = tx.data.primary_hash();
         debug!("Received transaction: {}", hex::encode(hash));
 
         // Check the network.
-        if self.config.network != tx_data.network {
+        if self.config.network != tx.data.get_network() {
             return Err(ErrorKind::BadNetwork.into());
         }
 

@@ -66,14 +66,61 @@ pub struct Transaction {
 impl TransactionDataType {
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match &self {
-            TransactionDataType::Tx1(tx) => tx.sign(keypair),
+            TransactionDataType::Tx1(tx_data) => tx_data.sign(keypair),
         }
     }
 
     /// Transaction data signature verification.
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match &self {
-            TransactionDataType::Tx1(tx) => tx.verify(public_key, sig),
+            TransactionDataType::Tx1(tx_data) => tx_data.verify(public_key, sig),
+        }
+    }
+
+    pub fn get_caller(&self) -> &PublicKey {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.caller,
+        }
+    }
+    pub fn get_network(&self) -> &str {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.network,
+        }
+    }
+    pub fn get_account(&self) -> &str {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.account,
+        }
+    }
+    pub fn get_method(&self) -> &str {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.method,
+        }
+    }
+    pub fn get_args(&self) -> &[u8] {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.args,
+        }
+    }
+    pub fn get_contract(&self) -> &Option<Hash> {
+        match &self {
+            TransactionDataType::Tx1(tx_data) => &tx_data.contract,
+        }
+    }
+
+    pub fn set_contract(&mut self, contract: Option<Hash>) {
+        match self {
+            TransactionDataType::Tx1(tx_data) => tx_data.contract = contract,
+        }
+    }
+    pub fn set_account(&mut self, account: String) {
+        match self {
+            TransactionDataType::Tx1(tx_data) => tx_data.account = account,
+        }
+    }
+    pub fn set_nonce(&mut self, nonce: Vec<u8>) {
+        match self {
+            TransactionDataType::Tx1(tx_data) => tx_data.nonce = nonce,
         }
     }
 }
@@ -339,12 +386,6 @@ pub mod tests {
         }
     }
 
-    pub fn get_transaction_data(tx_data_type: &TransactionDataType) -> &TransactionData {
-        match tx_data_type {
-            TransactionDataType::Tx1(val) => val,
-        }
-    }
-
     #[test]
     fn transaction_data_serialize() {
         let data = create_test_data();
@@ -388,7 +429,7 @@ pub mod tests {
     fn transaction_data_verify() {
         let tx = create_test_tx();
 
-        let caller = &get_transaction_data(&tx.data).caller;
+        let caller = tx.data.get_caller();
 
         let result = tx.data.verify(caller, &tx.signature);
 
