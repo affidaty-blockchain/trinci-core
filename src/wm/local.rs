@@ -673,10 +673,10 @@ impl Wm for WmLocal {
 mod tests {
     use super::*;
     use crate::{
-        base::{schema::TransactionDataType, serialize::rmp_serialize},
+        base::{schema::TransactionData, serialize::rmp_serialize},
         crypto::{sign::tests::create_test_public_key, HashAlgorithm},
         wm::*,
-        TransactionData,
+        TransactionDataV1,
     };
     use serde_value::{value, Value};
 
@@ -695,7 +695,7 @@ mod tests {
         fn exec_transaction<T: DbFork>(
             &mut self,
             db: &mut T,
-            data: &TransactionDataType,
+            data: &TransactionData,
         ) -> Result<Vec<u8>> {
             self.exec_transaction_with_events(db, data, &mut Vec::new())
         }
@@ -703,7 +703,7 @@ mod tests {
         fn exec_transaction_with_events<T: DbFork>(
             &mut self,
             db: &mut T,
-            data: &TransactionDataType,
+            data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
         ) -> Result<Vec<u8>> {
             self.call(
@@ -748,11 +748,11 @@ mod tests {
         db
     }
 
-    fn create_test_data(method: &str, args: Value) -> TransactionDataType {
+    fn create_test_data(method: &str, args: Value) -> TransactionData {
         let contract_hash = test_contract_hash();
         let public_key = create_test_public_key();
         let id = public_key.to_account_id();
-        TransactionDataType::Tx1(TransactionData {
+        TransactionData::V1(TransactionDataV1 {
             schema: "schema".to_string(),
             account: id,
             fuel_limit: 1000,
@@ -765,18 +765,18 @@ mod tests {
         })
     }
 
-    fn create_test_data_balance() -> TransactionDataType {
+    fn create_test_data_balance() -> TransactionData {
         create_test_data("balance", value!(null))
     }
 
-    fn create_data_divide_by_zero() -> TransactionDataType {
+    fn create_data_divide_by_zero() -> TransactionData {
         let args = value!({
             "zero": 0,
         });
         create_test_data("divide_by_zero", args)
     }
 
-    fn create_test_data_transfer() -> TransactionDataType {
+    fn create_test_data_transfer() -> TransactionData {
         let public_key = create_test_public_key();
         let from_id = public_key.to_account_id();
         let args = value!({
