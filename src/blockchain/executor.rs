@@ -30,11 +30,15 @@ use super::{
     pubsub::{Event, PubSub},
 };
 use crate::{
-    base::{schema::SmartContractEvent, Mutex, RwLock},
+    base::{
+        schema::{Block, SmartContractEvent},
+        serialize::rmp_serialize,
+        Mutex, RwLock,
+    },
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Block, Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
+    BlockData, Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
 };
 use std::sync::Arc;
 
@@ -211,7 +215,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
         // Construct a new block.
-        let block = Block::new(
+        let data = BlockData::new(
             height,
             txs_hashes.len() as u32,
             prev_hash,
@@ -219,6 +223,16 @@ impl<D: Db, W: Wm> Executor<D, W> {
             rxs_hash,
             fork.state_hash(""),
         );
+
+        let buf = rmp_serialize(&data)?;
+        let signature = self.keypair.sign(&buf)?;
+
+        let block = Block {
+            validator: self.keypair.public_key(),
+            data,
+            signature,
+        };
+
         let block_hash = block.primary_hash();
         if let Some(exp_hash) = exp_hash {
             if exp_hash != block_hash {
@@ -253,7 +267,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 .db
                 .read()
                 .load_block(u64::MAX)
-                .map(|blk| blk.height + 1)
+                .map(|blk| blk.data.height + 1)
                 .unwrap_or_default();
         }
         let pool = self.pool.read();
@@ -270,7 +284,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
     pub fn run(&mut self) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.primary_hash(), block.height + 1),
+            Some(block) => (block.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
 

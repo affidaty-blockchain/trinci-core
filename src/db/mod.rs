@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{crypto::Hash, error::*, Account, Block, Receipt, Transaction};
+use crate::{base::schema::Block, crypto::Hash, error::*, Account, Receipt, Transaction};
 #[cfg(test)]
 use mockall::automock;
 

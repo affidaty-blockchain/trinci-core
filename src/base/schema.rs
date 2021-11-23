@@ -115,6 +115,18 @@ pub struct Receipt {
 /// Block structure.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Block {
+    /// Block Validator public key
+    pub validator: PublicKey,
+    /// Block content
+    pub data: BlockData,
+    /// Block signature
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+/// Block Data structure.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BlockData {
     /// Index in the blockhain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
@@ -129,7 +141,7 @@ pub struct Block {
     pub state_hash: Hash,
 }
 
-impl Block {
+impl BlockData {
     /// Instance a new block structure.
     pub fn new(
         height: u64,
@@ -139,7 +151,7 @@ impl Block {
         rxs_hash: Hash,
         state_hash: Hash,
     ) -> Self {
-        Block {
+        BlockData {
             height,
             size,
             prev_hash,
@@ -195,7 +207,7 @@ impl Account {
 pub mod tests {
     use super::*;
     use crate::{
-        base::serialize::MessagePack,
+        base::serialize::{rmp_serialize, MessagePack},
         crypto::{
             ecdsa::tests::{ecdsa_secp384_test_keypair, ecdsa_secp384_test_public_key},
             Hashable,
@@ -308,13 +320,23 @@ pub mod tests {
         let state_hash =
             Hash::from_hex("122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d")
                 .unwrap();
-        Block {
+        let data = BlockData {
             height: 1,
             size: 3,
             prev_hash,
             txs_hash,
             rxs_hash: res_hash,
             state_hash,
+        };
+
+        let keypair = crate::crypto::sign::tests::create_test_keypair();
+        let buf = rmp_serialize(&data).unwrap();
+        let signature = keypair.sign(&buf).unwrap();
+
+        Block {
+            validator: keypair.public_key(),
+            data,
+            signature,
         }
     }
 
@@ -487,7 +509,7 @@ pub mod tests {
         let mut buf = hex::decode(BLOCK_HEX).unwrap();
         buf.pop(); // remove a byte to make it fail
 
-        let error = Block::deserialize(&buf).unwrap_err();
+        let error = BlockData::deserialize(&buf).unwrap_err();
 
         assert_eq!(error.kind, ErrorKind::MalformedData);
     }
