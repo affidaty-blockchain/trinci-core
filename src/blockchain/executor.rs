@@ -34,7 +34,7 @@ use crate::{
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Block, Error, ErrorKind, Receipt, Result, Transaction,
+    Block, Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
 };
 use std::sync::Arc;
 
@@ -50,6 +50,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     pubsub: Arc<Mutex<PubSub>>,
     /// Is validator
     validator: bool,
+    /// Node keypair
+    keypair: Arc<KeyPair>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -60,6 +62,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
             validator: self.validator,
+            keypair: self.keypair.clone(),
         }
     }
 }
@@ -72,6 +75,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         wm: Arc<Mutex<W>>,
         pubsub: Arc<Mutex<PubSub>>,
         validator: bool,
+        keypair: Arc<KeyPair>,
     ) -> Self {
         Executor {
             pool,
@@ -79,6 +83,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             wm,
             pubsub,
             validator,
+            keypair,
         }
     }
 
@@ -326,7 +331,9 @@ mod tests {
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
 
-        Executor::new(pool, db, wm, sub, true)
+        let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
+
+        Executor::new(pool, db, wm, sub, true, keypair)
     }
 
     fn create_db_mock(fail: bool) -> MockDb {

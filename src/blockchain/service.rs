@@ -24,6 +24,7 @@ use crate::{
     channel::confirmed_channel,
     db::Db,
     wm::Wm,
+    KeyPair,
 };
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -39,6 +40,8 @@ pub struct BlockConfig {
     pub timeout: u16,
     /// Blockchain network identifier.
     pub network: String,
+    /// Node KeyPair
+    pub keypair: Arc<KeyPair>,
 }
 
 /// Block service data.
@@ -149,6 +152,7 @@ mod tests {
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),
+            keypair: Arc::new(crate::crypto::sign::tests::create_test_keypair()),
         };
 
         BlockService::new(config, db, wm)

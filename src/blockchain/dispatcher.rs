@@ -384,6 +384,7 @@ mod tests {
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),
+            keypair: Arc::new(crate::crypto::sign::tests::create_test_keypair()),
         });
 
         Dispatcher::new(config, pool, db, pubsub)

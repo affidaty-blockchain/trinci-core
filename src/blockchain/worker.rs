@@ -77,6 +77,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             wm.clone(),
             pubsub.clone(),
             config.validator,
+            Arc::clone(&config.keypair),
         );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
