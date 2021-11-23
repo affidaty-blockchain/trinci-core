@@ -49,9 +49,9 @@ in case of the optional feature for the TPM2 module is enabled, the following de
 
 
 install the dependencies:
-```
-sudo apt-get install libtss2-dev
-```
+
+follow [this guide](https://github.com/tpm2-software/tpm2-tss/blob/master/INSTALL.md)
+
 
 ### Fedora/RHEL installation
 
