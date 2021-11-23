@@ -31,14 +31,14 @@ use super::{
 };
 use crate::{
     base::{
-        schema::{Block, SmartContractEvent},
+        schema::{Block, BlockData, SmartContractEvent},
         serialize::rmp_serialize,
         Mutex, RwLock,
     },
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    BlockData, Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
 };
 use std::sync::Arc;
 
@@ -216,6 +216,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Construct a new block.
         let data = BlockData::new(
+            self.keypair.public_key(),
             height,
             txs_hashes.len() as u32,
             prev_hash,
@@ -227,13 +228,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let buf = rmp_serialize(&data)?;
         let signature = self.keypair.sign(&buf)?;
 
-        let block = Block {
-            validator: self.keypair.public_key(),
-            data,
-            signature,
-        };
+        let block_hash = data.primary_hash();
 
-        let block_hash = block.primary_hash();
+        let block = Block { data, signature };
+
         if let Some(exp_hash) = exp_hash {
             if exp_hash != block_hash {
                 // Somethig has gone wrong.
@@ -337,7 +335,7 @@ mod tests {
         Error, ErrorKind,
     };
 
-    const BLOCK_HEX: &str = "960103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
+    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
 
     fn create_executor(db_fail: bool) -> Executor<MockDb, MockWm> {
         let pool = Arc::new(RwLock::new(create_pool()));
@@ -482,7 +480,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "12207ac9a4d3e58655000f2ad2ec9e66eb763066a6f82cc90aad41656939e566fca7"
+            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
         );
     }
 
