@@ -25,8 +25,8 @@ use std::collections::BTreeMap;
 
 /// Transaction payload.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct TransactionData {
-    /// Transaction schema version.
+pub struct TransactionDataV1 {
+    /// Transaction schema version (TODO: is this necessary?).
     pub schema: String,
     /// Target account identifier.
     pub account: String,
@@ -50,84 +50,84 @@ pub struct TransactionData {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(tag = "type")]
-pub enum TransactionDataType {
-    #[serde(rename = "Schema_1")]
-    Tx1(TransactionData),
+pub enum TransactionData {
+    #[serde(rename = "v1")]
+    V1(TransactionDataV1),
 }
 
 /// Signed transaction.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Transaction {
     /// Transaction payload.
-    pub data: TransactionDataType,
+    pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
 }
 
-impl TransactionDataType {
+impl TransactionData {
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match &self {
-            TransactionDataType::Tx1(tx_data) => tx_data.sign(keypair),
+            TransactionData::V1(tx_data) => tx_data.sign(keypair),
         }
     }
 
     /// Transaction data signature verification.
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match &self {
-            TransactionDataType::Tx1(tx_data) => tx_data.verify(public_key, sig),
+            TransactionData::V1(tx_data) => tx_data.verify(public_key, sig),
         }
     }
 
     pub fn get_caller(&self) -> &PublicKey {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.caller,
+            TransactionData::V1(tx_data) => &tx_data.caller,
         }
     }
     pub fn get_network(&self) -> &str {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.network,
+            TransactionData::V1(tx_data) => &tx_data.network,
         }
     }
     pub fn get_account(&self) -> &str {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.account,
+            TransactionData::V1(tx_data) => &tx_data.account,
         }
     }
     pub fn get_method(&self) -> &str {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.method,
+            TransactionData::V1(tx_data) => &tx_data.method,
         }
     }
     pub fn get_args(&self) -> &[u8] {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.args,
+            TransactionData::V1(tx_data) => &tx_data.args,
         }
     }
     pub fn get_contract(&self) -> &Option<Hash> {
         match &self {
-            TransactionDataType::Tx1(tx_data) => &tx_data.contract,
+            TransactionData::V1(tx_data) => &tx_data.contract,
         }
     }
 
     pub fn set_contract(&mut self, contract: Option<Hash>) {
         match self {
-            TransactionDataType::Tx1(tx_data) => tx_data.contract = contract,
+            TransactionData::V1(tx_data) => tx_data.contract = contract,
         }
     }
     pub fn set_account(&mut self, account: String) {
         match self {
-            TransactionDataType::Tx1(tx_data) => tx_data.account = account,
+            TransactionData::V1(tx_data) => tx_data.account = account,
         }
     }
     pub fn set_nonce(&mut self, nonce: Vec<u8>) {
         match self {
-            TransactionDataType::Tx1(tx_data) => tx_data.nonce = nonce,
+            TransactionData::V1(tx_data) => tx_data.nonce = nonce,
         }
     }
 }
 
-impl TransactionData {
+impl TransactionDataV1 {
     /// Sign transaction data.
     /// Serialization is performed using message pack format with named field.
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
@@ -297,7 +297,7 @@ pub mod tests {
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
 
-    fn create_test_data() -> TransactionDataType {
+    fn create_test_data() -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
         let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
@@ -306,7 +306,7 @@ pub mod tests {
             Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
                 .unwrap();
 
-        TransactionDataType::Tx1(TransactionData {
+        TransactionData::V1(TransactionDataV1 {
             schema: TRANSACTION_SCHEMA.to_owned(),
             account,
             fuel_limit: FUEL_LIMIT,
@@ -403,7 +403,7 @@ pub mod tests {
 
         let buf = hex::decode(TRANSACTION_DATA_HEX).unwrap();
 
-        let data = TransactionDataType::deserialize(&buf).unwrap();
+        let data = TransactionData::deserialize(&buf).unwrap();
 
         assert_eq!(expected, data);
     }
@@ -413,7 +413,7 @@ pub mod tests {
         let mut buf = hex::decode(TRANSACTION_DATA_HEX).unwrap();
         buf.pop(); // remove a byte to make it fail
 
-        let error = TransactionDataType::deserialize(&buf).unwrap_err();
+        let error = TransactionData::deserialize(&buf).unwrap_err();
 
         assert_eq!(error.kind, ErrorKind::MalformedData);
     }
