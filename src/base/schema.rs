@@ -48,14 +48,29 @@ pub struct TransactionData {
     pub args: Vec<u8>,
 }
 
-/// Signed transaction.
+/// Signed unit transaction.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Transaction {
+struct UnitTransaction {
     /// Transaction payload.
     pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
+    pub signature: Option<Vec<u8>>,
+}
+
+/// Signed bulk transaction.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+struct BulkTransaction {
+    /// Transaction payload.
+    pub txs: Vec<UnitTransaction>,
+    /// Data field signature verifiable using the `caller` within the `data`.
+    #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
+}
+
+pub enum Transaction {
+    Unit(UnitTransaction),
+    Bulk(BulkTransaction),
 }
 
 impl TransactionData {
