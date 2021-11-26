@@ -124,14 +124,21 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         self.tx_chan.clone()
     }
 
-    // Get a shared reference to the database.
+    /// Get a shared reference to the database.
     pub fn db_arc(&mut self) -> Arc<RwLock<D>> {
         self.db.clone()
     }
 
-    // Get a shared reference to the wasm machine.
+    /// Get a shared reference to the wasm machine.
     pub fn wm_arc(&mut self) -> Arc<Mutex<W>> {
         self.wm.clone()
+    }
+
+    pub fn set_block_config(&mut self, network: String, threshold: usize, timeout: u16) {
+        self.worker
+            .as_mut()
+            .unwrap()
+            .set_config(network, threshold, timeout);
     }
 }
 

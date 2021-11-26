@@ -37,7 +37,7 @@ use super::synchronizer::Synchronizer;
 
 pub struct BlockWorker<D: Db, W: Wm> {
     /// Blockchain service configuration.
-    config: Arc<BlockConfig>,
+    config: Arc<Mutex<BlockConfig>>,
     /// Database shared reference.
     db: Arc<RwLock<D>>,
     /// Wasm machine shared reference.
@@ -65,18 +65,18 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let pubsub = Arc::new(Mutex::new(PubSub::new()));
 
-        let config = Arc::new(config);
+        let config = Arc::new(Mutex::new(config));
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
         let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
-        let builder = Builder::new(config.threshold, pool.clone(), db.clone());
+        let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
             pool.clone(),
             db.clone(),
             wm.clone(),
             pubsub.clone(),
-            config.validator,
+            config.lock().validator,
         );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
@@ -97,6 +97,12 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             executing,
             synchronizing,
         }
+    }
+
+    pub fn set_config(&mut self, network: String, threshold: usize, timeout: u16) {
+        self.config.clone().lock().network = network;
+        self.config.clone().lock().threshold = threshold;
+        self.config.clone().lock().timeout = timeout;
     }
 
     fn try_build_block(&self, threshold: usize) {
@@ -158,15 +164,16 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
     pub async fn run(&mut self) {
-        let threshold = self.config.threshold;
-        let exec_timeout = self.config.timeout as u64;
-        let sync_timeout = 3 * self.config.timeout as u64;
+        let threshold = self.config.lock().threshold;
+        let exec_timeout = self.config.lock().timeout as u64;
+        let sync_timeout = 3 * self.config.lock().timeout as u64;
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             while exec_sleep.poll_unpin(cx).is_ready() {
-                if self.config.validator {
+                // FIXME here needs to check the SERVICE account to know if it is a validator node
+                if self.config.lock().validator {
                     self.try_build_block(1);
                 }
                 self.try_exec_block();
@@ -189,7 +196,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 }
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
-                if self.config.validator {
+                if self.config.lock().validator {
                     self.try_exec_block();
                     self.try_build_block(threshold);
                 }

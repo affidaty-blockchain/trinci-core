@@ -51,7 +51,7 @@ use std::sync::Arc;
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
     /// Blockchain configuration.
-    config: Arc<BlockConfig>,
+    config: Arc<Mutex<BlockConfig>>,
     /// Outstanding blocks and transactions.
     pool: Arc<RwLock<Pool>>,
     /// Instance of a type implementing Database trait.
@@ -74,7 +74,7 @@ impl<D: Db> Clone for Dispatcher<D> {
 impl<D: Db> Dispatcher<D> {
     /// Constructs a new dispatcher.
     pub fn new(
-        config: Arc<BlockConfig>,
+        config: Arc<Mutex<BlockConfig>>,
         pool: Arc<RwLock<Pool>>,
         db: Arc<RwLock<D>>,
         pubsub: Arc<Mutex<PubSub>>,
@@ -94,7 +94,7 @@ impl<D: Db> Dispatcher<D> {
         debug!("Received transaction: {}", hex::encode(hash));
 
         // Check the network.
-        if self.config.network != tx.data.network {
+        if self.config.lock().network != tx.data.network {
             return Err(ErrorKind::BadNetwork.into());
         }
 
@@ -379,12 +379,12 @@ mod tests {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let db = Arc::new(RwLock::new(create_db_mock(fail_condition)));
         let pubsub = Arc::new(Mutex::new(PubSub::default()));
-        let config = Arc::new(BlockConfig {
+        let config = Arc::new(Mutex::new(BlockConfig {
             validator: false,
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),
-        });
+        }));
 
         Dispatcher::new(config, pool, db, pubsub)
     }
