@@ -49,10 +49,18 @@ pub struct TransactionDataV1 {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct  TransactionDataVBulk1 {
+    pub schema: String,
+    pub txs: Vec<BulkElement>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum TransactionData {
     #[serde(rename = "v1")]
     V1(TransactionDataV1),
+    #[serde(rename = "vb1")]
+    VBulk1(TransactionDataVBulk1)
 }
 
 /// Signed transaction.
@@ -62,14 +70,26 @@ struct UnitTransaction {
     pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
-    pub signature: Option<Vec<u8>>,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+enum BulkElement {
+    BulkRootTx {
+        data: TransactionData,
+    },
+    BulkNodeTx {
+        data: TransactionData,
+        depends_on: BulkElement::BulkRootTx,
+        sign: Vec<u8>
+    },
 }
 
 /// Signed bulk transaction.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 struct BulkTransaction {
     /// Transaction payload.
-    pub txs: Vec<UnitTransaction>,
+    pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
