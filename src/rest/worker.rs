@@ -215,7 +215,7 @@ mod tests {
     fn msg_handler(req: Message) -> Message {
         match req {
             Message::PutTransactionRequest { confirm, tx } if confirm => {
-                if tx.data.verify(&tx.data.caller, &tx.signature).is_err() {
+                if tx.data.verify(tx.data.get_caller(), &tx.signature).is_err() {
                     Message::Exception(Error::new(ErrorKind::InvalidSignature))
                 } else {
                     Message::PutTransactionResponse {

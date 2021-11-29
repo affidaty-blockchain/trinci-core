@@ -597,7 +597,7 @@ mod tests {
         let a1 = Account::new("123", None);
         fork.store_account(a1.clone());
         let mut t1 = create_test_tx();
-        t1.data.nonce = vec![1];
+        t1.data.set_nonce(vec![1]);
         fork.store_transaction(&t1.primary_hash(), t1.clone());
 
         // Checkpoint.
@@ -610,7 +610,7 @@ mod tests {
         let a2 = Account::new("456", Some(h2));
         fork.store_account(a2.clone());
         let mut t2 = create_test_tx();
-        t2.data.nonce = vec![2];
+        t2.data.set_nonce(vec![2]);
         fork.store_transaction(&t2.primary_hash(), t2.clone());
 
         // Rollback
@@ -620,7 +620,7 @@ mod tests {
         let a3 = Account::new("789", None);
         fork.store_account(a3.clone());
         let mut t3 = create_test_tx();
-        t3.data.nonce = vec![3];
+        t3.data.set_nonce(vec![3]);
         fork.store_transaction(&t3.primary_hash(), t3.clone());
 
         // Merge

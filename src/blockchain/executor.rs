@@ -89,20 +89,22 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
     ) -> Receipt {
-        let data = &tx.data;
-
         fork.flush();
         let mut events: Vec<SmartContractEvent> = vec![];
+
+        // Todo: Here we can match the tx type (schema)
+        // EG if the tx is type `bulk` here we can execute the vector of tx that contains
+
         let result = self.wm.lock().call(
             fork,
             0,
-            &data.network,
-            &data.caller.to_account_id(),
-            &data.account,
-            &data.caller.to_account_id(),
-            data.contract,
-            &data.method,
-            &data.args,
+            tx.data.get_network(),
+            &tx.data.get_caller().to_account_id(),
+            tx.data.get_account(),
+            &tx.data.get_caller().to_account_id(),
+            *tx.data.get_contract(),
+            tx.data.get_method(),
+            tx.data.get_args(),
             &mut events,
         );
         events
