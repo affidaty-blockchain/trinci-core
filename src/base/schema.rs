@@ -18,7 +18,7 @@
 use crate::{
     base::serialize::MessagePack,
     crypto::{Hash, KeyPair, PublicKey},
-    ErrorKind, Result,
+    ErrorKind, Result, Error,
 };
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
@@ -48,62 +48,74 @@ pub struct TransactionDataV1 {
     pub args: Vec<u8>,
 }
 
+/// Transaction payload for bulk node tx.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct  TransactionDataVBulk1 {
+pub struct TransactionDataBulkNodeV1 {
+    /// Transaction schema version (TODO: is this necessary?).
     pub schema: String,
-    pub txs: Vec<BulkElement>,
+    /// Target account identifier.
+    pub account: String,
+    /// Max allowed blockchain asset units for fee.
+    pub fuel_limit: u64,
+    /// Nonce to differentiate different transactions with same payload.
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+    /// Network identifier.
+    pub network: String,
+    /// Expected smart contract application identifier.
+    pub contract: Option<Hash>,
+    /// Method name.
+    pub method: String,
+    /// Submitter public key.
+    pub caller: PublicKey,
+    /// Smart contract arguments.
+    #[serde(with = "serde_bytes")]
+    pub args: Vec<u8>,
+    /// It express the tx on which is dependant
+    // TODO: change transaction, check box if valid solution
+    pub depends_on: Box<Transaction>, 
 }
+
+/// Transaction payload for bulk tx.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct TransactionDataBulkV1 {
+    pub schema: String,
+    /// array of transactions
+    // TODO: change transaction value
+    pub txs: Vec<Transaction>,
+}
+
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum TransactionData {
     #[serde(rename = "v1")]
     V1(TransactionDataV1),
-    #[serde(rename = "vb1")]
-    VBulk1(TransactionDataVBulk1)
+    #[serde(rename = "bnv1")]
+    BulkNodeV1(TransactionDataBulkNodeV1),
+    #[serde(rename = "brv1")]
+    BulkRootV1(TransactionDataV1),
+    #[serde(rename = "bv1")]
+    BulkV1(TransactionDataBulkV1),
 }
 
 /// Signed transaction.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct UnitTransaction {
+pub struct Transaction {
     /// Transaction payload.
     pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum BulkElement {
-    BulkRootTx {
-        data: TransactionData,
-    },
-    BulkNodeTx {
-        data: TransactionData,
-        depends_on: BulkElement::BulkRootTx,
-        sign: Vec<u8>
-    },
-}
-
-/// Signed bulk transaction.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct BulkTransaction {
-    /// Transaction payload.
-    pub data: TransactionData,
-    /// Data field signature verifiable using the `caller` within the `data`.
-    #[serde(with = "serde_bytes")]
-    pub signature: Vec<u8>,
-}
-
-pub enum Transaction {
-    Unit(UnitTransaction),
-    Bulk(BulkTransaction),
 }
 
 impl TransactionData {
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match &self {
             TransactionData::V1(tx_data) => tx_data.sign(keypair),
+            TransactionData::BulkNodeV1(tx_data) => tx_data.sign(keypair),
+            TransactionData::BulkV1(tx_data) => tx_data.sign(keypair),
+            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "signature method not implemented for this tx data type")),
         }
     }
 
@@ -111,53 +123,83 @@ impl TransactionData {
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match &self {
             TransactionData::V1(tx_data) => tx_data.verify(public_key, sig),
+            TransactionData::BulkNodeV1(tx_data) => tx_data.verify(public_key, sig),
+            TransactionData::BulkV1(tx_data) => tx_data.verify(public_key, sig),
+            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "verify method not implemented for this tx data type")),
         }
     }
 
-    pub fn get_caller(&self) -> &PublicKey {
+    pub fn get_caller(&self) -> Result<&PublicKey> {
         match &self {
-            TransactionData::V1(tx_data) => &tx_data.caller,
+            TransactionData::V1(tx_data) => Ok(&tx_data.caller),
+            TransactionData::BulkNodeV1(tx_data) => Ok(&tx_data.caller),
+            TransactionData::BulkRootV1(tx_data) => Ok(&tx_data.caller),
+            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "caller field not implemented for this tx data type")),
         }
     }
     pub fn get_network(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.network,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn get_account(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.account,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn get_method(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.method,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn get_args(&self) -> &[u8] {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.args,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn get_contract(&self) -> &Option<Hash> {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.contract,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
 
     pub fn set_contract(&mut self, contract: Option<Hash>) {
         match self {
             TransactionData::V1(tx_data) => tx_data.contract = contract,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn set_account(&mut self, account: String) {
         match self {
             TransactionData::V1(tx_data) => tx_data.account = account,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
     pub fn set_nonce(&mut self, nonce: Vec<u8>) {
         match self {
             TransactionData::V1(tx_data) => tx_data.nonce = nonce,
+            TransactionData::BulkNodeV1(_) => todo!(),
+            TransactionData::BulkRootV1(_) => todo!(),
+            TransactionData::BulkV1(_) => todo!(),
         }
     }
 }
@@ -179,6 +221,43 @@ impl TransactionDataV1 {
         }
     }
 }
+
+impl TransactionDataBulkNodeV1 {
+    /// Sign transaction data.
+    /// Serialization is performed using message pack format with named field.
+    pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
+        let data = self.serialize();
+        keypair.sign(&data)
+    }
+
+    /// Transaction data signature verification.
+    pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
+        let data = self.serialize();
+        match public_key.verify(&data, sig) {
+            true => Ok(()),
+            false => Err(ErrorKind::InvalidSignature.into()),
+        }
+    }
+}
+
+impl TransactionDataBulkV1 {
+    /// Sign transaction data.
+    /// Serialization is performed using message pack format with named field.
+    pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
+        let data = self.serialize();
+        keypair.sign(&data)
+    }
+
+    /// Transaction data signature verification.
+    pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
+        let data = self.serialize();
+        match public_key.verify(&data, sig) {
+            true => Ok(()),
+            false => Err(ErrorKind::InvalidSignature.into()),
+        }
+    }
+}
+
 
 /// Events risen by the smart contract execution
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
