@@ -18,7 +18,7 @@
 use crate::{
     base::serialize::MessagePack,
     crypto::{Hash, KeyPair, PublicKey},
-    ErrorKind, Result, Error,
+    Error, ErrorKind, Result,
 };
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
@@ -73,7 +73,15 @@ pub struct TransactionDataBulkNodeV1 {
     pub args: Vec<u8>,
     /// It express the tx on which is dependant
     // TODO: change transaction, check box if valid solution
-    pub depends_on: Box<Transaction>, 
+    pub depends_on: Box<Transaction>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BullkTransactions {
+    // TODO: should be an unsigned
+    // is box right approach?
+    root: Box<Transaction>,
+    nodes: Vec<Transaction>,
 }
 
 /// Transaction payload for bulk tx.
@@ -82,9 +90,8 @@ pub struct TransactionDataBulkV1 {
     pub schema: String,
     /// array of transactions
     // TODO: change transaction value
-    pub txs: Vec<Transaction>,
+    txs: BullkTransactions,
 }
-
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(tag = "type")]
@@ -94,7 +101,7 @@ pub enum TransactionData {
     #[serde(rename = "bnv1")]
     BulkNodeV1(TransactionDataBulkNodeV1),
     #[serde(rename = "brv1")]
-    BulkRootV1(TransactionDataV1),
+    BulkUnsignedV1(TransactionDataV1),
     #[serde(rename = "bv1")]
     BulkV1(TransactionDataBulkV1),
 }
@@ -110,12 +117,16 @@ pub struct Transaction {
 }
 
 impl TransactionData {
+    /// Transaction data sign
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match &self {
             TransactionData::V1(tx_data) => tx_data.sign(keypair),
             TransactionData::BulkNodeV1(tx_data) => tx_data.sign(keypair),
             TransactionData::BulkV1(tx_data) => tx_data.sign(keypair),
-            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "signature method not implemented for this tx data type")),
+            _ => Err(Error::new_ext(
+                ErrorKind::NotImplemented,
+                "signature method not implemented for this tx data type",
+            )),
         }
     }
 
@@ -125,81 +136,83 @@ impl TransactionData {
             TransactionData::V1(tx_data) => tx_data.verify(public_key, sig),
             TransactionData::BulkNodeV1(tx_data) => tx_data.verify(public_key, sig),
             TransactionData::BulkV1(tx_data) => tx_data.verify(public_key, sig),
-            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "verify method not implemented for this tx data type")),
+            _ => Err(Error::new_ext(
+                ErrorKind::NotImplemented,
+                "verify method not implemented for this tx data type",
+            )),
         }
     }
 
-    pub fn get_caller(&self) -> Result<&PublicKey> {
+    pub fn get_caller(&self) -> &PublicKey {
         match &self {
-            TransactionData::V1(tx_data) => Ok(&tx_data.caller),
-            TransactionData::BulkNodeV1(tx_data) => Ok(&tx_data.caller),
-            TransactionData::BulkRootV1(tx_data) => Ok(&tx_data.caller),
-            _ => Err(Error::new_ext(ErrorKind::NotImplemented, "caller field not implemented for this tx data type")),
+            TransactionData::V1(tx_data) => &tx_data.caller,
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.caller,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.caller,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_caller(),
         }
     }
     pub fn get_network(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.network,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.network,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.network,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_network(),
         }
     }
     pub fn get_account(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.account,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.account,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.account,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_account(),
         }
     }
     pub fn get_method(&self) -> &str {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.method,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.method,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.method,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_method(),
         }
     }
     pub fn get_args(&self) -> &[u8] {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.args,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.args,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.args,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_args(),
         }
     }
     pub fn get_contract(&self) -> &Option<Hash> {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.contract,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => &tx_data.contract,
+            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.contract,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_contract(),
         }
     }
-
     pub fn set_contract(&mut self, contract: Option<Hash>) {
         match self {
             TransactionData::V1(tx_data) => tx_data.contract = contract,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => tx_data.contract = contract,
+            TransactionData::BulkUnsignedV1(tx_data) => tx_data.contract = contract,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_contract(contract),
         }
     }
     pub fn set_account(&mut self, account: String) {
         match self {
             TransactionData::V1(tx_data) => tx_data.account = account,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => tx_data.account = account,
+            TransactionData::BulkUnsignedV1(tx_data) => tx_data.account = account,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_account(account),
         }
     }
     pub fn set_nonce(&mut self, nonce: Vec<u8>) {
         match self {
             TransactionData::V1(tx_data) => tx_data.nonce = nonce,
-            TransactionData::BulkNodeV1(_) => todo!(),
-            TransactionData::BulkRootV1(_) => todo!(),
-            TransactionData::BulkV1(_) => todo!(),
+            TransactionData::BulkNodeV1(tx_data) => tx_data.nonce = nonce,
+            TransactionData::BulkUnsignedV1(tx_data) => tx_data.nonce = nonce,
+            TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_nonce(nonce),
         }
     }
 }
@@ -257,7 +270,6 @@ impl TransactionDataBulkV1 {
         }
     }
 }
-
 
 /// Events risen by the smart contract execution
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
