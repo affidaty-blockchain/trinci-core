@@ -107,7 +107,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         );
         events
             .iter_mut()
-            .for_each(|e| e.tx_ticket = tx.data.primary_hash());
+            .for_each(|e| e.event_tx = tx.data.primary_hash());
 
         if result.is_err() {
             fork.rollback();
