@@ -77,10 +77,11 @@ pub struct TransactionDataBulkNodeV1 {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct BullkTransactions {
+/// Set of transactions inside a bulk transaction
+pub struct BulkTransactions {
     // TODO: should be an unsigned
     // is box right approach?
-    root: Box<Transaction>,
+    root: Box<UnsignedTransaction>,
     nodes: Vec<Transaction>,
 }
 
@@ -90,7 +91,7 @@ pub struct TransactionDataBulkV1 {
     pub schema: String,
     /// array of transactions
     // TODO: change transaction value
-    txs: BullkTransactions,
+    txs: BulkTransactions,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -108,12 +109,39 @@ pub enum TransactionData {
 
 /// Signed transaction.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Transaction {
+pub struct SignedTransaction {
     /// Transaction payload.
     pub data: TransactionData,
     /// Data field signature verifiable using the `caller` within the `data`.
     #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
+}
+
+/// Unsigned Transaction
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UnsignedTransaction {
+    /// Transaction payload.
+    pub data: TransactionData,
+}
+
+/// Bulk Transaction
+// it might not be needed, just use signed transaction, where data == transaction data::bulkdata
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BulkTransaction {
+    /// Transaction payload.
+    pub data: TransactionData,
+    /// Data field signature verifiable using the `caller` within the `data`.
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+/// Enum for transaction types
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum Transaction {
+    /// Unit signed transaction
+    UnitTransaction(SignedTransaction),
+    /// Bulk transaction
+    BullkTransaction(BulkTransaction),
 }
 
 impl TransactionData {
@@ -447,10 +475,8 @@ pub mod tests {
 
     pub fn create_test_tx() -> Transaction {
         let signature = hex::decode(TRANSACTION_SIGN).unwrap();
-        Transaction {
-            data: create_test_data(),
-            signature,
-        }
+        // it creates a unit, TODO do one that create a bulk
+        Transaction::UnitTransaction(SignedTransaction { data: create_test_data(), signature }) 
     }
 
     pub fn create_test_contract_event() -> SmartContractEvent {
@@ -548,8 +574,15 @@ pub mod tests {
     fn transaction_data_hash() {
         let tx = create_test_tx();
 
-        let hash = tx.data.primary_hash();
-
+        let hash = match tx {
+            Transaction::UnitTransaction(tx) => {
+                tx.data.primary_hash()
+            },
+            Transaction::BullkTransaction(tx) => {
+                tx.data.primary_hash()
+            },
+        };
+        
         assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
     }
 
@@ -557,6 +590,14 @@ pub mod tests {
     fn transaction_data_verify() {
         let tx = create_test_tx();
 
+        let result = match tx {
+            Transaction::UnitTransaction(tx) => {
+
+            },
+            Transaction::BullkTransaction(tx) => {
+
+            },
+        };
         let caller = tx.data.get_caller();
 
         let result = tx.data.verify(caller, &tx.signature);
