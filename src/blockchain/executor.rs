@@ -41,7 +41,7 @@ use std::sync::Arc;
 /// Executor context data.
 pub(crate) struct Executor<D: Db, W: Wm> {
     /// Unconfirmed transactions pool
-    pool: Arc<RwLock<Pool>>,
+    pub pool: Arc<RwLock<Pool>>,
     /// Instance of a type implementing Database trait.
     db: Arc<RwLock<D>>,
     /// Instance of a type implementing Wasm Machine trait.

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::crypto::hash::Hashable;
 use crate::{
     base::{Mutex, RwLock},
     blockchain::{
@@ -23,6 +24,7 @@ use crate::{
     },
     db::Db,
     wm::Wm,
+    Transaction,
 };
 use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
@@ -99,13 +101,45 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         }
     }
 
+    /// Set the block configuration
     pub fn set_config(&mut self, network: String, threshold: usize, timeout: u16) {
         self.config.clone().lock().network = network;
         self.config.clone().lock().threshold = threshold;
         self.config.clone().lock().timeout = timeout;
+
+        self.builder.set_block_threshold(threshold);
+        self.dispatcher.set_block_timeout(timeout);
+    }
+
+    /// Insert transactions directly in the pool
+    pub fn put_txs(&mut self, txs: Vec<Transaction>) {
+        txs.iter().for_each(|tx| {
+            let hash = tx.data.primary_hash();
+            debug!("Received transaction: {}", hex::encode(hash));
+
+            // Check the network.
+            if self.config.lock().network != tx.data.network {
+                panic!();
+            }
+
+            // Check if already present in db.
+            if self.db.read().contains_transaction(&hash) {
+                panic!();
+            }
+
+            let mut pool = self.executor.pool.write();
+            match pool.txs.get_mut(&hash) {
+                None => {
+                    pool.txs.insert(hash, Some(tx.to_owned()));
+                    pool.unconfirmed.push(hash);
+                }
+                _ => panic!(),
+            }
+        });
     }
 
     fn try_build_block(&self, threshold: usize) {
+        error!("try_build_block threshold: {}", threshold); // FIXME
         if !self.builder.can_run(threshold) {
             return;
         }
@@ -167,12 +201,12 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let threshold = self.config.lock().threshold;
         let exec_timeout = self.config.lock().timeout as u64;
         let sync_timeout = 3 * self.config.lock().timeout as u64;
+
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             while exec_sleep.poll_unpin(cx).is_ready() {
-                // FIXME here needs to check the SERVICE account to know if it is a validator node
                 if self.config.lock().validator {
                     self.try_build_block(1);
                 }

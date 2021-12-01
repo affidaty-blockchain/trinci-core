@@ -87,6 +87,11 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
+    /// Set the block timeout
+    pub fn set_block_timeout(&mut self, block_timeout: u16) {
+        self.config.clone().lock().timeout = block_timeout;
+    }
+
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
         tx.data.verify(&tx.data.caller, &tx.signature)?;
 

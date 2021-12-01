@@ -24,6 +24,7 @@ use crate::{
     channel::confirmed_channel,
     db::Db,
     wm::Wm,
+    Transaction,
 };
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -134,11 +135,19 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         self.wm.clone()
     }
 
+    /// Set the block config
+    /// If this panics, it panics early at node boot. Not a big deal.
     pub fn set_block_config(&mut self, network: String, threshold: usize, timeout: u16) {
         self.worker
             .as_mut()
             .unwrap()
             .set_config(network, threshold, timeout);
+    }
+
+    /// Put transactions directly in the pool
+    /// If this panics, it panics early at node boot. Not a big deal.
+    pub fn put_txs(&mut self, txs: Vec<Transaction>) {
+        self.worker.as_mut().unwrap().put_txs(txs)
     }
 }
 

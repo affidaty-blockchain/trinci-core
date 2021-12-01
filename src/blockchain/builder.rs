@@ -61,6 +61,11 @@ impl<D: Db> Builder<D> {
         }
     }
 
+    /// Set the block threshold
+    pub fn set_block_threshold(&mut self, threshold: usize) {
+        self.threshold = threshold;
+    }
+
     /// Checks if a block can be produced using the given
     /// max-transactions-per-block threshold.
     pub fn can_run(&self, threshold: usize) -> bool {
