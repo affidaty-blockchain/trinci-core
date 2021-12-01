@@ -48,3 +48,5 @@ pub use message::{
 };
 pub use pubsub::Event;
 pub use service::{BlockConfig, BlockService};
+
+pub use worker::IsValidator;

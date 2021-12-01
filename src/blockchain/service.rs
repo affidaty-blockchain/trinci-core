@@ -17,7 +17,7 @@
 
 use super::{
     message::{BlockRequestSender, Message},
-    worker::BlockWorker,
+    worker::{BlockWorker, IsValidator},
 };
 use crate::{
     base::{Mutex, RwLock},
@@ -56,14 +56,22 @@ pub struct BlockService<D: Db, W: Wm> {
     wm: Arc<Mutex<W>>,
     /// To check if the worker thread is still alive.
     canary: Arc<()>,
+    /// Node Account Id
+    account_id: String,
 }
 
 impl<D: Db, W: Wm> BlockService<D, W> {
     /// Create a new blockchain service instance.
-    pub fn new(config: BlockConfig, db: D, wm: W) -> Self {
+    pub fn new(
+        account_id: &str,
+        worker_is_validator: impl IsValidator,
+        config: BlockConfig,
+        db: D,
+        wm: W,
+    ) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
-        let mut worker = BlockWorker::new(config, db, wm, rx_chan);
+        let mut worker = BlockWorker::new(worker_is_validator, config, db, wm, rx_chan);
         let db = worker.db_arc();
         let wm = worker.wm_arc();
 
@@ -74,6 +82,7 @@ impl<D: Db, W: Wm> BlockService<D, W> {
             db,
             wm,
             canary: Arc::new(()),
+            account_id: account_id.to_string(),
         }
     }
 
@@ -89,9 +98,10 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         };
 
         let mut canary = Arc::clone(&self.canary);
+        let account_id = self.account_id.clone();
         let handle = thread::spawn(move || {
             let _ = Arc::get_mut(&mut canary);
-            worker.run_sync();
+            worker.run_sync(&account_id);
             worker
         });
         self.handler = Some(handle);
@@ -112,6 +122,11 @@ impl<D: Db, W: Wm> BlockService<D, W> {
                 debug!("service was not running");
             }
         };
+    }
+
+    /// Set the Node Validator check
+    pub fn set_validator(&mut self, is_validator: impl IsValidator) {
+        self.worker.as_mut().unwrap().set_validator(is_validator)
     }
 
     /// Check if service is running.
@@ -156,6 +171,12 @@ mod tests {
     use super::*;
     use crate::{db::*, wm::*};
 
+    // All nodes are validator for the first block
+    // FIXME
+    fn is_validator_function() -> impl IsValidator {
+        move |_account_id| Ok(true)
+    }
+
     fn create_block_service() -> BlockService<MockDb, MockWm> {
         let wm = MockWm::new();
         let db = MockDb::new();
@@ -167,7 +188,9 @@ mod tests {
             network: "skynet".to_string(),
         };
 
-        BlockService::new(config, db, wm)
+        let is_validator = is_validator_function();
+
+        BlockService::new("MyAccount", is_validator, config, db, wm)
     }
 
     #[test]

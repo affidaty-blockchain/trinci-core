@@ -24,8 +24,9 @@ use crate::{
     },
     db::Db,
     wm::Wm,
-    Transaction,
+    Result, Transaction,
 };
+
 use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
 use futures::{future, prelude::*};
@@ -36,6 +37,11 @@ use std::{
 };
 
 use super::synchronizer::Synchronizer;
+
+/// Closure trait to load a wasm binary.
+pub trait IsValidator: FnMut(String) -> Result<bool> + Send + 'static {}
+
+impl<T: FnMut(String) -> Result<bool> + Send + 'static> IsValidator for T {}
 
 pub struct BlockWorker<D: Db, W: Wm> {
     /// Blockchain service configuration.
@@ -60,10 +66,18 @@ pub struct BlockWorker<D: Db, W: Wm> {
     executing: Arc<AtomicBool>,
     ///
     synchronizing: Arc<AtomicBool>,
+    /// Method to tell if the Node is validator
+    is_validator: Box<dyn IsValidator>,
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
-    pub fn new(config: BlockConfig, db: D, wm: W, rx_chan: BlockRequestReceiver) -> Self {
+    pub fn new(
+        is_validator: impl IsValidator,
+        config: BlockConfig,
+        db: D,
+        wm: W,
+        rx_chan: BlockRequestReceiver,
+    ) -> Self {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let pubsub = Arc::new(Mutex::new(PubSub::new()));
 
@@ -98,7 +112,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             building,
             executing,
             synchronizing,
+            is_validator: Box::new(is_validator),
         }
+    }
+
+    /// Set the Node Validator check
+    pub fn set_validator(&mut self, is_validator: impl IsValidator) {
+        self.is_validator = Box::new(is_validator);
     }
 
     /// Set the block configuration
@@ -197,7 +217,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, account_id: &str) {
         let threshold = self.config.lock().threshold;
         let exec_timeout = self.config.lock().timeout as u64;
         let sync_timeout = 3 * self.config.lock().timeout as u64;
@@ -206,8 +226,17 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+            let validator = (self.is_validator)(account_id.to_string()).unwrap(); // DOING
+
+            if validator {
+                error!("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvv"); // FIXME // DELETEME
+            } else {
+                error!("NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"); // FIXME // DELETEME
+            }
+
             while exec_sleep.poll_unpin(cx).is_ready() {
-                if self.config.lock().validator {
+                // if self.config.lock().validator {
+                if validator {
                     self.try_build_block(1);
                 }
                 self.try_exec_block();
@@ -230,7 +259,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 }
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
-                if self.config.lock().validator {
+                // if self.config.lock().validator {
+                if validator {
                     self.try_exec_block();
                     self.try_build_block(threshold);
                 }
@@ -243,8 +273,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     /// Blockchain worker synchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
-    pub fn run_sync(&mut self) {
-        task::block_on(self.run());
+    pub fn run_sync(&mut self, account_id: &str) {
+        task::block_on(self.run(account_id));
     }
 
     // Get a shared reference to the database.
