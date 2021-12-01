@@ -85,9 +85,6 @@ pub struct SmartContractEvent {
     /// The account that produced this event
     pub emitter_account: String,
 
-    // /// Hash of the smart contract associated with emitter account
-    // pub emitter_smart_contract: String,
-
     /// Arbitrary name given to this event
     pub event_name: String,
 
