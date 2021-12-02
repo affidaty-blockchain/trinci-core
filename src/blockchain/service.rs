@@ -124,11 +124,6 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         };
     }
 
-    /// Set the Node Validator check
-    pub fn set_validator(&mut self, is_validator: impl IsValidator) {
-        self.worker.as_mut().unwrap().set_validator(is_validator)
-    }
-
     /// Check if service is running.
     pub fn is_running(&self) -> bool {
         // Hack to intercept crashed subthreads.
@@ -157,6 +152,11 @@ impl<D: Db, W: Wm> BlockService<D, W> {
             .as_mut()
             .unwrap()
             .set_config(network, threshold, timeout);
+    }
+
+    /// Set the Node Validator check
+    pub fn set_validator(&mut self, is_validator: impl IsValidator) {
+        self.worker.as_mut().unwrap().set_validator(is_validator);
     }
 
     /// Put transactions directly in the pool

@@ -159,7 +159,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     }
 
     fn try_build_block(&self, threshold: usize) {
-        error!("try_build_block threshold: {}", threshold); // FIXME
         if !self.builder.can_run(threshold) {
             return;
         }
@@ -226,12 +225,12 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            let validator = (self.is_validator)(account_id.to_string()).unwrap(); // DOING
+            let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
 
             if validator {
-                error!("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVvvv"); // FIXME // DELETEME
+                error!("VALIDATOR TRUE"); // FIXME // DELETEME
             } else {
-                error!("NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"); // FIXME // DELETEME
+                error!("VALIDATOR FALSE"); // FIXME // DELETEME
             }
 
             while exec_sleep.poll_unpin(cx).is_ready() {
