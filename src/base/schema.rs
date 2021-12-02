@@ -302,18 +302,18 @@ impl TransactionDataBulkV1 {
 /// Events risen by the smart contract execution
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SmartContractEvent {
-    /// The account we were operating on
-    pub account: String,
-    /// Direct Caller
-    pub caller: String,
-    /// Origin Caller
-    pub origin: String,
-    /// Method name
-    pub method: String,
-    /// Transaction identifier
-    pub tx_ticket: Hash,
+    /// Identifier of the transaction that produced this event
+    pub event_tx: Hash,
+
+    /// The account that produced this event
+    pub emitter_account: String,
+
+    /// Arbitrary name given to this event
+    pub event_name: String,
+
+    /// Data emitted with this event
     #[serde(with = "serde_bytes")]
-    pub data: Vec<u8>,
+    pub event_data: Vec<u8>,
 }
 
 /// Transaction execution receipt.
@@ -446,7 +446,7 @@ pub mod tests {
     const ACCOUNT_CONTRACT_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c422122087b6239079719fc7e4349ec54baac9e04c20c48cf0c6a9d2b29b0ccf7c31c727c0";
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
 
-    const CONTRACT_EVENT_HEX: &str = "96ae7461726765745f6163636f756e74ae63616c6c65725f6163636f756e74ae6f726967696e5f6163636f756e74ab636f6f6c5f6d6574686f64c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aec403010203";
+    const CONTRACT_EVENT_HEX: &str = "94c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74ab636f6f6c5f6d6574686f64c403010203";
 
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
@@ -481,15 +481,13 @@ pub mod tests {
 
     pub fn create_test_contract_event() -> SmartContractEvent {
         SmartContractEvent {
-            account: "target_account".to_string(),
-            caller: "caller_account".to_string(),
-            origin: "origin_account".to_string(),
-            method: "cool_method".to_string(),
-            tx_ticket: Hash::from_hex(
+            event_tx: Hash::from_hex(
                 "12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
             )
             .unwrap(),
-            data: vec![1, 2, 3],
+            emitter_account: "origin_account".to_string(),
+            event_name: "cool_method".to_string(),
+            event_data: vec![1, 2, 3],
         }
     }
 

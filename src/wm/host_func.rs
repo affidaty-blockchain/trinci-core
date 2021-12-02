@@ -57,14 +57,14 @@ pub fn sha256(_ctx: &CallContext, data: Vec<u8>) -> Vec<u8> {
 }
 
 /// WASM notification facility.
-pub fn emit(ctx: &mut CallContext, caller: &str, method: &str, data: &[u8]) {
+pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
     ctx.events.push(SmartContractEvent {
-        account: ctx.owner.to_string(),
-        caller: caller.to_string(),
-        origin: ctx.origin.to_string(),
-        method: method.to_string(),
-        tx_ticket: Hash::default(),
-        data: data.to_vec(),
+        event_tx: Hash::default(),
+        emitter_account: ctx.owner.to_string(),
+        // TODO: add smart contract hash
+        // emitter_smart_contract:
+        event_name: event_name.to_string(),
+        event_data: event_data.to_vec(),
     });
 }
 
