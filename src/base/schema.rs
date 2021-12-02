@@ -51,7 +51,6 @@ pub struct TransactionDataV1 {
 /// Transaction payload for bulk node tx.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct TransactionDataBulkNodeV1 {
-    /// Transaction schema version (TODO: is this necessary?).
     pub schema: String,
     /// Target account identifier.
     pub account: String,
@@ -79,10 +78,9 @@ pub struct TransactionDataBulkNodeV1 {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 /// Set of transactions inside a bulk transaction
 pub struct BulkTransactions {
-    // TODO: should be an unsigned
     // is box right approach?
     root: Box<UnsignedTransaction>,
-    nodes: Vec<Transaction>,
+    nodes: Option<Vec<Transaction>>,
 }
 
 /// Transaction payload for bulk tx.
@@ -90,7 +88,6 @@ pub struct BulkTransactions {
 pub struct TransactionDataBulkV1 {
     pub schema: String,
     /// array of transactions
-    // TODO: change transaction value
     txs: BulkTransactions,
 }
 
@@ -102,7 +99,7 @@ pub enum TransactionData {
     #[serde(rename = "bnv1")]
     BulkNodeV1(TransactionDataBulkNodeV1),
     #[serde(rename = "brv1")]
-    BulkUnsignedV1(TransactionDataV1),
+    BulkRootV1(TransactionDataV1),
     #[serde(rename = "bv1")]
     BulkV1(TransactionDataBulkV1),
 }
@@ -175,7 +172,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.caller,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.caller,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.caller,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.caller,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_caller(),
         }
     }
@@ -183,7 +180,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.network,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.network,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.network,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.network,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_network(),
         }
     }
@@ -191,7 +188,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.account,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.account,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.account,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.account,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_account(),
         }
     }
@@ -199,7 +196,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.method,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.method,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.method,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.method,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_method(),
         }
     }
@@ -207,7 +204,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.args,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.args,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.args,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.args,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_args(),
         }
     }
@@ -215,7 +212,7 @@ impl TransactionData {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.contract,
             TransactionData::BulkNodeV1(tx_data) => &tx_data.contract,
-            TransactionData::BulkUnsignedV1(tx_data) => &tx_data.contract,
+            TransactionData::BulkRootV1(tx_data) => &tx_data.contract,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_contract(),
         }
     }
@@ -223,7 +220,7 @@ impl TransactionData {
         match self {
             TransactionData::V1(tx_data) => tx_data.contract = contract,
             TransactionData::BulkNodeV1(tx_data) => tx_data.contract = contract,
-            TransactionData::BulkUnsignedV1(tx_data) => tx_data.contract = contract,
+            TransactionData::BulkRootV1(tx_data) => tx_data.contract = contract,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_contract(contract),
         }
     }
@@ -231,7 +228,7 @@ impl TransactionData {
         match self {
             TransactionData::V1(tx_data) => tx_data.account = account,
             TransactionData::BulkNodeV1(tx_data) => tx_data.account = account,
-            TransactionData::BulkUnsignedV1(tx_data) => tx_data.account = account,
+            TransactionData::BulkRootV1(tx_data) => tx_data.account = account,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_account(account),
         }
     }
@@ -239,7 +236,7 @@ impl TransactionData {
         match self {
             TransactionData::V1(tx_data) => tx_data.nonce = nonce,
             TransactionData::BulkNodeV1(tx_data) => tx_data.nonce = nonce,
-            TransactionData::BulkUnsignedV1(tx_data) => tx_data.nonce = nonce,
+            TransactionData::BulkRootV1(tx_data) => tx_data.nonce = nonce,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_nonce(nonce),
         }
     }
@@ -290,10 +287,15 @@ impl TransactionDataBulkV1 {
     }
 
     /// Transaction data signature verification.
-    pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
+    // it sould take the public key of the first tx
+    // check sign
+    // check depends_on + check sign
+    pub fn verify(&self, sig: &[u8]) -> Result<()> {
         let data = self.serialize();
         match public_key.verify(&data, sig) {
-            true => Ok(()),
+            true => {
+                // TODO
+            },
             false => Err(ErrorKind::InvalidSignature.into()),
         }
     }
@@ -473,10 +475,52 @@ pub mod tests {
         })
     }
 
-    pub fn create_test_tx() -> Transaction {
+    fn create_test_data_bulk() -> TransactionData {
+        // Opaque information returned by the smart contract.
+        let args = hex::decode("4f706171756544617461").unwrap();
+        let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
+        let account = public_key.to_account_id();
+        let contract =
+            Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
+                .unwrap();
+
+        let root_data = TransactionData::BulkRootV1(TransactionDataV1 {
+            schema: TRANSACTION_SCHEMA.to_owned(),
+            account,
+            fuel_limit: FUEL_LIMIT,
+            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+            network: "skynet".to_string(),
+            contract: Some(contract),
+            method: "terminate".to_string(),
+            caller: public_key,
+            args,
+        });
+
+        let root = UnsignedTransaction { data: root_data };
+
+        TransactionData::BulkV1(TransactionDataBulkV1 {
+            schema: TRANSACTION_SCHEMA.to_owned(),
+            txs: BulkTransactions {
+                root: Box::new(root),
+                nodes: None,
+            },
+        })
+    }
+
+    pub fn create_test_unit_tx() -> Transaction {
         let signature = hex::decode(TRANSACTION_SIGN).unwrap();
-        // it creates a unit, TODO do one that create a bulk
-        Transaction::UnitTransaction(SignedTransaction { data: create_test_data(), signature }) 
+        Transaction::UnitTransaction(SignedTransaction {
+            data: create_test_data(),
+            signature,
+        })
+    }
+
+    pub fn create_test_bulk_tx() -> Transaction {
+        let signature = hex::decode(TRANSACTION_SIGN).unwrap();
+        Transaction::BullkTransaction(BulkTransaction {
+            data: create_test_data_bulk(),
+            signature,
+        })
     }
 
     pub fn create_test_contract_event() -> SmartContractEvent {
@@ -570,36 +614,47 @@ pub mod tests {
 
     #[test]
     fn transaction_data_hash() {
-        let tx = create_test_tx();
-
+        let tx = create_test_unit_tx();
         let hash = match tx {
-            Transaction::UnitTransaction(tx) => {
-                tx.data.primary_hash()
-            },
-            Transaction::BullkTransaction(tx) => {
-                tx.data.primary_hash()
-            },
+            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
         };
+        assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
         
+        let tx = create_test_bulk_tx();
+        let hash = match tx {
+            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
+        };
         assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
     }
 
     #[test]
     fn transaction_data_verify() {
-        let tx = create_test_tx();
-
+        let tx = create_test_unit_tx();
         let result = match tx {
             Transaction::UnitTransaction(tx) => {
-
-            },
+                let caller = tx.data.get_caller();
+                tx.data.verify(caller, &tx.signature)
+            }
             Transaction::BullkTransaction(tx) => {
-
-            },
+                let caller = tx.data.get_caller();
+                tx.data.verify(caller, &tx.signature)
+            }
         };
-        let caller = tx.data.get_caller();
-
-        let result = tx.data.verify(caller, &tx.signature);
-
+        assert!(result.is_ok());
+        
+        let tx = create_test_bulk_tx();
+        let result = match tx {
+            Transaction::UnitTransaction(tx) => {
+                let caller = tx.data.get_caller();
+                tx.data.verify(caller, &tx.signature)
+            }
+            Transaction::BullkTransaction(tx) => {
+                let caller = tx.data.get_caller();
+                tx.data.verify(caller, &tx.signature)
+            }
+        };
         assert!(result.is_ok());
     }
 
@@ -617,16 +672,31 @@ pub mod tests {
 
     #[test]
     fn transaction_serialize() {
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
 
         let buf = tx.serialize();
 
+        assert_eq!(TRANSACTION_HEX, hex::encode(buf));
+
+        
+        let tx = create_test_bulk_tx();
+
+        let buf = tx.serialize();
+        // TODO: create TRANSACTION_HEX for bulk tx
         assert_eq!(TRANSACTION_HEX, hex::encode(buf));
     }
 
     #[test]
     fn transaction_deserialize() {
-        let expected = create_test_tx();
+        let expected = create_test_unit_tx();
+        let buf = hex::decode(TRANSACTION_HEX).unwrap();
+
+        let tx = Transaction::deserialize(&buf).unwrap();
+
+        assert_eq!(expected, tx);
+        
+        // TODO: create TRANSACTION_HEX for bulk tx
+        let expected = create_test_bulk_tx();
         let buf = hex::decode(TRANSACTION_HEX).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
