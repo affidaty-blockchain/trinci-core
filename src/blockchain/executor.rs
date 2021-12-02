@@ -48,8 +48,6 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     wm: Arc<Mutex<W>>,
     /// PubSub subsystem to publish blockchain events.
     pubsub: Arc<Mutex<PubSub>>,
-    /// Is validator
-    validator: bool,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -59,7 +57,6 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             db: self.db.clone(),
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
-            validator: self.validator,
         }
     }
 }
@@ -71,14 +68,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
         db: Arc<RwLock<D>>,
         wm: Arc<Mutex<W>>,
         pubsub: Arc<Mutex<PubSub>>,
-        validator: bool,
     ) -> Self {
         Executor {
             pool,
             db,
             wm,
             pubsub,
-            validator,
         }
     }
 
@@ -227,7 +222,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
 
-        if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
+        // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
+        if self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
                 block,
@@ -326,7 +322,7 @@ mod tests {
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
 
-        Executor::new(pool, db, wm, sub, true)
+        Executor::new(pool, db, wm, sub)
     }
 
     fn create_db_mock(fail: bool) -> MockDb {

@@ -31,8 +31,6 @@ use std::thread::{self, JoinHandle};
 
 /// Blockchain service configuration.
 pub struct BlockConfig {
-    /// Validator node.
-    pub validator: bool,
     /// Max number of transactions within a block.
     pub threshold: usize,
     /// Max number of seconds to trigger block creation if the threshold has not
@@ -155,6 +153,7 @@ impl<D: Db, W: Wm> BlockService<D, W> {
     }
 
     /// Set the Node Validator check
+    /// If this panics, it panics early at node boot. Not a big deal.
     pub fn set_validator(&mut self, is_validator: impl IsValidator) {
         self.worker.as_mut().unwrap().set_validator(is_validator);
     }
@@ -171,7 +170,6 @@ mod tests {
     use super::*;
     use crate::{db::*, wm::*};
 
-    // All nodes are validator for the first block
     // FIXME
     fn is_validator_function() -> impl IsValidator {
         move |_account_id| Ok(true)
@@ -182,7 +180,6 @@ mod tests {
         let db = MockDb::new();
 
         let config = BlockConfig {
-            validator: false,
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),

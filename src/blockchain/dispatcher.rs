@@ -385,7 +385,6 @@ mod tests {
         let db = Arc::new(RwLock::new(create_db_mock(fail_condition)));
         let pubsub = Arc::new(Mutex::new(PubSub::default()));
         let config = Arc::new(Mutex::new(BlockConfig {
-            validator: false,
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),

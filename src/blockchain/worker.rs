@@ -87,13 +87,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
-        let executor = Executor::new(
-            pool.clone(),
-            db.clone(),
-            wm.clone(),
-            pubsub.clone(),
-            config.lock().validator,
-        );
+        let executor = Executor::new(pool.clone(), db.clone(), wm.clone(), pubsub.clone());
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));
@@ -224,9 +218,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
-        let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
+        let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
 
+        let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             if validator {
                 error!("VALIDATOR TRUE"); // FIXME // DELETEME
             } else {
@@ -234,7 +228,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             }
 
             while exec_sleep.poll_unpin(cx).is_ready() {
-                // if self.config.lock().validator {
                 if validator {
                     self.try_build_block(1);
                 }
@@ -258,7 +251,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 }
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
-                // if self.config.lock().validator {
                 if validator {
                     self.try_exec_block();
                     self.try_build_block(threshold);
