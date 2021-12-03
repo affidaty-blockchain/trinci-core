@@ -40,6 +40,7 @@ pub enum ErrorKind {
     ResourceNotFound,
     NotImplemented,
     Tpm2Error,
+    WrongTxType,
     Other,
 }
 
@@ -56,6 +57,7 @@ pub(super) mod error_kind_str {
     pub const SMART_CONTRACT_FAULT: &str = "smart contract fault";
     pub const NOT_IMPLEMENTED: &str = "not implemented";
     pub const TPM2_ERROR: &str = "tpm interaction error";
+    pub const WRONG_TX_TYPE: &str = "this tx type is not implemented or malformed";
     pub const OTHER: &str = "other";
 }
 
@@ -74,6 +76,7 @@ impl Display for ErrorKind {
             SmartContractFault => error_kind_str::SMART_CONTRACT_FAULT,
             NotImplemented => error_kind_str::NOT_IMPLEMENTED,
             Tpm2Error => error_kind_str::TPM2_ERROR,
+            WrongTxType => error_kind_str::WRONG_TX_TYPE,
             Other => error_kind_str::OTHER,
         };
         write!(f, "{}", kind_str)
@@ -121,6 +124,7 @@ impl<'de> Deserialize<'de> for ErrorKind {
             error_kind_str::SMART_CONTRACT_FAULT => ErrorKind::SmartContractFault,
             error_kind_str::NOT_IMPLEMENTED => ErrorKind::NotImplemented,
             error_kind_str::TPM2_ERROR => ErrorKind::Tpm2Error,
+            error_kind_str::WRONG_TX_TYPE => ErrorKind::WrongTxType,
             _ => ErrorKind::Other,
         };
         Ok(kind)

@@ -17,7 +17,7 @@
 
 use crate::{
     base::serialize::MessagePack,
-    crypto::{Hash, KeyPair, PublicKey},
+    crypto::{Hash, KeyPair, PublicKey, Hashable},
     Error, ErrorKind, Result,
 };
 use serde_bytes::ByteBuf;
@@ -72,8 +72,9 @@ pub struct TransactionDataBulkNodeV1 {
     pub args: Vec<u8>,
     /// It express the tx on which is dependant
     // TODO: change transaction, check box if valid solution
-    pub depends_on: Box<Transaction>,
+    pub depends_on: Hash,
 }
+
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 /// Set of transactions inside a bulk transaction
@@ -216,6 +217,15 @@ impl TransactionData {
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_contract(),
         }
     }
+    pub fn get_dependency(&self) -> Result<Hash> {
+        match &self {
+            TransactionData::BulkNodeV1(tx_data) => Ok(tx_data.depends_on),
+            _ => Err(Error::new_ext(
+                ErrorKind::NotImplemented,
+                "verify method not implemented for this tx data type",
+            )),
+        }
+    }
     pub fn set_contract(&mut self, contract: Option<Hash>) {
         match self {
             TransactionData::V1(tx_data) => tx_data.contract = contract,
@@ -289,14 +299,61 @@ impl TransactionDataBulkV1 {
     /// Transaction data signature verification.
     // it sould take the public key of the first tx
     // check sign
-    // check depends_on + check sign
-    pub fn verify(&self, sig: &[u8]) -> Result<()> {
+    pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         let data = self.serialize();
         match public_key.verify(&data, sig) {
-            true => {
-                // TODO
+            true => match self.txs.nodes {
+                Some(nodes) => {
+                    for node in nodes {
+                        match node {
+                            Transaction::UnitTransaction(node) => match node.data {
+                                TransactionData::BulkNodeV1(data) => {
+                                    let result = data.verify(public_key, sig);
+                                    if result.is_err() {
+                                        return Err(ErrorKind::InvalidSignature.into());
+                                    }
+                                }
+                                _ => return Err(ErrorKind::WrongTxType.into()),
+                            },
+                            Transaction::BullkTransaction(_) => {
+                                return Err(ErrorKind::WrongTxType.into())
+                            }
+                        }
+                        return Ok(());
+                    }
+                    Err(ErrorKind::InvalidSignature.into())
+                }
+                None => Ok(()),
             },
             false => Err(ErrorKind::InvalidSignature.into()),
+        }
+    }
+
+    /// It checks that all the txs are intact and coherent
+    pub fn check_integrity(&self) -> Result<()> {
+        // calculate root hash
+        let root_hash = self.txs.root.data.hash(crate::crypto::HashAlgorithm::Sha256);
+        let network = self.data.get_network();
+        match self.txs.nodes {
+            Some(nodes) => {
+                // check depens on
+                // check nws all equals && != none
+                for node in nodes {
+                    match node {
+                        Transaction::UnitTransaction(tx) => {
+                            // TODO: handle it
+                            tx.data.get_dependency()
+                            
+                            // TODO: handle it
+                            tx.data.get_network()
+                        },
+                        Transaction::BullkTransaction(_) => return Err(ErrorKind::WrongTxType.into()),
+                    }
+                }
+
+                Ok(())
+            },
+            None => Ok(()),
         }
     }
 }
@@ -620,7 +677,7 @@ pub mod tests {
             Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
         };
         assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
-        
+
         let tx = create_test_bulk_tx();
         let hash = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
@@ -643,7 +700,7 @@ pub mod tests {
             }
         };
         assert!(result.is_ok());
-        
+
         let tx = create_test_bulk_tx();
         let result = match tx {
             Transaction::UnitTransaction(tx) => {
@@ -678,7 +735,6 @@ pub mod tests {
 
         assert_eq!(TRANSACTION_HEX, hex::encode(buf));
 
-        
         let tx = create_test_bulk_tx();
 
         let buf = tx.serialize();
@@ -694,7 +750,7 @@ pub mod tests {
         let tx = Transaction::deserialize(&buf).unwrap();
 
         assert_eq!(expected, tx);
-        
+
         // TODO: create TRANSACTION_HEX for bulk tx
         let expected = create_test_bulk_tx();
         let buf = hex::decode(TRANSACTION_HEX).unwrap();

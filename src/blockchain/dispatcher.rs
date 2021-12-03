@@ -88,19 +88,18 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
-
         let hash = match tx {
             Transaction::UnitTransaction(tx) => {
                 tx.data.verify(tx.data.get_caller(), &tx.signature)?;
                 tx.data.primary_hash()
-            },
+            }
             Transaction::BullkTransaction(tx) => {
                 todo!()
                 // verify sign
                 // check txs nw -> .check_integrity
                 // get hash
-            },
-        }; 
+            }
+        };
 
         debug!("Received transaction: {}", hex::encode(hash));
 
