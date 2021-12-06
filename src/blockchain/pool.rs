@@ -63,7 +63,7 @@ pub struct Pool {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::base::schema::tests::create_test_tx;
+    use crate::base::schema::tests::{create_test_bulk_tx, create_test_unit_tx};
     use crate::crypto::Hashable;
 
     pub fn create_pool() -> Pool {

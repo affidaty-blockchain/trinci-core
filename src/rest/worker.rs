@@ -37,6 +37,8 @@ impl From<ErrorKind> for StatusCode {
             SmartContractFault => StatusCode::BadRequest,
             NotImplemented => StatusCode::NotImplemented,
             Tpm2Error => StatusCode::InternalServerError,
+            WrongTxType => StatusCode::Conflict,
+            BrokenIntegrity => StatusCode::Unauthorized,
             Other => StatusCode::ImATeapot,
         }
     }

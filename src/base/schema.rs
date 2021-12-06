@@ -17,7 +17,7 @@
 
 use crate::{
     base::serialize::MessagePack,
-    crypto::{Hash, KeyPair, PublicKey, Hashable},
+    crypto::{Hash, Hashable, KeyPair, PublicKey},
     Error, ErrorKind, Result,
 };
 use serde_bytes::ByteBuf;
@@ -75,13 +75,12 @@ pub struct TransactionDataBulkNodeV1 {
     pub depends_on: Hash,
 }
 
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 /// Set of transactions inside a bulk transaction
 pub struct BulkTransactions {
     // is box right approach?
-    root: Box<UnsignedTransaction>,
-    nodes: Option<Vec<Transaction>>,
+    pub root: Box<UnsignedTransaction>,
+    pub nodes: Option<Vec<Transaction>>,
 }
 
 /// Transaction payload for bulk tx.
@@ -89,7 +88,7 @@ pub struct BulkTransactions {
 pub struct TransactionDataBulkV1 {
     pub schema: String,
     /// array of transactions
-    txs: BulkTransactions,
+    pub txs: BulkTransactions,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -105,43 +104,6 @@ pub enum TransactionData {
     BulkV1(TransactionDataBulkV1),
 }
 
-/// Signed transaction.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct SignedTransaction {
-    /// Transaction payload.
-    pub data: TransactionData,
-    /// Data field signature verifiable using the `caller` within the `data`.
-    #[serde(with = "serde_bytes")]
-    pub signature: Vec<u8>,
-}
-
-/// Unsigned Transaction
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UnsignedTransaction {
-    /// Transaction payload.
-    pub data: TransactionData,
-}
-
-/// Bulk Transaction
-// it might not be needed, just use signed transaction, where data == transaction data::bulkdata
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct BulkTransaction {
-    /// Transaction payload.
-    pub data: TransactionData,
-    /// Data field signature verifiable using the `caller` within the `data`.
-    #[serde(with = "serde_bytes")]
-    pub signature: Vec<u8>,
-}
-
-/// Enum for transaction types
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum Transaction {
-    /// Unit signed transaction
-    UnitTransaction(SignedTransaction),
-    /// Bulk transaction
-    BullkTransaction(BulkTransaction),
-}
-
 impl TransactionData {
     /// Transaction data sign
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
@@ -155,13 +117,22 @@ impl TransactionData {
             )),
         }
     }
-
     /// Transaction data signature verification.
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match &self {
             TransactionData::V1(tx_data) => tx_data.verify(public_key, sig),
             TransactionData::BulkNodeV1(tx_data) => tx_data.verify(public_key, sig),
             TransactionData::BulkV1(tx_data) => tx_data.verify(public_key, sig),
+            _ => Err(Error::new_ext(
+                ErrorKind::NotImplemented,
+                "verify method not implemented for this tx data type",
+            )),
+        }
+    }
+    /// Transaction data integrity check.
+    pub fn check_integrity(&self) -> Result<()> {
+        match &self {
+            TransactionData::BulkV1(tx_data) => tx_data.check_integrity(),
             _ => Err(Error::new_ext(
                 ErrorKind::NotImplemented,
                 "verify method not implemented for this tx data type",
@@ -268,6 +239,20 @@ impl TransactionDataV1 {
             false => Err(ErrorKind::InvalidSignature.into()),
         }
     }
+
+    /// Check if tx is intact and coherent
+    pub fn check_integrity(&self) -> Result<()> {
+        if !self.schema.is_empty()
+            && !self.account.is_empty()
+            && !self.nonce.is_empty()
+            && !self.network.is_empty()
+            && !self.method.is_empty()
+        {
+            return Ok(());
+        } else {
+            return Err(ErrorKind::BrokenIntegrity.into());
+        }
+    }
 }
 
 impl TransactionDataBulkNodeV1 {
@@ -332,8 +317,12 @@ impl TransactionDataBulkV1 {
     /// It checks that all the txs are intact and coherent
     pub fn check_integrity(&self) -> Result<()> {
         // calculate root hash
-        let root_hash = self.txs.root.data.hash(crate::crypto::HashAlgorithm::Sha256);
-        let network = self.data.get_network();
+        let root_hash = self
+            .txs
+            .root
+            .data
+            .hash(crate::crypto::HashAlgorithm::Sha256);
+        let network = self.txs.root.data.get_network();
         match self.txs.nodes {
             Some(nodes) => {
                 // check depens on
@@ -341,19 +330,156 @@ impl TransactionDataBulkV1 {
                 for node in nodes {
                     match node {
                         Transaction::UnitTransaction(tx) => {
-                            // TODO: handle it
-                            tx.data.get_dependency()
-                            
-                            // TODO: handle it
-                            tx.data.get_network()
-                        },
-                        Transaction::BullkTransaction(_) => return Err(ErrorKind::WrongTxType.into()),
+                            // check depends_on filed
+                            let dependency = tx.data.get_dependency();
+                            match dependency {
+                                Ok(dep_hash) => {
+                                    if dep_hash != root_hash {
+                                        return Err(Error::new_ext(
+                                            ErrorKind::BrokenIntegrity,
+                                            "The node has incoherent dependency",
+                                        ));
+                                    }
+                                }
+                                Err(error) => return Err(error),
+                            }
+
+                            // check network field
+                            if tx.data.get_network() != network {
+                                return Err(Error::new_ext(
+                                    ErrorKind::BrokenIntegrity,
+                                    "The node has incoherent network",
+                                ));
+                            }
+                        }
+                        Transaction::BullkTransaction(_) => {
+                            return Err(ErrorKind::WrongTxType.into())
+                        }
                     }
                 }
 
                 Ok(())
-            },
+            }
             None => Ok(()),
+        }
+    }
+}
+
+/// Signed transaction.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct SignedTransaction {
+    /// Transaction payload.
+    pub data: TransactionData,
+    /// Data field signature verifiable using the `caller` within the `data`.
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+/// Unsigned Transaction
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UnsignedTransaction {
+    /// Transaction payload.
+    pub data: TransactionData,
+}
+
+/// Bulk Transaction
+// it might not be needed, just use signed transaction, where data == transaction data::bulkdata
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BulkTransaction {
+    /// Transaction payload.
+    pub data: TransactionData,
+    /// Data field signature verifiable using the `caller` within the `data`.
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+/// Enum for transaction types
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum Transaction {
+    /// Unit signed transaction
+    UnitTransaction(SignedTransaction),
+    /// Bulk transaction
+    BullkTransaction(BulkTransaction),
+}
+
+impl Transaction {
+    pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
+        match self {
+            Transaction::UnitTransaction(tx) => tx.data.sign(keypair),
+            Transaction::BullkTransaction(tx) => tx.data.sign(keypair),
+        }
+    }
+    pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
+        match self {
+            Transaction::UnitTransaction(tx) => tx.data.verify(public_key, sig),
+            Transaction::BullkTransaction(tx) => tx.data.verify(public_key, sig),
+        }
+    }
+    pub fn check_integrity(&self) -> Result<()> {
+        match self {
+            Transaction::UnitTransaction(tx) => tx.data.check_integrity(), //TODO
+            Transaction::BullkTransaction(tx) => tx.data.check_integrity(),
+        }
+    }
+
+    pub fn get_caller(&self) -> &PublicKey {
+        match self {
+            Transaction::UnitTransaction(tx) => tx.data.get_caller(),
+            Transaction::BullkTransaction(tx) => tx.data.get_caller(),
+        }
+    }
+    pub fn get_network(&self) -> &str {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_network(),
+            Transaction::BullkTransaction(tx) => tx.data.get_network(),
+        }
+    }
+    pub fn get_account(&self) -> &str {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_account(),
+            Transaction::BullkTransaction(tx) => tx.data.get_account(),
+        }
+    }
+    pub fn get_method(&self) -> &str {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_method(),
+            Transaction::BullkTransaction(tx) => tx.data.get_method(),
+        }
+    }
+    pub fn get_args(&self) -> &[u8] {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_args(),
+            Transaction::BullkTransaction(tx) => tx.data.get_args(),
+        }
+    }
+    pub fn get_contract(&self) -> &Option<Hash> {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_contract(),
+            Transaction::BullkTransaction(tx) => tx.data.get_contract(),
+        }
+    }
+    pub fn get_dependency(&self) -> &Result<Hash> {
+        match &self {
+            Transaction::UnitTransaction(tx) => &tx.data.get_dependency(),
+            Transaction::BullkTransaction(tx) => &tx.data.get_dependency(),
+        }
+    }
+    pub fn set_contract(&self, contract: Option<Hash>) {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.set_contract(contract),
+            Transaction::BullkTransaction(tx) => tx.data.set_contract(contract),
+        }
+    }
+    pub fn set_account(&self, account: String) {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.set_account(account),
+            Transaction::BullkTransaction(tx) => tx.data.set_account(account),
+        }
+    }
+    pub fn set_nonce(&self, nonce: Vec<u8>) {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.set_nonce(nonce),
+            Transaction::BullkTransaction(tx) => tx.data.set_nonce(nonce),
         }
     }
 }

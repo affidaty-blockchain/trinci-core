@@ -177,7 +177,7 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::tests::{create_test_contract_event, create_test_tx},
+            schema::tests::{create_test_bulk_tx, create_test_contract_event, create_test_unit_tx},
             serialize::{rmp_deserialize, rmp_serialize},
         },
         error::ErrorKind,

@@ -91,21 +91,20 @@ impl<D: Db> Dispatcher<D> {
         let hash = match tx {
             Transaction::UnitTransaction(tx) => {
                 tx.data.verify(tx.data.get_caller(), &tx.signature)?;
+                tx.data.check_integrity()?;
                 tx.data.primary_hash()
             }
             Transaction::BullkTransaction(tx) => {
-                todo!()
-                // verify sign
-                // check txs nw -> .check_integrity
-                // get hash
+                tx.data.verify(tx.data.get_caller(), &tx.signature)?;
+                tx.data.check_integrity()?;
+                tx.data.primary_hash()
             }
         };
 
         debug!("Received transaction: {}", hex::encode(hash));
 
         // Check the network.
-        //if self.config
-        if self.config.network != tx.data.get_network() {
+        if self.config.network != tx.get_network() {
             return Err(ErrorKind::BadNetwork.into());
         }
 
@@ -376,7 +375,9 @@ impl<D: Db> Dispatcher<D> {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{create_test_account, create_test_block, create_test_tx},
+        base::schema::tests::{
+            create_test_account, create_test_block, create_test_bulk_tx, create_test_unit_tx,
+        },
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
