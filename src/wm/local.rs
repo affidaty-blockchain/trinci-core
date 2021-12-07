@@ -982,8 +982,8 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
-        assert_eq!(event.event_name, data.method);
-        assert_eq!(event.emitter_account, data.account);
+        assert_eq!(event.event_name, data.get_method());
+        assert_eq!(event.emitter_account, data.get_account());
 
         let buf = &event.event_data;
         let event_data: Value = rmp_deserialize(buf).unwrap();

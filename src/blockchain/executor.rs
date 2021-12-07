@@ -92,28 +92,25 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork.flush();
         let mut events: Vec<SmartContractEvent> = vec![];
 
-        // Todo: Here we can match the tx type (schema)
-        // EG if the tx is type `bulk` here we can execute the vector of tx that contains
+        // TODO: handle multiple tx recepits
         let result = match tx {
-            Transaction::UnitTransaction(tx) => {
-                self.wm.lock().call(
-                    fork,
-                    0,
-                    tx.data.get_network(),
-                    &tx.data.get_caller().to_account_id(),
-                    tx.data.get_account(),
-                    &tx.data.get_caller().to_account_id(),
-                    *tx.data.get_contract(),
-                    tx.data.get_method(),
-                    tx.data.get_args(),
-                    &mut events,
-                )
-            },
+            Transaction::UnitTransaction(tx) => self.wm.lock().call(
+                fork,
+                0,
+                tx.data.get_network(),
+                &tx.data.get_caller().to_account_id(),
+                tx.data.get_account(),
+                &tx.data.get_caller().to_account_id(),
+                *tx.data.get_contract(),
+                tx.data.get_method(),
+                tx.data.get_args(),
+                &mut events,
+            ),
             Transaction::BullkTransaction(tx) => {
-               let result_bulk = match tx.data {
+                let result_bulk = match &tx.data {
                     crate::base::schema::TransactionData::BulkV1(bulk) => {
                         let mut stop_tx_exec = false;
-                        let root_tx = bulk.txs.root;
+                        let root_tx = &bulk.txs.root;
 
                         let mut result = self.wm.lock().call(
                             fork,
@@ -127,55 +124,50 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             root_tx.data.get_args(),
                             &mut events,
                         );
-    
 
                         if result.is_err() {
                             fork.rollback();
                             stop_tx_exec = true;
                         }
 
-                        result = match bulk.txs.nodes {
+                        result = match &bulk.txs.nodes {
                             Some(nodes) => {
-                                for node in nodes {
+                                for tx in nodes {
                                     if stop_tx_exec {
                                         break;
                                     }
 
-                                    fork.flush();
-
                                     let result = self.wm.lock().call(
                                         fork,
                                         0,
-                                        tx.data.get_network(),
-                                        &tx.data.get_caller().to_account_id(),
-                                        tx.data.get_account(),
-                                        &tx.data.get_caller().to_account_id(),
-                                        *tx.data.get_contract(),
-                                        tx.data.get_method(),
-                                        tx.data.get_args(),
+                                        tx.get_network(),
+                                        &tx.get_caller().to_account_id(),
+                                        tx.get_account(),
+                                        &tx.get_caller().to_account_id(),
+                                        *tx.get_contract(),
+                                        tx.get_method(),
+                                        tx.get_args(),
                                         &mut events,
                                     );
 
-                                    if result.is_err(){
+                                    if result.is_err() {
                                         fork.rollback();
                                         stop_tx_exec = true;
                                     }
                                 }
 
                                 result
-                            },
+                            }
                             None => result,
                         };
 
-
                         result
-                    },
-                    _ => Error::new_ext(ErrorKind::WrongTxType, "invalid tx format",
-                    };
+                    }
+                    _ => Err(Error::new_ext(ErrorKind::WrongTxType, "invalid tx format")),
+                };
                 result_bulk
-                },
-            };
-            
+            }
+        };
 
         let event_tx = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
@@ -224,7 +216,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             burned_fuel: 0, // TODO
             index: index as u32,
             success,
-            returns,
+            returns, // TODO
             events,
         }
     }

@@ -63,15 +63,22 @@ pub struct Pool {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::base::schema::tests::{create_test_bulk_tx, create_test_unit_tx};
+    use crate::base::schema::tests::create_test_unit_tx;
     use crate::crypto::Hashable;
 
     pub fn create_pool() -> Pool {
         let mut pool = Pool::default();
         let mut tx_hashes = vec![];
         for i in 0..3 {
-            let mut tx = create_test_tx();
-            tx.data.set_nonce(vec![i as u8; 8]);
+            let mut tx = create_test_unit_tx();
+
+            match tx {
+                Transaction::UnitTransaction(ref mut test) => test.data.set_nonce(vec![i as u8; 8]),
+                Transaction::BullkTransaction(ref mut test) => {
+                    test.data.set_nonce(vec![i as u8; 8])
+                }
+            }
+
             let hash = tx.primary_hash();
             pool.txs.insert(hash, Some(tx));
             tx_hashes.push(hash);

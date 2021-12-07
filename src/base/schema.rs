@@ -133,6 +133,7 @@ impl TransactionData {
     pub fn check_integrity(&self) -> Result<()> {
         match &self {
             TransactionData::BulkV1(tx_data) => tx_data.check_integrity(),
+            TransactionData::V1(tx_data) => tx_data.check_integrity(),
             _ => Err(Error::new_ext(
                 ErrorKind::NotImplemented,
                 "verify method not implemented for this tx data type",
@@ -287,11 +288,11 @@ impl TransactionDataBulkV1 {
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         let data = self.serialize();
         match public_key.verify(&data, sig) {
-            true => match self.txs.nodes {
+            true => match &self.txs.nodes {
                 Some(nodes) => {
                     for node in nodes {
                         match node {
-                            Transaction::UnitTransaction(node) => match node.data {
+                            Transaction::UnitTransaction(node) => match &node.data {
                                 TransactionData::BulkNodeV1(data) => {
                                     let result = data.verify(public_key, sig);
                                     if result.is_err() {
@@ -323,7 +324,7 @@ impl TransactionDataBulkV1 {
             .data
             .hash(crate::crypto::HashAlgorithm::Sha256);
         let network = self.txs.root.data.get_network();
-        match self.txs.nodes {
+        match &self.txs.nodes {
             Some(nodes) => {
                 // check depens on
                 // check nws all equals && != none
@@ -458,28 +459,16 @@ impl Transaction {
             Transaction::BullkTransaction(tx) => tx.data.get_contract(),
         }
     }
-    pub fn get_dependency(&self) -> &Result<Hash> {
+    pub fn get_dependency(&self) -> Result<Hash> {
         match &self {
-            Transaction::UnitTransaction(tx) => &tx.data.get_dependency(),
-            Transaction::BullkTransaction(tx) => &tx.data.get_dependency(),
+            Transaction::UnitTransaction(tx) => tx.data.get_dependency(),
+            Transaction::BullkTransaction(tx) => tx.data.get_dependency(),
         }
     }
-    pub fn set_contract(&self, contract: Option<Hash>) {
+    pub fn get_signature(&self) -> &Vec<u8> {
         match &self {
-            Transaction::UnitTransaction(tx) => tx.data.set_contract(contract),
-            Transaction::BullkTransaction(tx) => tx.data.set_contract(contract),
-        }
-    }
-    pub fn set_account(&self, account: String) {
-        match &self {
-            Transaction::UnitTransaction(tx) => tx.data.set_account(account),
-            Transaction::BullkTransaction(tx) => tx.data.set_account(account),
-        }
-    }
-    pub fn set_nonce(&self, nonce: Vec<u8>) {
-        match &self {
-            Transaction::UnitTransaction(tx) => tx.data.set_nonce(nonce),
-            Transaction::BullkTransaction(tx) => tx.data.set_nonce(nonce),
+            Transaction::UnitTransaction(tx) => &tx.signature,
+            Transaction::BullkTransaction(tx) => &tx.signature,
         }
     }
 }
@@ -613,12 +602,18 @@ pub mod tests {
 
     const ACCOUNT_ID: &str = "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51";
 
-    const TRANSACTION_DATA_HEX: &str = "810099ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
-    const TRANSACTION_DATA_HASH_HEX: &str =
+    const TRANSACTION_DATA_HEX_UNIT: &str = "810099ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
+    const TRANSACTION_DATA_HASH_HEX_UNIT: &str =
         "12207ed29f1dce6e6c5d887e46f32c94d6cebf37df183de2e7842f7c43a0e1b4c290";
 
-    const TRANSACTION_HEX: &str = "92810099ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
-    const TRANSACTION_SIGN: &str = "cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+    const TRANSACTION_DATA_HEX_BULK: &str = "";
+    const TRANSACTION_DATA_HASH_HEX_BULK: &str = "";
+
+    const TRANSACTION_HEX_UNIT: &str = "92810099ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+    const TRANSACTION_SIGN_UNIT: &str = "cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+
+    const TRANSACTION_HEX_BULK: &str = "";
+    const TRANSACTION_SIGN_BULK: &str = "";
 
     const RECEIPT_HEX: &str = "960309cd03e7c3c40a4f70617175654461746190";
     const RECEIPT_HASH_HEX: &str =
@@ -636,7 +631,7 @@ pub mod tests {
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
 
-    fn create_test_data() -> TransactionData {
+    fn create_test_data_unit() -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
         let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
@@ -691,15 +686,15 @@ pub mod tests {
     }
 
     pub fn create_test_unit_tx() -> Transaction {
-        let signature = hex::decode(TRANSACTION_SIGN).unwrap();
+        let signature = hex::decode(TRANSACTION_SIGN_UNIT).unwrap();
         Transaction::UnitTransaction(SignedTransaction {
-            data: create_test_data(),
+            data: create_test_data_unit(),
             signature,
         })
     }
 
     pub fn create_test_bulk_tx() -> Transaction {
-        let signature = hex::decode(TRANSACTION_SIGN).unwrap();
+        let signature = hex::decode(TRANSACTION_SIGN_BULK).unwrap();
         Transaction::BullkTransaction(BulkTransaction {
             data: create_test_data_bulk(),
             signature,
@@ -765,20 +760,30 @@ pub mod tests {
         }
     }
 
+    //----------------------------
     #[test]
-    fn transaction_data_serialize() {
-        let data = create_test_data();
+    fn transaction_data_serialize_unit() {
+        let data = create_test_data_unit();
 
         let buf = data.serialize();
 
-        assert_eq!(TRANSACTION_DATA_HEX, hex::encode(buf));
+        assert_eq!(TRANSACTION_DATA_HEX_UNIT, hex::encode(buf));
+    }
+
+    #[test]
+    fn transaction_data_serialize_bulk() {
+        let data = create_test_data_bulk();
+
+        let buf = data.serialize();
+
+        assert_eq!(TRANSACTION_DATA_HEX_BULK, hex::encode(buf));
     }
 
     #[test]
     fn transaction_data_deserialize() {
-        let expected = create_test_data();
+        let expected = create_test_data_unit();
 
-        let buf = hex::decode(TRANSACTION_DATA_HEX).unwrap();
+        let buf = hex::decode(TRANSACTION_DATA_HEX_UNIT).unwrap();
 
         let data = TransactionData::deserialize(&buf).unwrap();
 
@@ -787,7 +792,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_deserialize_fail() {
-        let mut buf = hex::decode(TRANSACTION_DATA_HEX).unwrap();
+        let mut buf = hex::decode(TRANSACTION_DATA_HEX_UNIT).unwrap();
         buf.pop(); // remove a byte to make it fail
 
         let error = TransactionData::deserialize(&buf).unwrap_err();
@@ -802,14 +807,14 @@ pub mod tests {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
             Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
         };
-        assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
+        assert_eq!(TRANSACTION_DATA_HASH_HEX_UNIT, hex::encode(hash));
 
         let tx = create_test_bulk_tx();
         let hash = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
             Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
         };
-        assert_eq!(TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
+        assert_eq!(TRANSACTION_DATA_HASH_HEX_UNIT, hex::encode(hash));
     }
 
     #[test]
@@ -843,7 +848,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_sign_verify() {
-        let data = create_test_data();
+        let data = create_test_data_unit();
         let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair());
 
         let signature = data.sign(&keypair).unwrap();
@@ -859,19 +864,19 @@ pub mod tests {
 
         let buf = tx.serialize();
 
-        assert_eq!(TRANSACTION_HEX, hex::encode(buf));
+        assert_eq!(TRANSACTION_HEX_UNIT, hex::encode(buf));
 
         let tx = create_test_bulk_tx();
 
         let buf = tx.serialize();
         // TODO: create TRANSACTION_HEX for bulk tx
-        assert_eq!(TRANSACTION_HEX, hex::encode(buf));
+        assert_eq!(TRANSACTION_HEX_UNIT, hex::encode(buf));
     }
 
     #[test]
     fn transaction_deserialize() {
         let expected = create_test_unit_tx();
-        let buf = hex::decode(TRANSACTION_HEX).unwrap();
+        let buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
 
@@ -879,7 +884,7 @@ pub mod tests {
 
         // TODO: create TRANSACTION_HEX for bulk tx
         let expected = create_test_bulk_tx();
-        let buf = hex::decode(TRANSACTION_HEX).unwrap();
+        let buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
 
@@ -888,14 +893,14 @@ pub mod tests {
 
     #[test]
     fn transaction_deserialize_fail() {
-        let mut buf = hex::decode(TRANSACTION_HEX).unwrap();
+        let mut buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
         buf.pop();
 
         let error = Transaction::deserialize(&buf).unwrap_err();
 
         assert_eq!(error.kind, ErrorKind::MalformedData);
     }
-
+    //-----------------------------
     #[test]
     fn receipt_serialize() {
         let receipt = create_test_receipt();

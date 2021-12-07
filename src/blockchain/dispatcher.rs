@@ -88,7 +88,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
-        let hash = match tx {
+        let hash = match &tx {
             Transaction::UnitTransaction(tx) => {
                 tx.data.verify(tx.data.get_caller(), &tx.signature)?;
                 tx.data.check_integrity()?;
@@ -375,9 +375,7 @@ impl<D: Db> Dispatcher<D> {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{
-            create_test_account, create_test_block, create_test_bulk_tx, create_test_unit_tx,
-        },
+        base::schema::tests::{create_test_account, create_test_block, create_test_unit_tx},
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
@@ -409,7 +407,7 @@ mod tests {
         });
         db.expect_load_transaction().returning(|hash| {
             match *hash == Hash::from_hex(TX_DATA_HASH_HEX).unwrap() {
-                true => Some(create_test_tx()),
+                true => Some(create_test_unit_tx()),
                 false => None,
             }
         });
@@ -435,7 +433,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_tx(),
+            tx: create_test_unit_tx(),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -449,8 +447,13 @@ mod tests {
     #[test]
     fn put_bad_signature_transaction() {
         let dispatcher = create_dispatcher(false);
-        let mut tx = create_test_tx();
-        tx.signature[0] += 1;
+        let mut tx = create_test_unit_tx();
+
+        match tx {
+            Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
+            Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+        }
+
         let req = Message::PutTransactionRequest { confirm: true, tx };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -468,7 +471,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_tx(),
+            tx: create_test_unit_tx(),
         };
         dispatcher.message_handler_wrap(req.clone()).unwrap();
 
@@ -483,7 +486,7 @@ mod tests {
         let dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_tx(),
+            tx: create_test_unit_tx(),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -502,7 +505,7 @@ mod tests {
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::GetTransactionResponse {
-            tx: create_test_tx(),
+            tx: create_test_unit_tx(),
         };
         assert_eq!(res, exp_res);
     }
