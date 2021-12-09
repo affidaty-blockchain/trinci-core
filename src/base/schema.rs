@@ -305,9 +305,8 @@ impl TransactionDataBulkV1 {
                                 return Err(ErrorKind::WrongTxType.into())
                             }
                         }
-                        return Ok(());
                     }
-                    Err(ErrorKind::InvalidSignature.into())
+                    return Ok(());
                 }
                 None => Ok(()),
             },
@@ -899,7 +898,7 @@ pub mod tests {
         let tx = create_test_bulk_tx();
 
         let buf = tx.serialize();
-        // TODO: create TRANSACTION_HEX for bulk tx
+
         assert_eq!(TRANSACTION_HEX_BULK, hex::encode(buf));
     }
 
