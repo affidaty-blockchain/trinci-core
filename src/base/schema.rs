@@ -71,7 +71,6 @@ pub struct TransactionDataBulkNodeV1 {
     #[serde(with = "serde_bytes")]
     pub args: Vec<u8>,
     /// It express the tx on which is dependant
-    // TODO: change transaction, check box if valid solution
     pub depends_on: Hash,
 }
 
@@ -249,9 +248,9 @@ impl TransactionDataV1 {
             && !self.network.is_empty()
             && !self.method.is_empty()
         {
-            return Ok(());
+            Ok(())
         } else {
-            return Err(ErrorKind::BrokenIntegrity.into());
+            Err(ErrorKind::BrokenIntegrity.into())
         }
     }
 }
@@ -306,7 +305,7 @@ impl TransactionDataBulkV1 {
                             }
                         }
                     }
-                    return Ok(());
+                    Ok(())
                 }
                 None => Ok(()),
             },
@@ -317,11 +316,7 @@ impl TransactionDataBulkV1 {
     /// It checks that all the txs are intact and coherent
     pub fn check_integrity(&self) -> Result<()> {
         // calculate root hash
-        let root_hash = self
-            .txs
-            .root
-            .data
-            .hash(crate::crypto::HashAlgorithm::Sha256);
+        let root_hash = self.txs.root.data.primary_hash();
         let network = self.txs.root.data.get_network();
         match &self.txs.nodes {
             Some(nodes) => {

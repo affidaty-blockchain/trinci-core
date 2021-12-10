@@ -375,13 +375,17 @@ impl<D: Db> Dispatcher<D> {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{create_test_account, create_test_block, create_test_unit_tx},
+        base::schema::tests::{
+            create_test_account, create_test_block, create_test_bulk_tx, create_test_unit_tx,
+        },
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
     };
 
     const ACCOUNT_ID: &str = "AccountId";
+    const BULK_TX_DATA_HASH_HEX: &str =
+        "12205ba4b7698ccbd0f662c5f64de7aba4f9a86a869c1ef8acd6120b7684a126e48c";
     const TX_DATA_HASH_HEX: &str =
         "1220b27267c4cf81983ec9785e594bd9b6ede6d207cebd0c6b4032c6823a96784cc0";
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
@@ -444,9 +448,56 @@ mod tests {
     }
 
     #[test]
+    fn put_bulk_transaction() {
+        let dispatcher = create_dispatcher(false);
+        let req = Message::PutTransactionRequest {
+            confirm: true,
+            tx: create_test_bulk_tx(),
+        };
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        // note: hash of data and not hash of tx
+        //let tx = create_test_bulk_tx();
+        //match tx {
+        //    Transaction::UnitTransaction(_) => (),
+        //    Transaction::BullkTransaction(tx) => {
+        //        println!("AO: {:?}", hex::encode(tx.data.primary_hash()));
+        //    }
+        //}
+
+        let exp_res = Message::PutTransactionResponse {
+            hash: Hash::from_hex(BULK_TX_DATA_HASH_HEX).unwrap(),
+        };
+        assert_eq!(res, exp_res);
+    }
+
+    #[test]
     fn put_bad_signature_transaction() {
         let dispatcher = create_dispatcher(false);
         let mut tx = create_test_unit_tx();
+
+        match tx {
+            Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
+            Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+        }
+
+        let req = Message::PutTransactionRequest { confirm: true, tx };
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        match res {
+            Message::Exception(err) => {
+                assert_eq!(err.kind, ErrorKind::InvalidSignature)
+            }
+            _ => panic!("Unexpected response"),
+        }
+    }
+
+    #[test]
+    fn put_bad_signature_bulk_transaction() {
+        let dispatcher = create_dispatcher(false);
+        let mut tx = create_test_bulk_tx();
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
