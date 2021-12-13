@@ -465,6 +465,12 @@ impl Transaction {
             Transaction::BullkTransaction(tx) => &tx.signature,
         }
     }
+    pub fn get_primary_hash(&self) -> Hash {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
+        }
+    }
 }
 
 /// Events risen by the smart contract execution
