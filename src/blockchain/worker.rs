@@ -39,9 +39,9 @@ use std::{
 use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
-pub trait IsValidator: FnMut(String) -> Result<bool> + Send + 'static {}
+pub trait IsValidator: Fn(String) -> Result<bool> + Send + Sync + 'static {}
 
-impl<T: FnMut(String) -> Result<bool> + Send + 'static> IsValidator for T {}
+impl<T: Fn(String) -> Result<bool> + Send + Sync + 'static> IsValidator for T {}
 
 pub struct BlockWorker<D: Db, W: Wm> {
     /// Blockchain service configuration.
@@ -67,7 +67,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
     ///
     synchronizing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
-    is_validator: Box<dyn IsValidator>,
+    is_validator: Arc<dyn IsValidator>,
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
@@ -106,13 +106,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             building,
             executing,
             synchronizing,
-            is_validator: Box::new(is_validator),
+            is_validator: Arc::new(is_validator),
         }
     }
 
     /// Set the Node Validator check
     pub fn set_validator(&mut self, is_validator: impl IsValidator) {
-        self.is_validator = Box::new(is_validator);
+        self.is_validator = Arc::new(is_validator);
     }
 
     /// Set the block configuration
@@ -208,6 +208,14 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         });
     }
 
+    async fn is_validator_async(is_validator: Arc<dyn IsValidator>, account_id: String) -> bool {
+        let fut = async move {
+            (is_validator)(account_id)
+        };
+        let jh = async_std::task::spawn(fut);
+        jh.await.unwrap_or_default()
+    }
+
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
     pub async fn run(&mut self, account_id: &str) {
@@ -218,9 +226,21 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
-        let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
+        //let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
+        let is_validator = self.is_validator.clone();
+        let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
+        let mut is_validator_fut = Box::pin(is_validator);
+
+        let mut validator = false;
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+            if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
+                validator = val;
+                let is_validator = self.is_validator.clone();
+                let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
+                is_validator_fut = Box::pin(is_validator);
+            }
+
             if validator {
                 error!("VALIDATOR TRUE"); // FIXME // DELETEME
             } else {
