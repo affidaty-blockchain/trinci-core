@@ -170,7 +170,6 @@ mod tests {
     use super::*;
     use crate::{db::*, wm::*};
 
-    // FIXME
     fn is_validator_function() -> impl IsValidator {
         move |_account_id| Ok(true)
     }

@@ -209,9 +209,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     }
 
     async fn is_validator_async(is_validator: Arc<dyn IsValidator>, account_id: String) -> bool {
-        let fut = async move {
-            (is_validator)(account_id)
-        };
+        let fut = async move { (is_validator)(account_id) };
         let jh = async_std::task::spawn(fut);
         jh.await.unwrap_or_default()
     }
@@ -220,13 +218,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     /// This can be stopped by submitting a `Stop` message to its input channel.
     pub async fn run(&mut self, account_id: &str) {
         let threshold = self.config.lock().threshold;
+
         let exec_timeout = self.config.lock().timeout as u64;
         let sync_timeout = 3 * self.config.lock().timeout as u64;
 
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
 
-        //let validator = (self.is_validator)(account_id.to_owned()).unwrap(); // FIXME
         let is_validator = self.is_validator.clone();
         let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
         let mut is_validator_fut = Box::pin(is_validator);
@@ -239,12 +237,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 let is_validator = self.is_validator.clone();
                 let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
                 is_validator_fut = Box::pin(is_validator);
-            }
-
-            if validator {
-                error!("VALIDATOR TRUE"); // FIXME // DELETEME
-            } else {
-                error!("VALIDATOR FALSE"); // FIXME // DELETEME
             }
 
             while exec_sleep.poll_unpin(cx).is_ready() {
