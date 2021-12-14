@@ -30,7 +30,7 @@ use super::{
     pubsub::{Event, PubSub},
 };
 use crate::{
-    base::{schema::SmartContractEvent, Mutex, RwLock},
+    base::{schema::SmartContractEvent, serialize::rmp_serialize, Mutex, RwLock},
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
@@ -39,6 +39,7 @@ use crate::{
 use std::{collections::HashMap, sync::Arc};
 
 /// result struct for bulk trasnsaction
+#[derive(Serialize, Deserialize)]
 pub struct BulkResult {
     success: Option<bool>,
     result: Option<Result<Vec<u8>>>,
@@ -98,7 +99,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork.flush();
         let mut events: Vec<SmartContractEvent> = vec![];
 
-        match tx {
+        let recepit = match tx {
             Transaction::UnitTransaction(tx) => {
                 let result = self.wm.lock().call(
                     fork,
@@ -162,13 +163,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
             Transaction::BullkTransaction(tx) => {
                 let mut results = HashMap::new();
+                let mut execution_fail = false;
 
-                match &tx.data {
+                let (events, results) = match &tx.data {
                     crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
-                        let mut execution_fail = false;
-
                         let root_tx = &bulk_tx.txs.root;
                         let hash = root_tx.data.primary_hash();
+                        let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
                         let result = self.wm.lock().call(
                             fork,
@@ -180,7 +181,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             *root_tx.data.get_contract(),
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
-                            &mut events,
+                            &mut bulk_events,
                         );
 
                         match result {
@@ -192,6 +193,22 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         result: Some(Ok(rcpt)),
                                     },
                                 );
+
+                                let event_tx = hash;
+                                bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
+
+                                if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+                                    bulk_events.iter().for_each(|bulk_event| {
+                                        // Notify subscribers about contract events
+                                        let msg = Message::GetContractEvent {
+                                            event: bulk_event.clone(),
+                                        };
+
+                                        self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+                                    });
+                                }
+
+                                events.append(&mut bulk_events);
                             }
                             Err(error) => {
                                 execution_fail = true;
@@ -208,6 +225,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         match &bulk_tx.txs.nodes {
                             Some(nodes) => {
                                 for node in nodes {
+                                    let mut bulk_events: Vec<SmartContractEvent> = vec![];
+
                                     if execution_fail {
                                         results.insert(
                                             node.get_primary_hash(),
@@ -227,18 +246,54 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             *node.get_contract(),
                                             node.get_method(),
                                             node.get_args(),
-                                            &mut events,
+                                            &mut bulk_events,
                                         );
-
+                                        println!("{:?}", result);
                                         match result {
-                                            Ok(rcpt) => results.insert(
-                                                node.get_primary_hash(),
-                                                BulkResult {
-                                                    success: todo!(),
-                                                    result: todo!(),
-                                                },
-                                            ),
-                                            Err(error) => todo!(),
+                                            Ok(rcpt) => {
+                                                results.insert(
+                                                    node.get_primary_hash(),
+                                                    BulkResult {
+                                                        success: Some(true),
+                                                        result: Some(Ok(rcpt)),
+                                                    },
+                                                );
+
+                                                let event_tx = node.primary_hash();
+                                                bulk_events
+                                                    .iter_mut()
+                                                    .for_each(|e| e.event_tx = event_tx);
+
+                                                if self
+                                                    .pubsub
+                                                    .lock()
+                                                    .has_subscribers(Event::CONTRACT_EVENTS)
+                                                {
+                                                    bulk_events.iter().for_each(|bulk_event| {
+                                                        // Notify subscribers about contract events
+                                                        let msg = Message::GetContractEvent {
+                                                            event: bulk_event.clone(),
+                                                        };
+
+                                                        self.pubsub
+                                                            .lock()
+                                                            .publish(Event::CONTRACT_EVENTS, msg);
+                                                    });
+                                                }
+
+                                                events.append(&mut bulk_events);
+                                            }
+                                            Err(error) => {
+                                                println!("Execution failure: {}", error);
+                                                results.insert(
+                                                    node.primary_hash(),
+                                                    BulkResult {
+                                                        success: Some(false),
+                                                        result: Some(Err(error)),
+                                                    },
+                                                );
+                                                execution_fail = true;
+                                            }
                                         }
                                     }
                                 }
@@ -249,21 +304,36 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         if execution_fail {
                             fork.rollback();
                         }
+
+                        let events = if events.is_empty() {
+                            None
+                        } else {
+                            Some(events)
+                        };
+
+                        (events, rmp_serialize(&results))
                     }
                     // this hould never happen because previous controls
-                    _ => fork.rollback(), // Recepit should be empty?
-                }
+                    // mabye warn
+                    _ => {
+                        fork.rollback();
+
+                        (None, rmp_serialize(&results))
+                    } // Recepit should be empty?
+                };
 
                 Receipt {
                     height,
                     index,
                     burned_fuel: 0, // TODO
-                    success: todo!(),
-                    returns: todo!(),
-                    events: todo!(),
+                    success: !execution_fail,
+                    returns: results.unwrap(), //mabye handle unwrap
+                    events,
                 }
             }
-        }
+        };
+
+        recepit
     }
 
     /// Returns a vector of executed transactions
@@ -458,6 +528,15 @@ mod tests {
         Executor::new(pool, db, wm, sub, true)
     }
 
+    fn create_executor_bulk(db_fail: bool) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool()));
+        let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
+        let wm = Arc::new(Mutex::new(create_wm_mock_bulk()));
+        let sub = Arc::new(Mutex::new(PubSub::new()));
+
+        Executor::new(pool, db, wm, sub, true)
+    }
+
     fn create_db_mock(fail: bool) -> MockDb {
         let mut db = MockDb::new();
         db.expect_load_block().returning(|_| {
@@ -515,6 +594,30 @@ mod tests {
         wm
     }
 
+    fn create_wm_mock_bulk() -> MockWm {
+        let mut wm = MockWm::new();
+        let mut count = 0;
+        wm.expect_call()
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+                count += 1;
+                match count {
+                    1 | 2 | 3 => {
+                        // Dummy opaque information returned the the smart contract.
+                        Ok(hex::decode("4f706171756544617461").unwrap())
+                    }
+                    4 => Err(Error::new_ext(
+                        ErrorKind::SmartContractFault,
+                        "bad contract args",
+                    )),
+                    _ => Err(Error::new_ext(
+                        ErrorKind::WasmMachineFault,
+                        "internal error",
+                    )),
+                }
+            });
+        wm
+    }
+
     fn test_contract_hash() -> Hash {
         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
     }
@@ -550,7 +653,7 @@ mod tests {
             contract: Some(contract_hash), // Smart contract HASH
             method: method.to_string(),
             caller: public_key,
-            args: rmp_serialize(&args).unwrap(),
+            args: rmp_serialize(&value!(null)).unwrap(),
             depends_on: data_tx0.primary_hash(),
         });
         let sign_tx1 = data_tx1.sign(&keypair);
@@ -597,14 +700,14 @@ mod tests {
     fn create_bulk_tx() -> Transaction {
         let keypair = create_test_keypair();
 
-        let data = create_test_bulk_data("balance", value!(null));
+        let data = create_test_bulk_data("get_random_sequence", value!(null));
         let signature = data.sign(&keypair).unwrap();
         Transaction::BullkTransaction(BulkTransaction { data, signature })
     }
 
     #[test]
     fn test_bulk() {
-        let mut executor = create_executor(false);
+        let mut executor = create_executor_bulk(false);
         let mut fork = executor.db.write().fork_create();
 
         let tx = create_bulk_tx();
