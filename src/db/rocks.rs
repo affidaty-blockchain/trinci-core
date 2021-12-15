@@ -327,7 +327,7 @@ impl DbFork for RocksDbFork {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{create_test_account, create_test_block, create_test_tx},
+        base::schema::tests::{create_test_account, create_test_block, create_test_unit_tx},
         base::schema::Account,
         crypto::Hashable,
     };
@@ -481,7 +481,7 @@ mod tests {
     fn store_transaction_no_merge() {
         let mut db = TempDb::new();
         let mut fork = db.fork_create();
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
         let hash = tx.primary_hash();
 
         fork.store_transaction(&hash, tx);
@@ -493,7 +493,7 @@ mod tests {
     fn store_transaction_merge() {
         let mut db = TempDb::new();
         let mut fork = db.fork_create();
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
         let hash = tx.primary_hash();
         fork.store_transaction(&hash, tx.clone());
 
@@ -596,8 +596,13 @@ mod tests {
         // Modifications to hold.
         let a1 = Account::new("123", None);
         fork.store_account(a1.clone());
-        let mut t1 = create_test_tx();
-        t1.data.nonce = vec![1];
+        let mut t1 = create_test_unit_tx();
+
+        match t1 {
+            Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
+            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
+        }
+
         fork.store_transaction(&t1.primary_hash(), t1.clone());
 
         // Checkpoint.
@@ -609,8 +614,13 @@ mod tests {
                 .unwrap();
         let a2 = Account::new("456", Some(h2));
         fork.store_account(a2.clone());
-        let mut t2 = create_test_tx();
-        t2.data.nonce = vec![2];
+        let mut t2 = create_test_unit_tx();
+
+        match t2 {
+            Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
+            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
+        }
+
         fork.store_transaction(&t2.primary_hash(), t2.clone());
 
         // Rollback
@@ -619,8 +629,13 @@ mod tests {
         // Add some other modifications to hold
         let a3 = Account::new("789", None);
         fork.store_account(a3.clone());
-        let mut t3 = create_test_tx();
-        t3.data.nonce = vec![3];
+        let mut t3 = create_test_unit_tx();
+
+        match t3 {
+            Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
+            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
+        }
+
         fork.store_transaction(&t3.primary_hash(), t3.clone());
 
         // Merge

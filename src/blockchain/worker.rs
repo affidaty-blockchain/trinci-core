@@ -128,11 +128,11 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     /// Insert transactions directly in the pool
     pub fn put_txs(&mut self, txs: Vec<Transaction>) {
         txs.iter().for_each(|tx| {
-            let hash = tx.data.primary_hash();
+            let hash = tx.primary_hash();
             debug!("Received transaction: {}", hex::encode(hash));
 
             // Check the network.
-            if self.config.lock().network != tx.data.network {
+            if self.config.lock().network != tx.get_network() {
                 panic!();
             }
 

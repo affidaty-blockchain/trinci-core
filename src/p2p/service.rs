@@ -17,11 +17,11 @@
 
 use crate::{blockchain::BlockRequestSender, crypto::ed25519::KeyPair, p2p::worker};
 //use libp2p::identity::Keypair;
+use crate::base::Mutex;
 use std::{
     sync::Arc,
     thread::{self, JoinHandle},
 };
-
 /// Peer2Peer service configuration.
 pub struct PeerConfig {
     /// Listening IP address.
@@ -39,7 +39,7 @@ pub struct PeerConfig {
 /// Peer2Peer service data.
 pub struct PeerService {
     /// Service configuration.
-    config: Arc<PeerConfig>,
+    config: Arc<Mutex<PeerConfig>>,
     /// Working thread handler.
     handle: Option<JoinHandle<()>>,
     /// Message queue sender to send messages to blockchain service.
@@ -50,7 +50,7 @@ impl PeerService {
     /// Create a new peer service instance.
     pub fn new(config: PeerConfig, bc_chan: BlockRequestSender) -> Self {
         PeerService {
-            config: Arc::new(config),
+            config: Arc::new(Mutex::new(config)),
             handle: None,
             bc_chan,
         }
@@ -64,6 +64,7 @@ impl PeerService {
 
         let config = self.config.clone();
         let bc_chan = self.bc_chan.clone();
+
         let handle = thread::spawn(move || {
             worker::run(config, bc_chan);
         });
@@ -84,6 +85,10 @@ impl PeerService {
                 debug!("service was not running");
             }
         }
+    }
+
+    pub fn set_network_name(&mut self, network_name: String) {
+        self.config.lock().network = network_name;
     }
 
     pub fn is_running(&self) -> bool {
