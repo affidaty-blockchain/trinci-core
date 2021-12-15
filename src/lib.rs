@@ -44,7 +44,7 @@ pub mod rest;
 #[cfg(feature = "tpm2")]
 pub use crypto::tpm2;
 
-pub use base::{Account, Block, BlockData, Receipt, Transaction, TransactionData};
+pub use base::{Account, Block, Receipt, Transaction, TransactionDataV1};
 pub use blockchain::{BlockConfig, BlockService, Message};
 pub use crypto::{KeyPair, PublicKey};
 pub use error::{Error, ErrorKind, Result};

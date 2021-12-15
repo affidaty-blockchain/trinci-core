@@ -37,6 +37,8 @@ impl From<ErrorKind> for StatusCode {
             SmartContractFault => StatusCode::BadRequest,
             NotImplemented => StatusCode::NotImplemented,
             Tpm2Error => StatusCode::InternalServerError,
+            WrongTxType => StatusCode::Conflict,
+            BrokenIntegrity => StatusCode::Unauthorized,
             Other => StatusCode::ImATeapot,
         }
     }
@@ -195,7 +197,7 @@ mod tests {
     use crate::{
         base::{
             schema::tests::{
-                create_test_account, create_test_block, create_test_receipt, create_test_tx,
+                create_test_account, create_test_block, create_test_receipt, create_test_unit_tx,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -215,7 +217,7 @@ mod tests {
     fn msg_handler(req: Message) -> Message {
         match req {
             Message::PutTransactionRequest { confirm, tx } if confirm => {
-                if tx.data.verify(&tx.data.caller, &tx.signature).is_err() {
+                if tx.verify(tx.get_caller(), &tx.get_signature()).is_err() {
                     Message::Exception(Error::new(ErrorKind::InvalidSignature))
                 } else {
                     Message::PutTransactionResponse {
@@ -226,7 +228,7 @@ mod tests {
             Message::GetTransactionRequest { hash } => {
                 match hash == Hash::from_hex(HASH_HEX).unwrap() {
                     true => Message::GetTransactionResponse {
-                        tx: create_test_tx(),
+                        tx: create_test_unit_tx(),
                     },
                     false => Message::Exception(ErrorKind::ResourceNotFound.into()),
                 }
@@ -339,7 +341,7 @@ mod tests {
 
     #[test]
     fn message_get_transaction() {
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
         let msg = Message::GetTransactionRequest {
             hash: Hash::from_hex(HASH_HEX).unwrap(),
         };
@@ -360,7 +362,7 @@ mod tests {
 
     #[test]
     fn message_put_transaction() {
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
         let msg = Message::PutTransactionRequest { confirm: true, tx };
         let buf = rmp_serialize(&msg).unwrap();
 
@@ -395,7 +397,7 @@ mod tests {
     fn put_transaction() {
         let mut addr = start_listener();
         addr.push_str("/api/v1/submit");
-        let tx = create_test_tx();
+        let tx = create_test_unit_tx();
         let body = rmp_serialize(&tx).unwrap();
 
         let response = ureq::post(&addr).send_bytes(&body).unwrap();
@@ -410,8 +412,13 @@ mod tests {
     fn put_transaction_error() {
         let mut addr = start_listener();
         addr.push_str("/api/v1/submit");
-        let mut tx = create_test_tx();
-        tx.signature[0] += 1;
+        let mut tx = create_test_unit_tx();
+
+        match tx {
+            crate::Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
+            crate::Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+        }
+
         let body = rmp_serialize(&tx).unwrap();
 
         let error = ureq::post(&addr).send_bytes(&body).unwrap_err();
@@ -433,7 +440,7 @@ mod tests {
 
         assert_eq!(response.status_text(), "OK");
         assert_eq!(response.content_type(), "application/octet-stream");
-        let exp = rmp_serialize(&create_test_tx()).unwrap();
+        let exp = rmp_serialize(&create_test_unit_tx()).unwrap();
         assert_eq!(fetch_response_body(response), exp);
     }
 
