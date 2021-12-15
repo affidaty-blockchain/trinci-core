@@ -482,6 +482,8 @@ pub struct SmartContractEvent {
     /// The account that produced this event
     pub emitter_account: String,
 
+    pub emitter_smart_contract: Hash,
+
     /// Arbitrary name given to this event
     pub event_name: String,
 
@@ -627,7 +629,7 @@ pub mod tests {
     const ACCOUNT_CONTRACT_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c422122087b6239079719fc7e4349ec54baac9e04c20c48cf0c6a9d2b29b0ccf7c31c727c0";
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
 
-    const CONTRACT_EVENT_HEX: &str = "94c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74ab636f6f6c5f6d6574686f64c403010203";
+    const CONTRACT_EVENT_HEX: &str = "95c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74c4221220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569ab636f6f6c5f6d6574686f64c403010203";
 
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
@@ -709,6 +711,10 @@ pub mod tests {
             )
             .unwrap(),
             emitter_account: "origin_account".to_string(),
+            emitter_smart_contract: Hash::from_hex(
+                "1220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569",
+            )
+            .unwrap(),
             event_name: "cool_method".to_string(),
             event_data: vec![1, 2, 3],
         }
