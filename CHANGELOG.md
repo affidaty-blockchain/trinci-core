@@ -26,6 +26,19 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
+0.2.4 - unreleased
+------------------
+
+Changed
+* Transaction schema
+* Signed blocks
+
+Added
+* Bulk transaction
+* bootstrap from wasm or wasm+txs
+* config from bootstrap
+* network name from bootstrap hash
+
 
 0.2.3 - 25-11-2021
 ------------------

@@ -87,7 +87,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
-        let executor = Executor::new(pool.clone(), db.clone(), wm.clone(), pubsub.clone());
+        let executor = Executor::new(
+            pool.clone(),
+            db.clone(),
+            wm.clone(),
+            pubsub.clone(),
+            config.lock().keypair.clone(),
+        );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));

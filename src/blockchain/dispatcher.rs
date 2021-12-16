@@ -33,6 +33,7 @@
 //!   In case of messages that are not supposed to send out a real response
 use crate::{
     base::{
+        schema::Block,
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
@@ -44,7 +45,7 @@ use crate::{
     },
     crypto::{Hash, HashAlgorithm, Hashable},
     db::Db,
-    Block, Error, ErrorKind, Result, Transaction,
+    Error, ErrorKind, Result, Transaction,
 };
 use std::sync::Arc;
 
@@ -228,14 +229,14 @@ impl<D: Db> Dispatcher<D> {
         let opt = self.db.read().load_block(u64::MAX);
 
         let mut missing_headers = match opt {
-            Some(last) => last.height + 1..block.height,
-            None => 0..block.height,
+            Some(last) => last.data.height + 1..block.data.height,
+            None => 0..block.data.height,
         };
         if txs_hashes.is_none() {
             missing_headers.end += 1;
         }
 
-        if missing_headers.start <= block.height {
+        if missing_headers.start <= block.data.height {
             let mut pool = self.pool.write();
             if let Some(ref hashes) = txs_hashes {
                 for hash in hashes {
@@ -251,7 +252,7 @@ impl<D: Db> Dispatcher<D> {
                 hash: Some(block.primary_hash()),
                 txs_hashes,
             };
-            pool.confirmed.insert(block.height, blk_info);
+            pool.confirmed.insert(block.data.height, blk_info);
         }
     }
 
@@ -401,6 +402,7 @@ mod tests {
             threshold: 42,
             timeout: 3,
             network: "skynet".to_string(),
+            keypair: Arc::new(crate::crypto::sign::tests::create_test_keypair()),
         }));
 
         Dispatcher::new(config, pool, db, pubsub)

@@ -30,11 +30,15 @@ use super::{
     pubsub::{Event, PubSub},
 };
 use crate::{
-    base::{schema::SmartContractEvent, serialize::rmp_serialize, Mutex, RwLock},
+    base::{
+        schema::{Block, BlockData, SmartContractEvent},
+        serialize::rmp_serialize,
+        Mutex, RwLock,
+    },
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Block, Error, ErrorKind, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -55,6 +59,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     wm: Arc<Mutex<W>>,
     /// PubSub subsystem to publish blockchain events.
     pubsub: Arc<Mutex<PubSub>>,
+    /// Node keypair
+    keypair: Arc<KeyPair>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -64,6 +70,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             db: self.db.clone(),
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
+            keypair: self.keypair.clone(),
         }
     }
 }
@@ -75,12 +82,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
         db: Arc<RwLock<D>>,
         wm: Arc<Mutex<W>>,
         pubsub: Arc<Mutex<PubSub>>,
+        keypair: Arc<KeyPair>,
     ) -> Self {
         Executor {
             pool,
             db,
             wm,
             pubsub,
+            keypair,
         }
     }
 
@@ -383,7 +392,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
         // Construct a new block.
-        let block = Block::new(
+        let data = BlockData::new(
+            self.keypair.public_key(),
             height,
             txs_hashes.len() as u32,
             prev_hash,
@@ -391,7 +401,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
             rxs_hash,
             fork.state_hash(""),
         );
-        let block_hash = block.primary_hash();
+
+        let buf = rmp_serialize(&data)?;
+        let signature = self.keypair.sign(&buf)?;
+
+        let block_hash = data.primary_hash();
+
+        let block = Block { data, signature };
+
         if let Some(exp_hash) = exp_hash {
             if exp_hash != block_hash {
                 // Somethig has gone wrong.
@@ -426,7 +443,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 .db
                 .read()
                 .load_block(u64::MAX)
-                .map(|blk| blk.height + 1)
+                .map(|blk| blk.data.height + 1)
                 .unwrap_or_default();
         }
         let pool = self.pool.read();
@@ -443,7 +460,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
     pub fn run(&mut self) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.primary_hash(), block.height + 1),
+            Some(block) => (block.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
 
@@ -511,7 +528,7 @@ mod tests {
 
     use serde_value::{value, Value};
 
-    const BLOCK_HEX: &str = "960103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
+    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
 
     const TEST_WASM: &[u8] = include_bytes!("../wm/test.wasm");
 
@@ -521,7 +538,9 @@ mod tests {
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
 
-        Executor::new(pool, db, wm, sub)
+        let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
+
+        Executor::new(pool, db, wm, sub, keypair)
     }
 
     fn create_executor_bulk(db_fail: bool) -> Executor<MockDb, MockWm> {
@@ -530,7 +549,9 @@ mod tests {
         let wm = Arc::new(Mutex::new(create_wm_mock_bulk()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
 
-        Executor::new(pool, db, wm, sub)
+        let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
+
+        Executor::new(pool, db, wm, sub, keypair)
     }
 
     fn create_db_mock(fail: bool) -> MockDb {
@@ -787,7 +808,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "12207ac9a4d3e58655000f2ad2ec9e66eb763066a6f82cc90aad41656939e566fca7"
+            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
         );
     }
 

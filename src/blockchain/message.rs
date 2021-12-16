@@ -20,7 +20,10 @@
 //! "MessagePack" format.
 use super::Event;
 use crate::{
-    base::{schema::SmartContractEvent, Account, Block, Receipt, Transaction},
+    base::{
+        schema::{Block, SmartContractEvent},
+        Account, Receipt, Transaction,
+    },
     channel,
     crypto::Hash,
     Error,

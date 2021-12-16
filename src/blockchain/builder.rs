@@ -88,7 +88,7 @@ impl<D: Db> Builder<D> {
                 .db
                 .read()
                 .load_block(u64::MAX)
-                .map(|block| block.height + 1)
+                .map(|block| block.data.height + 1)
                 .unwrap_or_default(),
         };
         let mut count = self.pool.read().unconfirmed.len();

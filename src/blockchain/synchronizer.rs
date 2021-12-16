@@ -73,7 +73,7 @@ impl<D: Db> Synchronizer<D> {
             .db
             .read()
             .load_block(u64::MAX)
-            .map(|blk| blk.height + 1)
+            .map(|blk| blk.data.height + 1)
             .unwrap_or_default();
 
         while height <= last_height {

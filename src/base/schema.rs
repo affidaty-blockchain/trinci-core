@@ -514,6 +514,18 @@ pub struct Receipt {
 /// Block structure.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Block {
+    /// Block content
+    pub data: BlockData,
+    /// Block content signature
+    #[serde(with = "serde_bytes")]
+    pub signature: Vec<u8>,
+}
+
+/// Block Data structure.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BlockData {
+    /// Block Validator public key
+    pub validator: PublicKey,
     /// Index in the blockhain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
@@ -528,9 +540,10 @@ pub struct Block {
     pub state_hash: Hash,
 }
 
-impl Block {
+impl BlockData {
     /// Instance a new block structure.
     pub fn new(
+        validator: PublicKey,
         height: u64,
         size: u32,
         prev_hash: Hash,
@@ -538,7 +551,8 @@ impl Block {
         rxs_hash: Hash,
         state_hash: Hash,
     ) -> Self {
-        Block {
+        BlockData {
+            validator,
             height,
             size,
             prev_hash,
@@ -622,9 +636,13 @@ pub mod tests {
     const RECEIPT_HASH_HEX: &str =
         "12202da9df047846a2c30866388c0650a1b126c421f4f3b55bea254edc1b4281cac3";
 
-    const BLOCK_HEX: &str = "960103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
+    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
     const BLOCK_HASH_HEX: &str =
-        "12207967613f2ce65f93437c8da954ba4a32a795dc1235ff179cd27f92f330521ccb";
+        "12202c3335759727ae3a703b9a802e034d241367e592b4483f40a5e4a7795a9f4135";
+
+    const BLOCK_DATA_HEX: &str = "9793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
+    const BLOCK_DATA_HASH_HEX: &str =
+        "12202fe0c444af3f02334b22ced012016406eaf520e04e9820042726995d88ad1512";
 
     const ACCOUNT_CONTRACT_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c422122087b6239079719fc7e4349ec54baac9e04c20c48cf0c6a9d2b29b0ccf7c31c727c0";
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
@@ -744,7 +762,7 @@ pub mod tests {
         account
     }
 
-    pub fn create_test_block() -> Block {
+    pub fn create_test_block_data() -> BlockData {
         let prev_hash =
             Hash::from_hex("1220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011")
                 .unwrap();
@@ -757,13 +775,26 @@ pub mod tests {
         let state_hash =
             Hash::from_hex("122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d")
                 .unwrap();
-        Block {
+        let keypair = crate::crypto::sign::tests::create_test_keypair();
+
+        BlockData {
+            validator: keypair.public_key(),
+
             height: 1,
             size: 3,
             prev_hash,
             txs_hash,
             rxs_hash: res_hash,
             state_hash,
+        }
+    }
+
+    pub fn create_test_block() -> Block {
+        let data = create_test_block_data();
+
+        Block {
+            data,
+            signature: vec![0, 1, 2],
         }
     }
 
@@ -1022,6 +1053,44 @@ pub mod tests {
         let hash = block.primary_hash();
 
         assert_eq!(BLOCK_HASH_HEX, hex::encode(hash));
+    }
+
+    #[test]
+    fn block_data_serialize() {
+        let block_data = create_test_block_data();
+
+        let buf = block_data.serialize();
+
+        assert_eq!(hex::encode(buf), BLOCK_DATA_HEX);
+    }
+
+    #[test]
+    fn block_data_deserialize() {
+        let expected = create_test_block_data();
+        let buf = hex::decode(BLOCK_DATA_HEX).unwrap();
+
+        let block_data = BlockData::deserialize(&buf).unwrap();
+
+        assert_eq!(block_data, expected);
+    }
+
+    #[test]
+    fn block_data_deserialize_fail() {
+        let mut buf = hex::decode(BLOCK_DATA_HEX).unwrap();
+        buf.pop(); // remove a byte to make it fail
+
+        let error = BlockData::deserialize(&buf).unwrap_err();
+
+        assert_eq!(error.kind, ErrorKind::MalformedData);
+    }
+
+    #[test]
+    fn block_data_hash() {
+        let block_data = create_test_block_data();
+
+        let hash = block_data.primary_hash();
+
+        assert_eq!(BLOCK_DATA_HASH_HEX, hex::encode(hash));
     }
 
     #[test]
