@@ -416,7 +416,7 @@ mod tests {
 
         match tx {
             crate::Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
-            crate::Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+            crate::Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,
         }
 
         let body = rmp_serialize(&tx).unwrap();

@@ -165,7 +165,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     events,
                 }
             }
-            Transaction::BullkTransaction(tx) => {
+            Transaction::BulkTransaction(tx) => {
                 let mut results = HashMap::new();
                 let mut execution_fail = false;
 
@@ -719,7 +719,7 @@ mod tests {
 
         let data = create_test_bulk_data("get_random_sequence", value!(null));
         let signature = data.sign(&keypair).unwrap();
-        Transaction::BullkTransaction(BulkTransaction { data, signature })
+        Transaction::BulkTransaction(BulkTransaction { data, signature })
     }
 
     #[test]

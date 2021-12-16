@@ -100,7 +100,7 @@ impl<D: Db> Dispatcher<D> {
                 tx.data.check_integrity()?;
                 tx.data.primary_hash()
             }
-            Transaction::BullkTransaction(tx) => {
+            Transaction::BulkTransaction(tx) => {
                 tx.data.verify(tx.data.get_caller(), &tx.signature)?;
                 tx.data.check_integrity()?;
                 tx.data.primary_hash()
@@ -485,7 +485,7 @@ mod tests {
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
-            Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+            Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,
         }
 
         let req = Message::PutTransactionRequest { confirm: true, tx };
@@ -507,7 +507,7 @@ mod tests {
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
-            Transaction::BullkTransaction(ref mut tx) => tx.signature[0] += 1,
+            Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,
         }
 
         let req = Message::PutTransactionRequest { confirm: true, tx };

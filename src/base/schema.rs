@@ -300,7 +300,7 @@ impl TransactionDataBulkV1 {
                                 }
                                 _ => return Err(ErrorKind::WrongTxType.into()),
                             },
-                            Transaction::BullkTransaction(_) => {
+                            Transaction::BulkTransaction(_) => {
                                 return Err(ErrorKind::WrongTxType.into())
                             }
                         }
@@ -347,7 +347,7 @@ impl TransactionDataBulkV1 {
                                 ));
                             }
                         }
-                        Transaction::BullkTransaction(_) => {
+                        Transaction::BulkTransaction(_) => {
                             return Err(ErrorKind::WrongTxType.into())
                         }
                     }
@@ -394,81 +394,81 @@ pub enum Transaction {
     /// Unit signed transaction
     UnitTransaction(SignedTransaction),
     /// Bulk transaction
-    BullkTransaction(BulkTransaction),
+    BulkTransaction(BulkTransaction),
 }
 
 impl Transaction {
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match self {
             Transaction::UnitTransaction(tx) => tx.data.sign(keypair),
-            Transaction::BullkTransaction(tx) => tx.data.sign(keypair),
+            Transaction::BulkTransaction(tx) => tx.data.sign(keypair),
         }
     }
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match self {
             Transaction::UnitTransaction(tx) => tx.data.verify(public_key, sig),
-            Transaction::BullkTransaction(tx) => tx.data.verify(public_key, sig),
+            Transaction::BulkTransaction(tx) => tx.data.verify(public_key, sig),
         }
     }
     pub fn check_integrity(&self) -> Result<()> {
         match self {
             Transaction::UnitTransaction(tx) => tx.data.check_integrity(), //TODO
-            Transaction::BullkTransaction(tx) => tx.data.check_integrity(),
+            Transaction::BulkTransaction(tx) => tx.data.check_integrity(),
         }
     }
 
     pub fn get_caller(&self) -> &PublicKey {
         match self {
             Transaction::UnitTransaction(tx) => tx.data.get_caller(),
-            Transaction::BullkTransaction(tx) => tx.data.get_caller(),
+            Transaction::BulkTransaction(tx) => tx.data.get_caller(),
         }
     }
     pub fn get_network(&self) -> &str {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_network(),
-            Transaction::BullkTransaction(tx) => tx.data.get_network(),
+            Transaction::BulkTransaction(tx) => tx.data.get_network(),
         }
     }
     pub fn get_account(&self) -> &str {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_account(),
-            Transaction::BullkTransaction(tx) => tx.data.get_account(),
+            Transaction::BulkTransaction(tx) => tx.data.get_account(),
         }
     }
     pub fn get_method(&self) -> &str {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_method(),
-            Transaction::BullkTransaction(tx) => tx.data.get_method(),
+            Transaction::BulkTransaction(tx) => tx.data.get_method(),
         }
     }
     pub fn get_args(&self) -> &[u8] {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_args(),
-            Transaction::BullkTransaction(tx) => tx.data.get_args(),
+            Transaction::BulkTransaction(tx) => tx.data.get_args(),
         }
     }
     pub fn get_contract(&self) -> &Option<Hash> {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_contract(),
-            Transaction::BullkTransaction(tx) => tx.data.get_contract(),
+            Transaction::BulkTransaction(tx) => tx.data.get_contract(),
         }
     }
     pub fn get_dependency(&self) -> Result<Hash> {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.get_dependency(),
-            Transaction::BullkTransaction(tx) => tx.data.get_dependency(),
+            Transaction::BulkTransaction(tx) => tx.data.get_dependency(),
         }
     }
     pub fn get_signature(&self) -> &Vec<u8> {
         match &self {
             Transaction::UnitTransaction(tx) => &tx.signature,
-            Transaction::BullkTransaction(tx) => &tx.signature,
+            Transaction::BulkTransaction(tx) => &tx.signature,
         }
     }
     pub fn get_primary_hash(&self) -> Hash {
         match &self {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
-            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
         }
     }
 }
@@ -716,7 +716,7 @@ pub mod tests {
 
     pub fn create_test_bulk_tx() -> Transaction {
         let signature = hex::decode(TRANSACTION_SIGN_BULK).unwrap();
-        Transaction::BullkTransaction(BulkTransaction {
+        Transaction::BulkTransaction(BulkTransaction {
             data: create_test_data_bulk(),
             signature,
         })
@@ -863,14 +863,14 @@ pub mod tests {
         let tx = create_test_unit_tx();
         let hash = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
-            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
         };
         assert_eq!(TRANSACTION_DATA_HASH_HEX_UNIT, hex::encode(hash));
 
         let tx = create_test_bulk_tx();
         let hash = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
-            Transaction::BullkTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
         };
         assert_eq!(TRANSACTION_DATA_HASH_HEX_BULK, hex::encode(hash));
     }

@@ -74,9 +74,7 @@ pub mod tests {
 
             match tx {
                 Transaction::UnitTransaction(ref mut test) => test.data.set_nonce(vec![i as u8; 8]),
-                Transaction::BullkTransaction(ref mut test) => {
-                    test.data.set_nonce(vec![i as u8; 8])
-                }
+                Transaction::BulkTransaction(ref mut test) => test.data.set_nonce(vec![i as u8; 8]),
             }
 
             let hash = tx.primary_hash();

@@ -600,7 +600,7 @@ mod tests {
 
         match t1 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
-            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
+            Transaction::BulkTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
         }
 
         fork.store_transaction(&t1.primary_hash(), t1.clone());
@@ -618,7 +618,7 @@ mod tests {
 
         match t2 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
-            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
+            Transaction::BulkTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
         }
 
         fork.store_transaction(&t2.primary_hash(), t2.clone());
@@ -633,7 +633,7 @@ mod tests {
 
         match t3 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
-            Transaction::BullkTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
+            Transaction::BulkTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
         }
 
         fork.store_transaction(&t3.primary_hash(), t3.clone());
