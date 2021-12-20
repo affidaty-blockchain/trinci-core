@@ -390,6 +390,7 @@ pub struct BulkTransaction {
 
 /// Enum for transaction types
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(untagged)]
 pub enum Transaction {
     /// Unit signed transaction
     UnitTransaction(SignedTransaction),
