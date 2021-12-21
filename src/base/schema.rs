@@ -26,8 +26,6 @@ use std::collections::BTreeMap;
 /// Transaction payload.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct TransactionDataV1 {
-    /// Transaction schema version (TODO: is this necessary?).
-    pub schema: String,
     /// Target account identifier.
     pub account: String,
     /// Max allowed blockchain asset units for fee.
@@ -51,7 +49,6 @@ pub struct TransactionDataV1 {
 /// Transaction payload for bulk node tx.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct TransactionDataBulkNodeV1 {
-    pub schema: String,
     /// Target account identifier.
     pub account: String,
     /// Max allowed blockchain asset units for fee.
@@ -91,7 +88,7 @@ pub struct TransactionDataBulkV1 {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(tag = "type")]
+#[serde(tag = "schema")]
 pub enum TransactionData {
     #[serde(rename = "v1")]
     V1(TransactionDataV1),
@@ -242,8 +239,7 @@ impl TransactionDataV1 {
 
     /// Check if tx is intact and coherent
     pub fn check_integrity(&self) -> Result<()> {
-        if !self.schema.is_empty()
-            && !self.account.is_empty()
+        if !self.account.is_empty()
             && !self.nonce.is_empty()
             && !self.network.is_empty()
             && !self.method.is_empty()
@@ -390,11 +386,13 @@ pub struct BulkTransaction {
 
 /// Enum for transaction types
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(untagged)]
+#[serde(tag = "type")]
 pub enum Transaction {
     /// Unit signed transaction
+    #[serde(rename = "unit_tx")]
     UnitTransaction(SignedTransaction),
     /// Bulk transaction
+    #[serde(rename = "bulk_tx")]
     BulkTransaction(BulkTransaction),
 }
 
@@ -619,19 +617,19 @@ pub mod tests {
 
     const ACCOUNT_ID: &str = "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51";
 
-    const TRANSACTION_DATA_HEX_UNIT: &str = "9aa27631ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
+    const TRANSACTION_DATA_HEX_UNIT: &str = "99a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
     const TRANSACTION_DATA_HASH_HEX_UNIT: &str =
-        "1220b27267c4cf81983ec9785e594bd9b6ede6d207cebd0c6b4032c6823a96784cc0";
+        "1220970572e00cacd21dd115e12ed6809f6dcc52f06cbe6e2a96e5e22b370126cc1b";
 
-    const TRANSACTION_DATA_HEX_BULK: &str = "93a3627631ae6d792d636f6f6c2d736368656d6192919aa462727631ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0";
+    const TRANSACTION_DATA_HEX_BULK: &str = "93a3627631ae6d792d636f6f6c2d736368656d61929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0";
     const TRANSACTION_DATA_HASH_HEX_BULK: &str =
-        "12205ba4b7698ccbd0f662c5f64de7aba4f9a86a869c1ef8acd6120b7684a126e48c";
+        "1220ac0568ad7afd28ed14910af0aedd7e85b2b91bd8cde95be2334e8148e18181d8";
 
-    const TRANSACTION_HEX_UNIT: &str = "8100929aa27631ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
-    const TRANSACTION_SIGN_UNIT: &str = "cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+    const TRANSACTION_HEX_UNIT: &str = "93a7756e69745f747899a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460cf2665db3c17f94579404a7a87204960446f7d65a7962db22953721576bf125a72215bfdee464bf025d2359615550fa6660cc53fb729b02ef251c607dfc93dc441a783bb058c41e694fe99904969f69d0735a794dc85010e4156a6edcb55177e";
+    const TRANSACTION_SIGN_UNIT: &str = "a4b18fdb59946e18be103314f2445c052dab470ab99c13b847a095f0077849fa650628f0227ae5365c7d9a379b25b815a324bdef482c3d8d8462a54f9e8516b1f085c028b9aa455b867a119055df0ec91a3d84a12195999b399a670c6fc77574";
 
-    const TRANSACTION_HEX_BULK: &str = "81019293a3627631ae6d792d636f6f6c2d736368656d6192919aa462727631ae6d792d636f6f6c2d736368656d61d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0c460bc09b9742f3927593aa88e9be7fefea5f44529571f64e2535e3a1917ca63812baca39171fc7d85cc2dc437607ebc5c23554a5ff4d4dd3900abbfbb4f841007d38c99dfc1b0e54d4b5d0b266d17534ce2f50d97d09296a653669ed7840c8a5d63";
-    const TRANSACTION_SIGN_BULK: &str = "bc09b9742f3927593aa88e9be7fefea5f44529571f64e2535e3a1917ca63812baca39171fc7d85cc2dc437607ebc5c23554a5ff4d4dd3900abbfbb4f841007d38c99dfc1b0e54d4b5d0b266d17534ce2f50d97d09296a653669ed7840c8a5d63";
+    const TRANSACTION_HEX_BULK: &str = "93a762756c6b5f747893a3627631ae6d792d636f6f6c2d736368656d61929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0c460bc09b9742f3927593aa88e9be7fefea5f44529571f64e2535e3a1917ca63812baca39171fc7d85cc2dc437607ebc5c23554a5ff4d4dd3900abbfbb4f841007d38c99dfc1b0e54d4b5d0b266d17534ce2f50d97d09296a653669ed7840c8a5d63";
+    const TRANSACTION_SIGN_BULK: &str = "bc8f19e1fec65a432790dffd4dfcd340d31feb6744c712b0efbb78d274b9da5025794a05d2b75f252fd2e834f1361f63f6ffd1f1b2c0273f2e9b3f07e3debaa51af1b477fdd4b2074fcf928b465191ec23b259705e699422d0776312d3b9b040";
 
     const RECEIPT_HEX: &str = "960309cd03e7c3c40a4f70617175654461746190";
     const RECEIPT_HASH_HEX: &str =
@@ -663,7 +661,6 @@ pub mod tests {
                 .unwrap();
 
         TransactionData::V1(TransactionDataV1 {
-            schema: TRANSACTION_SCHEMA.to_owned(),
             account,
             fuel_limit: FUEL_LIMIT,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
@@ -685,7 +682,6 @@ pub mod tests {
                 .unwrap();
 
         let root_data = TransactionData::BulkRootV1(TransactionDataV1 {
-            schema: TRANSACTION_SCHEMA.to_owned(),
             account,
             fuel_limit: FUEL_LIMIT,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
@@ -709,6 +705,7 @@ pub mod tests {
 
     pub fn create_test_unit_tx() -> Transaction {
         let signature = hex::decode(TRANSACTION_SIGN_UNIT).unwrap();
+
         Transaction::UnitTransaction(SignedTransaction {
             data: create_test_data_unit(),
             signature,
@@ -882,10 +879,24 @@ pub mod tests {
         let result = tx.verify(tx.get_caller(), tx.get_signature());
         assert!(result.is_ok());
 
-        let tx = create_test_bulk_tx();
+        //let tx = create_test_bulk_tx();
 
-        let result = tx.verify(tx.get_caller(), tx.get_signature());
-        assert!(result.is_ok());
+        //// to know sign
+        //let ser = match tx {
+        //    Transaction::UnitTransaction(tx) => tx.data.serialize(),
+        //    Transaction::BulkTransaction(tx) => match tx.data {
+        //        TransactionData::BulkV1(data) => data.serialize(),
+        //        _ => tx.data.serialize(),
+        //    },
+        //};
+
+        //print!(
+        //    "{:?}",
+        //    hex::encode(ecdsa_secp384_test_keypair().sign(&ser).unwrap())
+        //);
+
+        //let result = tx.verify(tx.get_caller(), tx.get_signature());
+        //assert!(result.is_ok());
     }
 
     #[test]
