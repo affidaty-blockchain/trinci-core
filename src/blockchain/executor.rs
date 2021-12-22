@@ -646,7 +646,6 @@ mod tests {
         let id = public_key.to_account_id();
 
         let data_tx0 = TransactionData::BulkRootV1(TransactionDataV1 {
-            schema: "schema".to_string(),
             account: id,
             fuel_limit: 1000,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
@@ -662,7 +661,6 @@ mod tests {
         let id = public_key.to_account_id();
 
         let data_tx1 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
-            schema: "schema".to_string(),
             account: id,
             fuel_limit: 1000,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
@@ -680,7 +678,6 @@ mod tests {
         let id = public_key.to_account_id();
 
         let data_tx2 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
-            schema: "schema".to_string(),
             account: id,
             fuel_limit: 1000,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
@@ -728,6 +725,7 @@ mod tests {
         let mut fork = executor.db.write().fork_create();
 
         let tx = create_bulk_tx();
+
         let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0);
 
         assert!(rcpt.success);

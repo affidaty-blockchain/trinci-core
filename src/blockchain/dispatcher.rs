@@ -391,9 +391,9 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const BULK_TX_DATA_HASH_HEX: &str =
-        "12205ba4b7698ccbd0f662c5f64de7aba4f9a86a869c1ef8acd6120b7684a126e48c";
+        "1220ac0568ad7afd28ed14910af0aedd7e85b2b91bd8cde95be2334e8148e18181d8";
     const TX_DATA_HASH_HEX: &str =
-        "1220b27267c4cf81983ec9785e594bd9b6ede6d207cebd0c6b4032c6823a96784cc0";
+        "1220970572e00cacd21dd115e12ed6809f6dcc52f06cbe6e2a96e5e22b370126cc1b";
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let db = Arc::new(RwLock::new(create_db_mock(fail_condition)));
@@ -467,8 +467,8 @@ mod tests {
         //let tx = create_test_bulk_tx();
         //match tx {
         //    Transaction::UnitTransaction(_) => (),
-        //    Transaction::BullkTransaction(tx) => {
-        //        println!("AO: {:?}", hex::encode(tx.data.primary_hash()));
+        //    Transaction::BulkTransaction(tx) => {
+        //        println!("{:?}", hex::encode(tx.data.primary_hash()));
         //    }
         //}
 

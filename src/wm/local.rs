@@ -785,7 +785,6 @@ mod tests {
         let public_key = create_test_public_key();
         let id = public_key.to_account_id();
         TransactionData::V1(TransactionDataV1 {
-            schema: "schema".to_string(),
             account: id,
             fuel_limit: 1000,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
