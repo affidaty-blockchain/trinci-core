@@ -31,9 +31,12 @@ wasmtime = { version = "0.31.0", default-features = false, features = [ "paralle
 libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub", "identify"], optional = true }
 # HTTP framework
 tide = { version = "0.16", default-features = false, features = [ "h1-server" ], optional = true }
-# tpm interaction
+# TPM2 interaction
 tss-esapi = { version = "6.1.1", default-features = false, optional = true }
 tss-esapi-sys = { version = "0.2.0", default-features = false, optional = true }
+# Drand 
+rand_pcg = "0.3.1"
+rand_core = "0.6.3"
 
 [dev-dependencies]
 lazy_static = "1.4.0"
