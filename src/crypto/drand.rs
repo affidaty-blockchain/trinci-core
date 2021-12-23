@@ -1,12 +1,9 @@
 use std::fmt::Debug;
 
-use merkledb::BinaryKey;
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Pcg32;
 
 use crate::crypto::Hash;
-
-use super::HashAlgorithm;
 
 #[derive(Debug)]
 pub struct SeedSource {
@@ -34,42 +31,61 @@ impl SeedSource {
 
     /// It returns the seed based on the structure sources
     pub fn get_seed(&self) -> u64 {
-        let db = self.db.as_bytes().to_vec();
-        let nonce = Hash::new(HashAlgorithm::Sha256, self.nonce.as_slice())
-            .unwrap()
-            .as_bytes()
-            .to_vec();
-        let nw_name = Hash::new(HashAlgorithm::Sha256, self.nw_name.as_slice())
-            .unwrap()
-            .as_bytes()
-            .to_vec();
+        // generate a Vec<u8> for each attribute of lenght
+        // of the biggest between them
+        let size = vec![
+            self.nw_name.len(),
+            self.nonce.len(),
+            self.db.to_bytes().len(),
+        ];
+        let size = size.iter().max().unwrap(); // unwrap beacause it's secure to assume that the vector is not empty
 
-        let mut sum: Vec<u8> = vec![0; db.size()];
+        let mut nw_name: Vec<u8> = vec![0; *size];
+        let mut nonce: Vec<u8> = vec![0; *size];
+        let mut db: Vec<u8> = vec![0; *size];
 
-        for j in 0..db.size() {
-            sum[j] = db[j] + nonce[j] + nw_name[j];
+        nw_name[..self.nw_name.len()].copy_from_slice(self.nw_name.as_slice());
+        nonce[..self.nonce.len()].copy_from_slice(self.nonce.as_slice());
+        db[..self.db.to_bytes().len()].copy_from_slice(self.db.as_bytes());
+
+        // do xor between arrays
+        let xor_result: Vec<u8> = nw_name
+            .iter()
+            .zip(nonce.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+        let mut xor_result: Vec<u8> = xor_result
+            .iter()
+            .zip(db.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+
+        // calcualte how many u64 are present in xor_result
+        let reminder_of_u64 = xor_result.len() % std::mem::size_of::<u64>();
+        // if rest is present do padding to have last u64
+        if reminder_of_u64 > 0 {
+            let mut reminder_vec: Vec<u8> = vec![0; std::mem::size_of::<u64>() - reminder_of_u64];
+            xor_result.append(&mut reminder_vec);
         }
 
-        let hash = Hash::from_bytes(sum.as_slice()).unwrap();
+        // do xor chunkwise
+        let mut vec_u64: Vec<u8> = vec![0; std::mem::size_of::<u64>()];
+        for element in xor_result.as_slice().chunks(std::mem::size_of::<u64>()) {
+            vec_u64 = vec_u64
+                .iter()
+                .zip(element.iter())
+                .map(|(&x1, &x2)| x1 ^ x2)
+                .collect();
+        }
 
-        let (res, _rest) = hash.as_bytes().split_at(std::mem::size_of::<u64>());
-        u64::from_be_bytes(res.try_into().unwrap()) + self.previous_seed
+        let vec_u64: Vec<u8> = vec_u64
+            .iter()
+            .zip(self.previous_seed.to_be_bytes().iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+
+        u64::from_be_bytes(vec_u64.try_into().unwrap())
     }
-
-    //pub fn get_seed(&self) -> u64 {
-    //    let (res, _rest) = self.nw_name.as_slice().split_at(std::mem::size_of::<u64>());
-    //    let nw_name = u64::from_be_bytes(res.try_into().unwrap()) % u64::MAX;
-
-    //    let (res, _rest) = self.nonce.as_slice().split_at(std::mem::size_of::<u64>());
-    //    let nonce = u64::from_be_bytes(res.try_into().unwrap()) % u64::MAX;
-
-    //    let (res, _rest) = self.db.as_bytes().split_at(std::mem::size_of::<u64>());
-    //    let db = u64::from_be_bytes(res.try_into().unwrap()) % u64::MAX;
-
-    //    let mut sum = nonce.saturating_add(db);
-    //    sum = sum.saturating_add(self.previous_seed);
-    //    sum.saturating_add(nw_name)
-    //}
 }
 
 #[derive(Debug)]
@@ -101,14 +117,13 @@ impl Drand {
         self.update_seed(rand_number);
 
         self.drng = Pcg32::seed_from_u64(self.seed.get_seed());
-
+        //println!("rnd: {}", rand_number); // DEBUG
         rand_number % (max + 1)
     }
 }
 
 mod test {
-    use super::Drand;
-    use crate::crypto::drand::SeedSource;
+    use super::*;
     use crate::crypto::hash::Hash;
 
     #[test]
@@ -128,10 +143,10 @@ mod test {
         let mut drand = Drand::new(seed);
         let mut vec = vec![0; 10];
 
-        for _ in 0..5 {
+        for _ in 0..50000 {
             let rand = drand.rand(9);
             //println!("{}", rand);
-            println!("seed: {:?}", drand.seed);
+            //println!("seed: {:?}", drand.seed);
             vec[(rand % 10) as usize] += 1;
         }
 
