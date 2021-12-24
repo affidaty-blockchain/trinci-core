@@ -464,6 +464,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => (Hash::default(), 0),
         };
 
+        // mabye change seed here? TODo
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.

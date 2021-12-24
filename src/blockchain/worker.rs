@@ -68,6 +68,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
     synchronizing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
     is_validator: Arc<dyn IsValidator>,
+    // TODO: add Arc<seed>
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {

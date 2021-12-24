@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Pcg32;
 
+use crate::base::Mutex;
 use crate::crypto::Hash;
 
 #[derive(Debug)]
@@ -10,11 +11,13 @@ pub struct SeedSource {
     /// Nerwork name
     pub nw_name: Vec<u8>,
     /// Nonce (8 Bytes)
-    pub nonce: Vec<u8>,
+    pub nonce: Mutex<Vec<u8>>,
     /// Db hash
-    pub db: Hash,
+    pub prev_hash: Mutex<Hash>,
+    pub txs_hash: Mutex<Hash>,
+    pub rxs_hash: Mutex<Hash>,
     /// Previous seed
-    pub previous_seed: u64,
+    pub previous_seed: Mutex<u64>,
 }
 
 impl SeedSource {
@@ -23,9 +26,11 @@ impl SeedSource {
     pub fn new(nw_name: Hash, nonce: Vec<u8>, db: Hash) -> Self {
         SeedSource {
             nw_name: nw_name.to_bytes(),
-            nonce,
-            db,
-            previous_seed: 0,
+            nonce: todo!(),
+            prev_hash: todo!(),
+            txs_hash: todo!(),
+            rxs_hash: todo!(),
+            previous_seed: todo!(),
         }
     }
 
@@ -35,18 +40,29 @@ impl SeedSource {
         // of the biggest between them
         let size = vec![
             self.nw_name.len(),
-            self.nonce.len(),
-            self.db.to_bytes().len(),
+            self.nonce.lock().len(),
+            self.prev_hash.lock().to_bytes().len(),
+            self.txs_hash.lock().to_bytes().len(),
+            self.rxs_hash.lock().to_bytes().len(),
         ];
         let size = size.iter().max().unwrap(); // unwrap beacause it's secure to assume that the vector is not empty
 
         let mut nw_name: Vec<u8> = vec![0; *size];
         let mut nonce: Vec<u8> = vec![0; *size];
-        let mut db: Vec<u8> = vec![0; *size];
+        let mut prev_hash: Vec<u8> = vec![0; *size];
+        let mut txs_hash: Vec<u8> = vec![0; *size];
+        let mut rxs_hash: Vec<u8> = vec![0; *size];
+
+        // retrieve slices from mutex attributes
 
         nw_name[..self.nw_name.len()].copy_from_slice(self.nw_name.as_slice());
-        nonce[..self.nonce.len()].copy_from_slice(self.nonce.as_slice());
-        db[..self.db.to_bytes().len()].copy_from_slice(self.db.as_bytes());
+        nonce[..self.nonce.lock().len()].copy_from_slice(self.nonce.lock().as_slice());
+        prev_hash[..self.prev_hash.lock().to_bytes().len()]
+            .copy_from_slice(self.prev_hash.lock().as_bytes());
+        txs_hash[..self.txs_hash.lock().to_bytes().len()]
+            .copy_from_slice(self.txs_hash.lock().as_bytes());
+        rxs_hash[..self.rxs_hash.lock().to_bytes().len()]
+            .copy_from_slice(self.rxs_hash.lock().as_bytes());
 
         // do xor between arrays
         let xor_result: Vec<u8> = nw_name
@@ -54,9 +70,19 @@ impl SeedSource {
             .zip(nonce.iter())
             .map(|(&x1, &x2)| x1 ^ x2)
             .collect();
+        let xor_result: Vec<u8> = xor_result
+            .iter()
+            .zip(prev_hash.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
+        let xor_result: Vec<u8> = xor_result
+            .iter()
+            .zip(txs_hash.iter())
+            .map(|(&x1, &x2)| x1 ^ x2)
+            .collect();
         let mut xor_result: Vec<u8> = xor_result
             .iter()
-            .zip(db.iter())
+            .zip(rxs_hash.iter())
             .map(|(&x1, &x2)| x1 ^ x2)
             .collect();
 
@@ -80,7 +106,7 @@ impl SeedSource {
 
         let vec_u64: Vec<u8> = vec_u64
             .iter()
-            .zip(self.previous_seed.to_be_bytes().iter())
+            .zip(self.previous_seed.lock().to_be_bytes().iter())
             .map(|(&x1, &x2)| x1 ^ x2)
             .collect();
 
@@ -105,8 +131,8 @@ impl Drand {
     }
 
     fn update_seed(&mut self, seed: u64) {
-        self.seed.previous_seed = seed;
-        // TODO: update db hash
+        let mut previous_seed = self.seed.previous_seed.lock();
+        *previous_seed = seed;
     }
 
     /// returns a pseudo-random number between the range specified in the struct
