@@ -421,6 +421,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
 
+        // TODO: edit seed
+
         // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
         if self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
