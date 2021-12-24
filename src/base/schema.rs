@@ -399,14 +399,32 @@ pub enum Transaction {
 impl Transaction {
     pub fn sign(&self, keypair: &KeyPair) -> Result<Vec<u8>> {
         match self {
-            Transaction::UnitTransaction(tx) => tx.data.sign(keypair),
-            Transaction::BulkTransaction(tx) => tx.data.sign(keypair),
+            Transaction::UnitTransaction(tx) => {
+                let data = tx.data.serialize();
+                keypair.sign(&data)
+            }
+            Transaction::BulkTransaction(tx) => {
+                let data = tx.data.serialize();
+                keypair.sign(&data)
+            }
         }
     }
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         match self {
-            Transaction::UnitTransaction(tx) => tx.data.verify(public_key, sig),
-            Transaction::BulkTransaction(tx) => tx.data.verify(public_key, sig),
+            Transaction::UnitTransaction(tx) => {
+                let data = tx.data.serialize();
+                match public_key.verify(&data, sig) {
+                    true => Ok(()),
+                    false => Err(ErrorKind::InvalidSignature.into()),
+                }
+            }
+            Transaction::BulkTransaction(tx) => {
+                let data = tx.data.serialize();
+                match public_key.verify(&data, sig) {
+                    true => Ok(()),
+                    false => Err(ErrorKind::InvalidSignature.into()),
+                }
+            }
         }
     }
     pub fn check_integrity(&self) -> Result<()> {
@@ -913,7 +931,7 @@ pub mod tests {
         let tx = create_test_unit_tx();
 
         let buf = tx.serialize();
-
+        //println!("{}", hex::encode(buf));
         assert_eq!(TRANSACTION_HEX_UNIT, hex::encode(buf));
 
         let tx = create_test_bulk_tx();
