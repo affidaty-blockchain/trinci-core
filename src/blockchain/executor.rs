@@ -35,7 +35,7 @@ use crate::{
         serialize::rmp_serialize,
         Mutex, RwLock,
     },
-    crypto::{Hash, Hashable},
+    crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
     Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
@@ -61,6 +61,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     pubsub: Arc<Mutex<PubSub>>,
     /// Node keypair
     keypair: Arc<KeyPair>,
+    /// Drand Seed
+    seed: Arc<SeedSource>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -71,6 +73,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
             keypair: self.keypair.clone(),
+            seed: self.seed.clone(),
         }
     }
 }
@@ -83,6 +86,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         wm: Arc<Mutex<W>>,
         pubsub: Arc<Mutex<PubSub>>,
         keypair: Arc<KeyPair>,
+        seed: Arc<SeedSource>,
     ) -> Self {
         Executor {
             pool,
@@ -90,6 +94,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             wm,
             pubsub,
             keypair,
+            seed,
         }
     }
 
@@ -421,7 +426,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
 
-        // TODO: edit seed
+        // edit seed, so that the new db hashes are updated
+        *self.seed.previous_seed.lock() = 0; // at each block generated the seed must be re-initializated
+        *self.seed.prev_hash.lock() = prev_hash;
+        *self.seed.txs_hash.lock() = txs_hash;
+        *self.seed.rxs_hash.lock() = rxs_hash;
 
         // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
         if self.pubsub.lock().has_subscribers(Event::BLOCK) {
@@ -521,6 +530,7 @@ mod tests {
         },
         blockchain::pool::tests::create_pool,
         crypto::{
+            //drand::Drand,
             sign::tests::{create_test_keypair, create_test_public_key},
             HashAlgorithm,
         },
@@ -543,7 +553,21 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair)
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        Executor::new(pool, db, wm, sub, keypair, seed.clone())
     }
 
     fn create_executor_bulk(db_fail: bool) -> Executor<MockDb, MockWm> {
@@ -554,7 +578,32 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair)
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+    }
+
+    fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool()));
+        let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
+        let wm = Arc::new(Mutex::new(create_wm_mock()));
+        let sub = Arc::new(Mutex::new(PubSub::new()));
+
+        let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
+
+        Executor::new(pool, db, wm, sub, keypair, seed)
     }
 
     fn create_db_mock(fail: bool) -> MockDb {
@@ -873,5 +922,83 @@ mod tests {
         executor
             .exec_block(0, &hashes, Hash::default(), None)
             .unwrap();
+    }
+
+    #[test]
+    fn test_drad_seed() {
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        //let drand = Drand::new(seed.clone());
+
+        //let seed_test = seed.clone();
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        //println!("pre exec;{}\n---", drand.rand(9));
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        let mut executor = create_executor_drand(false, seed.clone());
+
+        let hashes = executor
+            .pool
+            .write()
+            .confirmed
+            .get_mut(&0)
+            .unwrap()
+            .txs_hashes
+            .take()
+            .unwrap();
+
+        let hash = executor
+            .exec_block(0, &hashes, Hash::default(), None)
+            .unwrap();
+
+        //println!(
+        //    "AFTER BLOCK GEN\nprev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        //println!("post exec;{}", drand.rand(9));
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        assert_eq!(
+            hex::encode(hash),
+            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
+        );
     }
 }

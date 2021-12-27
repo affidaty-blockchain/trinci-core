@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use rand_core::{RngCore, SeedableRng};
 use rand_pcg::Pcg32;
@@ -22,15 +23,20 @@ pub struct SeedSource {
 
 impl SeedSource {
     /// It collects the node and network data to setup the initial seed
-    // TODO: for now db is hash, check other approaches
-    pub fn new(nw_name: Hash, nonce: Vec<u8>, db: Hash) -> Self {
+    pub fn new(
+        nw_name: String,
+        nonce: Vec<u8>,
+        prev_hash: Hash,
+        txs_hash: Hash,
+        rxs_hash: Hash,
+    ) -> Self {
         SeedSource {
-            nw_name: nw_name.to_bytes(),
-            nonce: todo!(),
-            prev_hash: todo!(),
-            txs_hash: todo!(),
-            rxs_hash: todo!(),
-            previous_seed: todo!(),
+            nw_name: nw_name.as_bytes().to_vec(),
+            nonce: Mutex::new(nonce),
+            prev_hash: Mutex::new(prev_hash),
+            txs_hash: Mutex::new(txs_hash),
+            rxs_hash: Mutex::new(rxs_hash),
+            previous_seed: Mutex::new(0),
         }
     }
 
@@ -38,14 +44,17 @@ impl SeedSource {
     pub fn get_seed(&self) -> u64 {
         // generate a Vec<u8> for each attribute of lenght
         // of the biggest between them
-        let size = vec![
+        let size_vec: Vec<usize>;
+
+        size_vec = vec![
             self.nw_name.len(),
             self.nonce.lock().len(),
             self.prev_hash.lock().to_bytes().len(),
             self.txs_hash.lock().to_bytes().len(),
             self.rxs_hash.lock().to_bytes().len(),
         ];
-        let size = size.iter().max().unwrap(); // unwrap beacause it's secure to assume that the vector is not empty
+
+        let size = size_vec.iter().max().unwrap(); // unwrap beacause it's secure to assume that the vector is not empty
 
         let mut nw_name: Vec<u8> = vec![0; *size];
         let mut nonce: Vec<u8> = vec![0; *size];
@@ -54,15 +63,11 @@ impl SeedSource {
         let mut rxs_hash: Vec<u8> = vec![0; *size];
 
         // retrieve slices from mutex attributes
-
-        nw_name[..self.nw_name.len()].copy_from_slice(self.nw_name.as_slice());
-        nonce[..self.nonce.lock().len()].copy_from_slice(self.nonce.lock().as_slice());
-        prev_hash[..self.prev_hash.lock().to_bytes().len()]
-            .copy_from_slice(self.prev_hash.lock().as_bytes());
-        txs_hash[..self.txs_hash.lock().to_bytes().len()]
-            .copy_from_slice(self.txs_hash.lock().as_bytes());
-        rxs_hash[..self.rxs_hash.lock().to_bytes().len()]
-            .copy_from_slice(self.rxs_hash.lock().as_bytes());
+        nw_name[..size_vec[0]].copy_from_slice(self.nw_name.as_slice());
+        nonce[..size_vec[1]].copy_from_slice(self.nonce.lock().as_slice());
+        prev_hash[..size_vec[2]].copy_from_slice(self.prev_hash.lock().as_bytes());
+        txs_hash[..size_vec[3]].copy_from_slice(self.txs_hash.lock().as_bytes());
+        rxs_hash[..size_vec[4]].copy_from_slice(self.rxs_hash.lock().as_bytes());
 
         // do xor between arrays
         let xor_result: Vec<u8> = nw_name
@@ -119,11 +124,11 @@ pub struct Drand {
     /// RNG
     drng: Pcg32,
     /// Seed's source
-    seed: SeedSource,
+    seed: Arc<SeedSource>,
 }
 
 impl Drand {
-    pub fn new(seed: SeedSource) -> Self {
+    pub fn new(seed: Arc<SeedSource>) -> Self {
         Drand {
             drng: Pcg32::seed_from_u64(seed.get_seed()),
             seed,
@@ -148,28 +153,38 @@ impl Drand {
     }
 }
 
+#[cfg(test)]
 mod test {
+
     use super::*;
     use crate::crypto::hash::Hash;
 
     #[test]
     fn test_drand_sparsity() {
-        let nw_name =
-            Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f22a5e886266e7ae")
-                .unwrap();
+        let nw_name = String::from("nw_name_test");
 
         let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
 
-        let db =
+        let prev_hash =
             Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
                 .unwrap();
 
-        let seed = SeedSource::new(nw_name, nonce, db);
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
 
-        let mut drand = Drand::new(seed);
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+
+        let seed = Arc::new(seed);
+
+        let mut drand = Drand::new(seed.clone());
         let mut vec = vec![0; 10];
 
-        for _ in 0..50000 {
+        for _ in 0..10000 {
             let rand = drand.rand(9);
             //println!("{}", rand);
             //println!("seed: {:?}", drand.seed);
