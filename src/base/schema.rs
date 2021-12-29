@@ -82,7 +82,6 @@ pub struct BulkTransactions {
 /// Transaction payload for bulk tx.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct TransactionDataBulkV1 {
-    pub schema: String,
     /// array of transactions
     pub txs: BulkTransactions,
 }
@@ -666,7 +665,6 @@ pub mod tests {
 
     const CONTRACT_EVENT_HEX: &str = "95c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74c4221220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569ab636f6f6c5f6d6574686f64c403010203";
 
-    const TRANSACTION_SCHEMA: &str = "my-cool-schema";
     const FUEL_LIMIT: u64 = 1000;
 
     fn create_test_data_unit() -> TransactionData {
@@ -713,7 +711,6 @@ pub mod tests {
         let root = UnsignedTransaction { data: root_data };
 
         TransactionData::BulkV1(TransactionDataBulkV1 {
-            schema: TRANSACTION_SCHEMA.to_owned(),
             txs: BulkTransactions {
                 root: Box::new(root),
                 nodes: None,

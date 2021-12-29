@@ -704,7 +704,6 @@ mod tests {
         let nodes = vec![tx1, tx2];
 
         TransactionData::BulkV1(TransactionDataBulkV1 {
-            schema: "schema".to_string(),
             txs: BulkTransactions {
                 root: Box::new(UnsignedTransaction { data: data_tx0 }),
                 nodes: Some(nodes),
