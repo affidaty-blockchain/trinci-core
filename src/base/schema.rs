@@ -524,7 +524,7 @@ pub struct Block {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BlockData {
     /// Block Validator public key
-    pub validator: PublicKey,
+    pub validator: Option<PublicKey>,
     /// Index in the blockhain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
@@ -542,7 +542,7 @@ pub struct BlockData {
 impl BlockData {
     /// Instance a new block structure.
     pub fn new(
-        validator: PublicKey,
+        validator: Option<PublicKey>,
         height: u64,
         size: u32,
         prev_hash: Hash,
@@ -776,7 +776,7 @@ pub mod tests {
         let keypair = crate::crypto::sign::tests::create_test_keypair();
 
         BlockData {
-            validator: keypair.public_key(),
+            validator: Some(keypair.public_key()),
 
             height: 1,
             size: 3,

@@ -38,7 +38,7 @@ use crate::{
     crypto::{Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -380,7 +380,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         txs_hashes: &[Hash],
         prev_hash: Hash,
+        // TODO: The following fields should be in a struct to make clippy happy
         exp_hash: Option<Hash>,
+        block_signature: Option<Vec<u8>>,
+        block_validator: Option<PublicKey>,
+        // TODO END
         is_validator: bool,
     ) -> Result<Hash> {
         // Write on a fork.
@@ -392,9 +396,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
+        let validator = match block_validator {
+            Some(pk) => Some(pk),
+            None => {
+                if height == 0 {
+                    None
+                } else {
+                    Some(self.keypair.public_key())
+                }
+            }
+        };
+
         // Construct a new block.
         let data = BlockData::new(
-            self.keypair.public_key(),
+            validator,
             height,
             txs_hashes.len() as u32,
             prev_hash,
@@ -403,22 +418,32 @@ impl<D: Db, W: Wm> Executor<D, W> {
             fork.state_hash(""),
         );
 
+        error!("{:?}", data);
+
         let buf = rmp_serialize(&data)?;
 
         let signature = if height == 0 {
             vec![0u8; 5]
+        } else if block_signature.is_some() {
+            block_signature.unwrap()
         } else {
             self.keypair.sign(&buf)?
         };
 
         let block_hash = data.primary_hash();
+
+        error!("block hash: {}", hex::encode(&block_hash));
+
         let block = Block { data, signature };
+
+        // TODO: Add a check on the block signature
 
         if let Some(exp_hash) = exp_hash {
             if exp_hash != block_hash {
                 error!(
                     "unexpected block hash\n\tExpected: {:?}\n\tCalculated: {:?}",
-                    exp_hash, block_hash
+                    hex::encode(&exp_hash), // FIXME THIS IS WRONG!!!
+                    hex::encode(&block_hash)
                 ); // Deleteme
 
                 // Somethig has gone wrong.
@@ -459,6 +484,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         match pool.confirmed.get(&height) {
             Some(BlockInfo {
                 hash: _,
+                signature: _,
+                validator: _,
                 txs_hashes: Some(hashes),
             }) => hashes
                 .iter()
@@ -469,24 +496,39 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
     pub fn run(&mut self, is_validator: bool) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.primary_hash(), block.data.height + 1),
+            Some(block) => (block.data.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
 
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
-            let (block_hash, txs_hashes) = match self.pool.write().confirmed.get_mut(&height) {
-                Some(BlockInfo {
-                    hash,
-                    txs_hashes: Some(hashes),
-                }) => (*hash, std::mem::take(hashes)),
-                _ => break,
-            };
+            let (block_hash, block_signature, block_validator, txs_hashes) =
+                match self.pool.write().confirmed.get_mut(&height) {
+                    Some(BlockInfo {
+                        hash,
+                        signature,
+                        validator,
+                        txs_hashes: Some(hashes),
+                    }) => (
+                        *hash,
+                        std::mem::take(signature),
+                        std::mem::take(validator),
+                        std::mem::take(hashes),
+                    ),
+                    _ => break,
+                };
 
             debug!("Executing block {}", height);
-
-            match self.exec_block(height, &txs_hashes, prev_hash, block_hash, is_validator) {
+            match self.exec_block(
+                height,
+                &txs_hashes,
+                prev_hash,
+                block_hash,
+                block_signature.clone(),
+                block_validator.clone(),
+                is_validator,
+            ) {
                 Ok(hash) => {
                     let mut pool = self.pool.write();
                     pool.confirmed.remove(&height);
@@ -499,6 +541,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 Err(err) => {
                     let blk_info = BlockInfo {
                         hash: block_hash,
+                        signature: block_signature,
+                        validator: block_validator,
                         txs_hashes: Some(txs_hashes),
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
@@ -810,7 +854,7 @@ mod tests {
             .unwrap();
 
         let hash = executor
-            .exec_block(0, &hashes, Hash::default(), None, true)
+            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
             .unwrap();
 
         assert_eq!(
@@ -833,7 +877,15 @@ mod tests {
             .unwrap();
 
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), Some(Hash::default()), true)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                Some(Hash::default()),
+                None,
+                None,
+                true,
+            )
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "other: unexpected block hash");
@@ -853,7 +905,7 @@ mod tests {
             .unwrap();
 
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), None, true)
+            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "database fault: merge error");
@@ -877,7 +929,7 @@ mod tests {
         };
 
         executor
-            .exec_block(0, &hashes, Hash::default(), None, true)
+            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
             .unwrap();
     }
 }
