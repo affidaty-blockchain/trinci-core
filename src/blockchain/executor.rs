@@ -404,10 +404,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
         );
 
         let buf = rmp_serialize(&data)?;
-        let signature = self.keypair.sign(&buf)?;
+
+        let signature = if height == 0 {
+            vec![0u8; 5]
+        } else {
+            self.keypair.sign(&buf)?
+        };
 
         let block_hash = data.primary_hash();
-
         let block = Block { data, signature };
 
         if let Some(exp_hash) = exp_hash {
@@ -426,8 +430,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
-
-        // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
