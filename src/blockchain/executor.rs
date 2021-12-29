@@ -381,6 +381,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         txs_hashes: &[Hash],
         prev_hash: Hash,
         exp_hash: Option<Hash>,
+        is_validator: bool,
     ) -> Result<Hash> {
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
@@ -411,6 +412,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         if let Some(exp_hash) = exp_hash {
             if exp_hash != block_hash {
+                error!(
+                    "unexpected block hash\n\tExpected: {:?}\n\tCalculated: {:?}",
+                    exp_hash, block_hash
+                ); // Deleteme
+
                 // Somethig has gone wrong.
                 return Err(Error::new_ext(ErrorKind::Other, "unexpected block hash"));
             }
@@ -422,7 +428,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         self.db.write().fork_merge(fork)?;
 
         // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
-        if self.pubsub.lock().has_subscribers(Event::BLOCK) {
+
+        if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
                 block,
@@ -458,7 +465,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self, is_validator: bool) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
             Some(block) => (block.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
@@ -477,7 +484,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
             debug!("Executing block {}", height);
 
-            match self.exec_block(height, &txs_hashes, prev_hash, block_hash) {
+            match self.exec_block(height, &txs_hashes, prev_hash, block_hash, is_validator) {
                 Ok(hash) => {
                     let mut pool = self.pool.write();
                     pool.confirmed.remove(&height);
@@ -801,7 +808,7 @@ mod tests {
             .unwrap();
 
         let hash = executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(0, &hashes, Hash::default(), None, true)
             .unwrap();
 
         assert_eq!(
@@ -824,7 +831,7 @@ mod tests {
             .unwrap();
 
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), Some(Hash::default()))
+            .exec_block(0, &hashes, Hash::default(), Some(Hash::default()), true)
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "other: unexpected block hash");
@@ -844,7 +851,7 @@ mod tests {
             .unwrap();
 
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(0, &hashes, Hash::default(), None, true)
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "database fault: merge error");
@@ -868,7 +875,7 @@ mod tests {
         };
 
         executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(0, &hashes, Hash::default(), None, true)
             .unwrap();
     }
 }
