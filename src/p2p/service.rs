@@ -29,7 +29,7 @@ pub struct PeerConfig {
     /// Listening TCP port. If zero, a random port is used.
     pub port: u16,
     /// Network identifier.
-    pub network: String,
+    pub network: Mutex<String>,
     /// Bootstrap address.
     pub bootstrap_addr: Option<String>,
     /// keypair for p2p interaction
@@ -39,7 +39,7 @@ pub struct PeerConfig {
 /// Peer2Peer service data.
 pub struct PeerService {
     /// Service configuration.
-    config: Arc<Mutex<PeerConfig>>,
+    config: Arc<PeerConfig>,
     /// Working thread handler.
     handle: Option<JoinHandle<()>>,
     /// Message queue sender to send messages to blockchain service.
@@ -50,7 +50,7 @@ impl PeerService {
     /// Create a new peer service instance.
     pub fn new(config: PeerConfig, bc_chan: BlockRequestSender) -> Self {
         PeerService {
-            config: Arc::new(Mutex::new(config)),
+            config: Arc::new(config),
             handle: None,
             bc_chan,
         }
@@ -62,8 +62,12 @@ impl PeerService {
             return;
         }
 
-        let config = self.config.clone();
+        // let config = self.config.clone();
+        // warn!("NETWORKNAME: {}", self.config.network); // DELETEME
+
         let bc_chan = self.bc_chan.clone();
+
+        let config = self.config.clone();
 
         let handle = thread::spawn(move || {
             worker::run(config, bc_chan);
@@ -88,7 +92,8 @@ impl PeerService {
     }
 
     pub fn set_network_name(&mut self, network_name: String) {
-        self.config.lock().network = network_name;
+        let mut network = self.config.network.lock();
+        *network = network_name;
     }
 
     pub fn is_running(&self) -> bool {

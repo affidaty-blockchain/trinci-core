@@ -17,7 +17,7 @@
 
 use super::{behaviour::Behavior, service::PeerConfig};
 use crate::{
-    base::{serialize::rmp_serialize, Mutex},
+    base::serialize::rmp_serialize,
     blockchain::{pubsub::Event, BlockRequestSender, Message},
 };
 use futures::{future, prelude::*};
@@ -59,8 +59,8 @@ fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
         .boxed()
 }
 
-pub async fn run_async(config: Arc<Mutex<PeerConfig>>, block_tx: BlockRequestSender) {
-    let keypair = match &config.lock().p2p_keypair {
+pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
+    let keypair = match &config.p2p_keypair {
         Some(keypair) => {
             info!("[p2p] Using given keypair from Node");
             let mut bytes = keypair.to_bytes();
@@ -93,7 +93,7 @@ pub async fn run_async(config: Arc<Mutex<PeerConfig>>, block_tx: BlockRequestSen
         }
     };
 
-    let topic = config.lock().network.clone() + "-" + NODE_TOPIC;
+    let topic: String = config.network.lock().clone() + "-" + NODE_TOPIC;
     let topic = IdentTopic::new(topic);
 
     let transport = build_transport(&keypair);
@@ -101,13 +101,13 @@ pub async fn run_async(config: Arc<Mutex<PeerConfig>>, block_tx: BlockRequestSen
         peer_id,
         public_key,
         topic.clone(),
-        config.lock().bootstrap_addr.clone(),
+        config.bootstrap_addr.clone(),
         block_tx,
     )
     .unwrap();
     let mut swarm: Swarm<Behavior> = Swarm::new(transport, behaviour, peer_id);
 
-    let addr = format!("/ip4/{}/tcp/{}", config.lock().addr, config.lock().port);
+    let addr = format!("/ip4/{}/tcp/{}", config.addr, config.port);
     let addr = addr.parse::<Multiaddr>().unwrap();
     let res = Swarm::listen_on(&mut swarm, addr);
     if res.is_err() {
@@ -172,7 +172,7 @@ pub async fn run_async(config: Arc<Mutex<PeerConfig>>, block_tx: BlockRequestSen
     future.await;
 }
 
-pub fn run(config: Arc<Mutex<PeerConfig>>, block_tx: BlockRequestSender) {
+pub fn run(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     let fut = run_async(config, block_tx);
     async_std::task::block_on(fut);
 }
