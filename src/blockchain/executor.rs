@@ -399,7 +399,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
-        let validator = match block_info.validator {
+        let validator = match block_info.validator.clone() {
             Some(pk) => Some(pk),
             None => {
                 if height == 0 {
@@ -421,7 +421,15 @@ impl<D: Db, W: Wm> Executor<D, W> {
             fork.state_hash(""),
         );
 
-        error!("{:?}", data);
+        // Verify the block signature
+        if let Some(pk) = block_info.validator {
+            if let Some(ref sig) = block_info.signature {
+                let buf = rmp_serialize(&data)?;
+                if !pk.verify(&buf, sig) {
+                    return Err(Error::new_ext(ErrorKind::Other, "bad block signature"));
+                };
+            }
+        }
 
         let buf = rmp_serialize(&data)?;
 
@@ -435,12 +443,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let block_hash = data.primary_hash();
 
-        error!("block hash: {}", hex::encode(&block_hash));
-
         let block = Block { data, signature };
 
-        // TODO: Add a check on the block signature
-        // Needs to call the is_validator(pk) function
+        // TODO: Check that the signer is a validator. Needs to call the is_validator(pk) closure
 
         if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
