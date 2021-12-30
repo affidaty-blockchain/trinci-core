@@ -515,7 +515,7 @@ mod tests {
                 BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
                 TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
             },
-            serialize::{rmp_deserialize, rmp_serialize},
+            serialize::{rmp_deserialize, rmp_serialize, MessagePack},
         },
         blockchain::pool::tests::create_pool,
         crypto::{
@@ -719,6 +719,13 @@ mod tests {
         let signature = data.sign(&keypair).unwrap();
         Transaction::BulkTransaction(BulkTransaction { data, signature })
     }
+
+    // TODO: REMOVE
+    //#[test]
+    //fn hash_data() {
+    //    let data = create_test_bulk_data("get_random_sequence", value!(null));
+    //    println!("{:?}", hex::encode(data.serialize()));
+    //}
 
     #[test]
     fn test_bulk() {
