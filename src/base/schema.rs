@@ -603,6 +603,15 @@ impl Account {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlockchainSettings {
+    pub accept_broadcast: bool,
+    pub block_threshold: usize,
+    pub block_timeout: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_name: Option<String>,
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;

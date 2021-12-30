@@ -62,6 +62,9 @@ pub trait Db: Send + Sync + 'static {
 
     /// Commit modifications contained in a database fork.
     fn fork_merge(&mut self, fork: Self::DbForkType) -> Result<()>;
+
+    /// Read configuration from the DB
+    fn load_configuration(&self, id: &str) -> Option<Vec<u8>>;
 }
 
 /// Database fork trait.
@@ -115,4 +118,7 @@ pub trait DbFork: 'static {
 
     /// Rollback to the last checkpoint (`flush` point).
     fn rollback(&mut self);
+
+    /// Store configuration on the DB
+    fn store_configuration(&mut self, id: &str, config: Vec<u8>);
 }
