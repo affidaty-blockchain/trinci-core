@@ -233,7 +233,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                     if execution_fail {
                                         results.insert(
-                                            node.get_primary_hash(),
+                                            node.primary_hash(),
                                             BulkResult {
                                                 success: None,
                                                 result: None,
@@ -243,20 +243,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         let result = self.wm.lock().call(
                                             fork,
                                             0,
-                                            node.get_network(),
-                                            &node.get_caller().to_account_id(),
-                                            node.get_account(),
-                                            &node.get_caller().to_account_id(),
-                                            *node.get_contract(),
-                                            node.get_method(),
-                                            node.get_args(),
+                                            node.data.get_network(),
+                                            &node.data.get_caller().to_account_id(),
+                                            node.data.get_account(),
+                                            &node.data.get_caller().to_account_id(),
+                                            *node.data.get_contract(),
+                                            node.data.get_method(),
+                                            node.data.get_args(),
                                             &mut bulk_events,
                                         );
                                         println!("{:?}", result);
                                         match result {
                                             Ok(rcpt) => {
                                                 results.insert(
-                                                    node.get_primary_hash(),
+                                                    node.primary_hash(),
                                                     BulkResult {
                                                         success: Some(true),
                                                         result: Some(Ok(rcpt)),
@@ -691,15 +691,15 @@ mod tests {
         });
         let sign_tx2 = data_tx2.sign(&keypair);
 
-        let tx1 = Transaction::UnitTransaction(SignedTransaction {
+        let tx1 = SignedTransaction {
             data: data_tx1,
             signature: sign_tx1.unwrap(),
-        });
+        };
 
-        let tx2 = Transaction::UnitTransaction(SignedTransaction {
+        let tx2 = SignedTransaction {
             data: data_tx2,
             signature: sign_tx2.unwrap(),
-        });
+        };
 
         let nodes = vec![tx1, tx2];
 

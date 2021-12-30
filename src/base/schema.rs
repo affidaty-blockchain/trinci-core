@@ -76,7 +76,7 @@ pub struct TransactionDataBulkNodeV1 {
 pub struct BulkTransactions {
     // is box right approach?
     pub root: Box<UnsignedTransaction>,
-    pub nodes: Option<Vec<Transaction>>,
+    pub nodes: Option<Vec<SignedTransaction>>,
 }
 
 /// Transaction payload for bulk tx.
@@ -285,19 +285,9 @@ impl TransactionDataBulkV1 {
             true => match &self.txs.nodes {
                 Some(nodes) => {
                     for node in nodes {
-                        match node {
-                            Transaction::UnitTransaction(node) => match &node.data {
-                                TransactionData::BulkNodeV1(data) => {
-                                    let result = data.verify(public_key, sig);
-                                    if result.is_err() {
-                                        return Err(ErrorKind::InvalidSignature.into());
-                                    }
-                                }
-                                _ => return Err(ErrorKind::WrongTxType.into()),
-                            },
-                            Transaction::BulkTransaction(_) => {
-                                return Err(ErrorKind::WrongTxType.into())
-                            }
+                        let result = node.data.verify(public_key, sig);
+                        if result.is_err() {
+                            return Err(ErrorKind::InvalidSignature.into());
                         }
                     }
                     Ok(())
@@ -318,33 +308,26 @@ impl TransactionDataBulkV1 {
                 // check depens on
                 // check nws all equals && != none
                 for node in nodes {
-                    match node {
-                        Transaction::UnitTransaction(tx) => {
-                            // check depends_on filed
-                            let dependency = tx.data.get_dependency();
-                            match dependency {
-                                Ok(dep_hash) => {
-                                    if dep_hash != root_hash {
-                                        return Err(Error::new_ext(
-                                            ErrorKind::BrokenIntegrity,
-                                            "The node has incoherent dependency",
-                                        ));
-                                    }
-                                }
-                                Err(error) => return Err(error),
-                            }
-
-                            // check network field
-                            if tx.data.get_network() != network {
+                    // check depends_on filed
+                    let dependency = node.data.get_dependency();
+                    match dependency {
+                        Ok(dep_hash) => {
+                            if dep_hash != root_hash {
                                 return Err(Error::new_ext(
                                     ErrorKind::BrokenIntegrity,
-                                    "The node has incoherent network",
+                                    "The node has incoherent dependency",
                                 ));
                             }
                         }
-                        Transaction::BulkTransaction(_) => {
-                            return Err(ErrorKind::WrongTxType.into())
-                        }
+                        Err(error) => return Err(error),
+                    }
+
+                    // check network field
+                    if node.data.get_network() != network {
+                        return Err(Error::new_ext(
+                            ErrorKind::BrokenIntegrity,
+                            "The node has incoherent network",
+                        ));
                     }
                 }
 
