@@ -249,7 +249,7 @@ impl<D: Db> Dispatcher<D> {
                 }
             }
             let blk_info = BlockInfo {
-                hash: Some(block.data.primary_hash()), // TODO CHECK THIS IF IS OK
+                hash: Some(block.data.primary_hash()),
                 validator: block.data.validator,
                 signature: Some(block.signature),
                 txs_hashes,

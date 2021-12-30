@@ -61,7 +61,7 @@ impl PeerService {
         if self.is_running() {
             return;
         }
-        warn!("P2P network_name: {}", self.config.network.lock()); // DELETEME
+        info!("P2P network_name: {}", self.config.network.lock());
 
         let bc_chan = self.bc_chan.clone();
 

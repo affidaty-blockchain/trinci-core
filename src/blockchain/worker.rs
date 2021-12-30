@@ -176,15 +176,11 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     fn try_exec_block(&self, is_validator: bool) {
         if !self.executor.can_run(u64::MAX) {
-            warn!("try_exec_block::001"); // Deleteme
             return;
         }
         if self.executing.swap(true, Ordering::Relaxed) {
-            warn!("try_exec_block::002"); // Deleteme
             return;
         }
-
-        warn!("try_exec_block::003"); // Deleteme
 
         let mut executor = self.executor.clone();
         let executing = self.executing.clone();
@@ -196,7 +192,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     fn try_synchronization(&self) {
         if self.synchronizing.swap(true, Ordering::Relaxed) {
-            warn!("SWAP NOT IN CONDITION"); // Deleteme
             return;
         }
 
@@ -245,13 +240,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
                 validator = val;
-
-                if validator {
-                    error!("VALIDATOR NODE"); //DELETEME
-                } else {
-                    error!("NOT A VALIDATOR NODE"); //DELETEME
-                }
-
                 let is_validator = self.is_validator.clone();
                 let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
                 is_validator_fut = Box::pin(is_validator);

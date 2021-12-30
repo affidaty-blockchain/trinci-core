@@ -49,6 +49,13 @@ pub struct BulkResult {
     result: Option<Result<Vec<u8>>>,
 }
 
+/// Block values when a block is executed to sync
+struct BlockValues {
+    exp_hash: Option<Hash>,
+    signature: Option<Vec<u8>>,
+    validator: Option<PublicKey>,
+}
+
 /// Executor context data.
 pub(crate) struct Executor<D: Db, W: Wm> {
     /// Unconfirmed transactions pool
@@ -380,11 +387,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         txs_hashes: &[Hash],
         prev_hash: Hash,
-        // TODO: The following fields should be in a struct to make clippy happy
-        exp_hash: Option<Hash>,
-        block_signature: Option<Vec<u8>>,
-        block_validator: Option<PublicKey>,
-        // TODO END
+        block_info: BlockValues,
         is_validator: bool,
     ) -> Result<Hash> {
         // Write on a fork.
@@ -396,7 +399,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
-        let validator = match block_validator {
+        let validator = match block_info.validator {
             Some(pk) => Some(pk),
             None => {
                 if height == 0 {
@@ -424,8 +427,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let signature = if height == 0 {
             vec![0u8; 5]
-        } else if block_signature.is_some() {
-            block_signature.unwrap()
+        } else if block_info.signature.is_some() {
+            block_info.signature.unwrap()
         } else {
             self.keypair.sign(&buf)?
         };
@@ -437,15 +440,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let block = Block { data, signature };
 
         // TODO: Add a check on the block signature
+        // Needs to call the is_validator(pk) function
 
-        if let Some(exp_hash) = exp_hash {
+        if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
-                error!(
-                    "unexpected block hash\n\tExpected: {:?}\n\tCalculated: {:?}",
-                    hex::encode(&exp_hash), // FIXME THIS IS WRONG!!!
-                    hex::encode(&block_hash)
-                ); // Deleteme
-
                 // Somethig has gone wrong.
                 return Err(Error::new_ext(ErrorKind::Other, "unexpected block hash"));
             }
@@ -524,9 +522,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 height,
                 &txs_hashes,
                 prev_hash,
-                block_hash,
-                block_signature.clone(),
-                block_validator.clone(),
+                BlockValues {
+                    exp_hash: block_hash,
+                    signature: block_signature.clone(),
+                    validator: block_validator.clone(),
+                },
                 is_validator,
             ) {
                 Ok(hash) => {
@@ -854,12 +854,22 @@ mod tests {
             .unwrap();
 
         let hash = executor
-            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+            )
             .unwrap();
 
         assert_eq!(
             hex::encode(hash),
-            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
+            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
         );
     }
 
@@ -881,9 +891,11 @@ mod tests {
                 0,
                 &hashes,
                 Hash::default(),
-                Some(Hash::default()),
-                None,
-                None,
+                BlockValues {
+                    exp_hash: Some(Hash::default()),
+                    signature: None,
+                    validator: None,
+                },
                 true,
             )
             .unwrap_err();
@@ -905,7 +917,17 @@ mod tests {
             .unwrap();
 
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+            )
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "database fault: merge error");
@@ -929,7 +951,17 @@ mod tests {
         };
 
         executor
-            .exec_block(0, &hashes, Hash::default(), None, None, None, true)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: Some(Hash::default()),
+                    signature: None,
+                    validator: None,
+                },
+                true,
+            )
             .unwrap();
     }
 }
