@@ -45,8 +45,8 @@ use std::{collections::HashMap, sync::Arc};
 /// result struct for bulk trasnsaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
-    success: Option<bool>,
-    result: Option<Result<Vec<u8>>>,
+    success: bool,
+    result: Vec<u8>,
 }
 
 /// Executor context data.
@@ -193,8 +193,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 results.insert(
                                     hex::encode(hash),
                                     BulkResult {
-                                        success: Some(true),
-                                        result: Some(Ok(rcpt)),
+                                        success: true,
+                                        result: rcpt,
                                     },
                                 );
 
@@ -219,8 +219,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 results.insert(
                                     hex::encode(hash),
                                     BulkResult {
-                                        success: Some(false),
-                                        result: Some(Err(error)),
+                                        success: false,
+                                        result: error.to_string().as_bytes().to_vec(),
                                     },
                                 );
                             }
@@ -235,8 +235,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         results.insert(
                                             hex::encode(node.data.primary_hash()),
                                             BulkResult {
-                                                success: None,
-                                                result: None,
+                                                success: false,
+                                                result: "error".as_bytes().to_vec(),
                                             },
                                         );
                                     } else {
@@ -258,8 +258,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 results.insert(
                                                     hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(true),
-                                                        result: Some(Ok(rcpt)),
+                                                        success: true,
+                                                        result: rcpt,
                                                     },
                                                 );
 
@@ -292,8 +292,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 results.insert(
                                                     hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(false),
-                                                        result: Some(Err(error)),
+                                                        success: false,
+                                                        result: error.to_string().as_bytes().to_vec(),
                                                     },
                                                 );
                                                 execution_fail = true;
