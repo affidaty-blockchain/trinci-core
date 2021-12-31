@@ -191,7 +191,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         match result {
                             Ok(rcpt) => {
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
                                         success: Some(true),
                                         result: Some(Ok(rcpt)),
@@ -217,7 +217,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             Err(error) => {
                                 execution_fail = true;
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
                                         success: Some(false),
                                         result: Some(Err(error)),
@@ -233,7 +233,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                     if execution_fail {
                                         results.insert(
-                                            node.primary_hash(),
+                                            hex::encode(node.data.primary_hash()),
                                             BulkResult {
                                                 success: None,
                                                 result: None,
@@ -256,7 +256,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         match result {
                                             Ok(rcpt) => {
                                                 results.insert(
-                                                    node.primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
                                                         success: Some(true),
                                                         result: Some(Ok(rcpt)),
@@ -290,7 +290,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             Err(error) => {
                                                 println!("Execution failure: {}", error);
                                                 results.insert(
-                                                    node.primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
                                                         success: Some(false),
                                                         result: Some(Err(error)),
@@ -515,7 +515,7 @@ mod tests {
                 BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
                 TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
             },
-            serialize::{rmp_deserialize, rmp_serialize, MessagePack},
+            serialize::{rmp_deserialize, rmp_serialize},
         },
         blockchain::pool::tests::create_pool,
         crypto::{
