@@ -263,7 +263,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                     },
                                                 );
 
-                                                let event_tx = node.primary_hash();
+                                                let event_tx = node.data.primary_hash();
                                                 bulk_events
                                                     .iter_mut()
                                                     .for_each(|e| e.event_tx = event_tx);
