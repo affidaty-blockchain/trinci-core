@@ -16,9 +16,14 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 //! Generic host functions implementations.
+use std::sync::Arc;
+
 use crate::{
     base::schema::SmartContractEvent,
-    crypto::{Hash, PublicKey},
+    crypto::{
+        drand::{Drand, SeedSource},
+        Hash, PublicKey,
+    },
     db::DbFork,
     wm::Wm,
     Account, Error, ErrorKind, Result,
@@ -151,6 +156,12 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
             "nested calls not implemented",
         )),
     }
+}
+
+/// Generate a pseudo random number deterministically, based on the seed
+pub fn drand(_ctx: CallContext, seed: Arc<SeedSource>, max: u64) -> u64 {
+    let mut drand = Drand::new(seed);
+    drand.rand(max)
 }
 
 #[cfg(test)]
