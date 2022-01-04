@@ -28,6 +28,7 @@ use super::{
     message::Message,
     pool::{BlockInfo, Pool},
     pubsub::{Event, PubSub},
+    IsValidator,
 };
 use crate::{
     base::{
@@ -389,6 +390,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         prev_hash: Hash,
         block_info: BlockValues,
         is_validator: bool,
+        is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
@@ -428,6 +430,23 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 if !pk.verify(&buf, sig) {
                     return Err(Error::new_ext(ErrorKind::Other, "bad block signature"));
                 };
+                // Check that the signer is a validator.
+                match is_validator_closure(pk.to_account_id()) {
+                    Ok(res) => {
+                        if !res {
+                            return Err(Error::new_ext(
+                                ErrorKind::Other,
+                                "unexpected block validator",
+                            ));
+                        }
+                    }
+                    Err(_) => {
+                        return Err(Error::new_ext(
+                            ErrorKind::Other,
+                            "unexpected error in block validator check",
+                        ));
+                    }
+                }
             }
         }
 
@@ -444,8 +463,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let block_hash = data.primary_hash();
 
         let block = Block { data, signature };
-
-        // TODO: Check that the signer is a validator. Needs to call the is_validator(pk) closure
 
         if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
@@ -497,7 +514,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
-    pub fn run(&mut self, is_validator: bool) {
+    pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
             Some(block) => (block.data.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
@@ -533,6 +550,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     validator: block_validator.clone(),
                 },
                 is_validator,
+                is_validator_closure.clone(),
             ) {
                 Ok(hash) => {
                     let mut pool = self.pool.write();
@@ -777,6 +795,10 @@ mod tests {
         Transaction::BulkTransaction(BulkTransaction { data, signature })
     }
 
+    fn is_validator_function() -> impl IsValidator {
+        move |_account_id| Ok(true)
+    }
+
     #[test]
     fn test_bulk() {
         let mut executor = create_executor_bulk(false);
@@ -857,7 +879,7 @@ mod tests {
             .txs_hashes
             .take()
             .unwrap();
-
+        let is_validator_closure = is_validator_function();
         let hash = executor
             .exec_block(
                 0,
@@ -869,6 +891,7 @@ mod tests {
                     validator: None,
                 },
                 true,
+                Arc::new(is_validator_closure),
             )
             .unwrap();
 
@@ -891,6 +914,8 @@ mod tests {
             .take()
             .unwrap();
 
+        let is_validator_closure = is_validator_function();
+
         let err = executor
             .exec_block(
                 0,
@@ -902,6 +927,7 @@ mod tests {
                     validator: None,
                 },
                 true,
+                Arc::new(is_validator_closure),
             )
             .unwrap_err();
 
@@ -921,6 +947,8 @@ mod tests {
             .take()
             .unwrap();
 
+        let is_validator_closure = is_validator_function();
+
         let err = executor
             .exec_block(
                 0,
@@ -932,6 +960,7 @@ mod tests {
                     validator: None,
                 },
                 true,
+                Arc::new(is_validator_closure),
             )
             .unwrap_err();
 
@@ -954,6 +983,7 @@ mod tests {
             let _ = pool.txs.get_mut(&hashes[0]).unwrap().take();
             hashes
         };
+        let is_validator_closure = is_validator_function();
 
         executor
             .exec_block(
@@ -966,6 +996,7 @@ mod tests {
                     validator: None,
                 },
                 true,
+                Arc::new(is_validator_closure),
             )
             .unwrap();
     }
