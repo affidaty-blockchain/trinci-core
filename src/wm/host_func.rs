@@ -48,6 +48,8 @@ pub struct CallContext<'a> {
     pub origin: &'a str,
     /// Smart contracts events
     pub events: &'a mut Vec<SmartContractEvent>,
+    /// Drand seed
+    pub seed: Arc<SeedSource>,
 }
 
 /// WASM logging facility.
@@ -159,15 +161,20 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
 }
 
 /// Generate a pseudo random number deterministically, based on the seed
-pub fn drand(_ctx: CallContext, seed: Arc<SeedSource>, max: u64) -> u64 {
-    let mut drand = Drand::new(seed);
+pub fn drand(ctx: &CallContext, max: u64) -> u64 {
+    let mut drand = Drand::new(ctx.seed.clone());
     drand.rand(max)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{crypto::sign::tests::create_test_keypair, db::*, wm::*};
+    // add drand
+    use crate::{
+        crypto::{drand, sign::tests::create_test_keypair},
+        db::*,
+        wm::*,
+    };
     use lazy_static::lazy_static;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -243,6 +250,23 @@ mod tests {
         }
 
         pub fn as_wm_context(&mut self) -> CallContext {
+            let nw_name = String::from("nw_name_test");
+            let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+            let prev_hash = Hash::from_hex(
+                "1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569",
+            )
+            .unwrap();
+            let txs_hash = Hash::from_hex(
+                "1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569",
+            )
+            .unwrap();
+            let rxs_hash = Hash::from_hex(
+                "1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569",
+            )
+            .unwrap();
+            let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+            let seed = Arc::new(seed);
+
             CallContext {
                 wm: Some(&mut self.wm),
                 db: &mut self.db,
@@ -252,6 +276,7 @@ mod tests {
                 network: "skynet",
                 origin: &self.owner,
                 events: &mut self.events,
+                seed,
             }
         }
     }
@@ -327,5 +352,31 @@ mod tests {
         let res = verify(&ctx, &keypair.public_key(), &[1, 2], &sig);
 
         assert_eq!(res, 0);
+    }
+
+    #[test]
+    fn drand_success() {
+        let mut ctx = prepare_env();
+        let ctx = ctx.as_wm_context();
+        let random_number_hf = drand(&ctx, 10);
+
+        let nw_name = String::from("nw_name_test");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+        let random_number_dr = Drand::new(seed.clone()).rand(10);
+
+        println!("{}", random_number_hf);
+
+        assert_eq!(random_number_hf, random_number_dr);
     }
 }
