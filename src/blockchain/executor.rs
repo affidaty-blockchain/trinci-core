@@ -260,7 +260,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             node.get_args(),
                                             &mut bulk_events,
                                         );
-                                        println!("{:?}", result);
                                         match result {
                                             Ok(rcpt) => {
                                                 results.insert(
@@ -296,7 +295,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 events.append(&mut bulk_events);
                                             }
                                             Err(error) => {
-                                                println!("Execution failure: {}", error);
                                                 results.insert(
                                                     node.primary_hash(),
                                                     BulkResult {

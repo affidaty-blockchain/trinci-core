@@ -289,7 +289,7 @@ impl TransactionDataBulkV1 {
                         match node {
                             Transaction::UnitTransaction(node) => match &node.data {
                                 TransactionData::BulkNodeV1(data) => {
-                                    let result = data.verify(public_key, sig);
+                                    let result = data.verify(&data.caller, &node.signature);
                                     if result.is_err() {
                                         return Err(ErrorKind::InvalidSignature.into());
                                     }
