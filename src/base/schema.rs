@@ -628,7 +628,7 @@ pub struct BlockchainSettings {
     /// Max time elapsed from blocks
     pub block_timeout: u16,
     /// Name of the method in Trinci account to burn fuel
-    pub burn_fuel_method: String,
+    pub burning_fuel_method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_name: Option<String>,
 }

@@ -69,6 +69,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     pubsub: Arc<Mutex<PubSub>>,
     /// Node keypair
     keypair: Arc<KeyPair>,
+    /// Burn fuel method
+    burn_fuel_method: String,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -79,6 +81,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
             keypair: self.keypair.clone(),
+            burn_fuel_method: self.burn_fuel_method.clone(),
         }
     }
 }
@@ -98,12 +101,58 @@ impl<D: Db, W: Wm> Executor<D, W> {
             wm,
             pubsub,
             keypair,
+            burn_fuel_method: String::new(),
         }
     }
 
-    fn check_fuel_on_origin(&self, _origin: &str, _fuel_willing_to_spend: u64) -> bool {
-        // TODO
+    // Check if the origin account has
+    fn check_fuel_on_origin(
+        &self,
+        burn_fuel_method: &str,
+        _origin: &str,
+        _fuel_willing_to_spend: u64,
+    ) -> bool {
+        if burn_fuel_method.is_empty() {
+            return true;
+        }
+        // TODO complete this
+        warn!("check_fuel_on_origin return TRUE");
         true
+    }
+
+    // Allow to set the burn fuel method
+    pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
+        self.burn_fuel_method = burn_fuel_method;
+    }
+
+    // Calculates the fuel consumed by the transaction execution
+    fn calculate_burned_fuel(&self) -> u64 {
+        // TODO
+        1000
+    }
+
+    // Try to burn fuel from the origin account
+    fn try_burn_fuel(
+        &self,
+        burn_fuel_method: &str,
+        origin: &str,
+        fuel: u64,
+        max_fuel: u64,
+    ) -> Result<()> {
+        // TODO
+        warn!(
+            "I want to burn {} units (max: {}) from {} account with the method: {}",
+            fuel, max_fuel, origin, burn_fuel_method
+        );
+        if fuel > max_fuel {
+            error!(" Not enough fuel!");
+            return Err(Error::new_ext(
+                ErrorKind::Other,
+                "the fuel consumed exceeds the maximum allowed",
+            ));
+        }
+
+        Ok(())
     }
 
     fn exec_transaction(
@@ -112,20 +161,25 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         index: u32,
+        burn_fuel_method: &str,
     ) -> Receipt {
         fork.flush();
 
         // The core can verify if the origin owns the fuel that is willing to spend
-        let (origin, _fuel_willing_to_spend) = match &tx {
-            Transaction::UnitTransaction(t) => (t.data.get_caller(), t.data.get_fuel_limit()),
-            Transaction::BulkTransaction(bt) => (bt.data.get_caller(), bt.data.get_fuel_limit()),
+        let (origin, fuel_willing_to_spend) = match &tx {
+            Transaction::UnitTransaction(t) => {
+                (t.data.get_caller().to_account_id(), t.data.get_fuel_limit())
+            }
+            Transaction::BulkTransaction(bt) => (
+                bt.data.get_caller().to_account_id(),
+                bt.data.get_fuel_limit(),
+            ),
         };
 
         let mut events: Vec<SmartContractEvent> = vec![];
 
-        // TODO
         // If the fuel burning is enabled and there are not enough fuel on the origin account fail
-        if !self.check_fuel_on_origin(&origin.to_account_id(), _fuel_willing_to_spend) {
+        if !self.check_fuel_on_origin(burn_fuel_method, &origin, fuel_willing_to_spend) {
             #[allow(unreachable_code)] // FIXME
             return Receipt {
                 height,
@@ -137,7 +191,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             };
         }
 
-        let recepit = match tx {
+        let receipt = match tx {
             Transaction::UnitTransaction(tx) => {
                 let result = self.wm.lock().call(
                     fork,
@@ -174,8 +228,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     Some(events)
                 };
 
-                // TODO: Here can calculate the fuel consumed and burn it from the origin
-
                 // On error, receipt data shall contain the full error description
                 // only if error kind is a SmartContractFailure. This is to prevent
                 // internal error conditions leaks to the user.
@@ -192,9 +244,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         (false, msg.as_bytes().to_vec())
                     }
                 };
+
+                let burned_fuel = self.calculate_burned_fuel();
+
                 Receipt {
                     height,
-                    burned_fuel: 0, // TODO
+                    burned_fuel,
                     index: index as u32,
                     success,
                     returns,
@@ -357,13 +412,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         fork.rollback();
 
                         (None, rmp_serialize(&results))
-                    } // Recepit should be empty?
+                    } // Receipt should be empty?
                 };
+                let burned_fuel = self.calculate_burned_fuel();
 
                 Receipt {
                     height,
                     index,
-                    burned_fuel: 0, // TODO
+                    burned_fuel,
                     success: !execution_fail,
                     returns: results.unwrap(), //mabye handle unwrap
                     events,
@@ -371,7 +427,29 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
-        recepit
+        // Try to burn fuel from the caller account
+        match self.try_burn_fuel(
+            burn_fuel_method,
+            &tx.get_caller().to_account_id(),
+            receipt.burned_fuel,
+            fuel_willing_to_spend,
+        ) {
+            Ok(_) => {
+                warn!("recpt 0001"); // DELETEME
+                receipt
+            }
+            Err(e) => {
+                warn!("recpt 0002"); // DELETEME
+                Receipt {
+                    height,
+                    index,
+                    burned_fuel: 0,
+                    success: false,
+                    returns: e.to_string_full().as_bytes().to_vec(),
+                    events: receipt.events,
+                }
+            }
+        }
     }
 
     /// Returns a vector of executed transactions
@@ -382,6 +460,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         txs_hashes: &[Hash],
     ) -> Vec<Hash> {
         let mut rxs_hashes = vec![];
+
+        let burn_fuel_method = self.burn_fuel_method.clone();
 
         for (index, hash) in txs_hashes.iter().enumerate() {
             debug!("Executing transaction: {}", hex::encode(hash));
@@ -395,7 +475,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 ),
             };
 
-            let rx = self.exec_transaction(&tx, fork, height, index as u32);
+            let rx = self.exec_transaction(&tx, fork, height, index as u32, &burn_fuel_method);
 
             rxs_hashes.push(rx.primary_hash());
 
@@ -832,7 +912,7 @@ mod tests {
 
         let tx = create_bulk_tx();
 
-        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0);
+        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new());
 
         assert!(rcpt.success);
     }

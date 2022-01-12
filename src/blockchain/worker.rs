@@ -121,6 +121,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         self.is_validator = Arc::new(is_validator);
     }
 
+    /// Set the Burn Fuel Method
+    pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
+        // DELETE
+        warn!("`burn_fuel_method` name: >>{}<<", burn_fuel_method);
+        self.executor.set_burn_fuel_method(burn_fuel_method);
+    }
+
     /// Set the block configuration
     pub fn set_config(&mut self, network: String, threshold: usize, timeout: u16) {
         self.config.clone().lock().network = network;
