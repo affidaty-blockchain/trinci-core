@@ -177,6 +177,16 @@ impl TransactionData {
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_args(),
         }
     }
+    pub fn get_fuel_limit(&self) -> u64 {
+        match &self {
+            TransactionData::V1(tx_data) => tx_data.fuel_limit,
+            TransactionData::BulkV1(tx_data) => match &tx_data.txs.root.data {
+                TransactionData::BulkRootV1(tx_data_v1) => tx_data_v1.fuel_limit,
+                _ => 0,
+            },
+            _ => 0,
+        }
+    }
     pub fn get_contract(&self) -> &Option<Hash> {
         match &self {
             TransactionData::V1(tx_data) => &tx_data.contract,
@@ -470,6 +480,12 @@ impl Transaction {
             Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
         }
     }
+    pub fn get_fuel_limit(&self) -> u64 {
+        match &self {
+            Transaction::UnitTransaction(tx) => tx.data.get_fuel_limit(),
+            Transaction::BulkTransaction(tx) => tx.data.get_fuel_limit(),
+        }
+    }
 }
 
 /// Events risen by the smart contract execution
@@ -605,9 +621,14 @@ impl Account {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlockchainSettings {
+    /// Not yet implemented
     pub accept_broadcast: bool,
+    /// Number max of transactions in a block
     pub block_threshold: usize,
+    /// Max time elapsed from blocks
     pub block_timeout: u16,
+    /// Name of the method in Trinci account to burn fuel
+    pub burn_fuel_method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_name: Option<String>,
 }

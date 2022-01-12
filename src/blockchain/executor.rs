@@ -101,6 +101,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
+    fn check_fuel_on_origin(&self, _origin: &str, _fuel_willing_to_spend: u64) -> bool {
+        // TODO
+        true
+    }
+
     fn exec_transaction(
         &mut self,
         tx: &Transaction,
@@ -109,7 +114,28 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
     ) -> Receipt {
         fork.flush();
+
+        // The core can verify if the origin owns the fuel that is willing to spend
+        let (origin, _fuel_willing_to_spend) = match &tx {
+            Transaction::UnitTransaction(t) => (t.data.get_caller(), t.data.get_fuel_limit()),
+            Transaction::BulkTransaction(bt) => (bt.data.get_caller(), bt.data.get_fuel_limit()),
+        };
+
         let mut events: Vec<SmartContractEvent> = vec![];
+
+        // TODO
+        // If the fuel burning is enabled and there are not enough fuel on the origin account fail
+        if !self.check_fuel_on_origin(&origin.to_account_id(), _fuel_willing_to_spend) {
+            #[allow(unreachable_code)] // FIXME
+            return Receipt {
+                height,
+                index,
+                burned_fuel: 0,
+                success: false,
+                returns: String::from("not enough fuel").as_bytes().to_vec(),
+                events: None,
+            };
+        }
 
         let recepit = match tx {
             Transaction::UnitTransaction(tx) => {
@@ -147,6 +173,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 } else {
                     Some(events)
                 };
+
+                // TODO: Here can calculate the fuel consumed and burn it from the origin
 
                 // On error, receipt data shall contain the full error description
                 // only if error kind is a SmartContractFailure. This is to prevent
