@@ -114,36 +114,36 @@ impl<D: Db, W: Wm> Executor<D, W> {
         burn_fuel_method: &str,
         origin: &str,
         fuel_willing_to_spend: u64,
-    ) -> bool {
+    ) -> Result<()> {
         if burn_fuel_method.is_empty() {
-            return true;
+            return Ok(());
         }
 
         let account = match fork.load_account(origin) {
             Some(account) => account,
             None => {
-                return false;
+                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
             }
         };
 
         let trinci_asset: Value = match rmp_deserialize(&account.load_asset("TRINCI")) {
             Ok(asset) => asset,
             Err(_) => {
-                return false;
+                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
             }
         };
 
         let units = match trinci_asset.as_u64() {
             Some(units) => units,
             None => {
-                return false;
+                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
             }
         };
 
         if fuel_willing_to_spend > units as u64 {
-            return false;
+            return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
         }
-        true
+        Ok(())
     }
 
     // Allows to set the burn fuel method
@@ -253,7 +253,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut events: Vec<SmartContractEvent> = vec![];
 
         // If the fuel burning is enabled and there are not enough fuel on the origin account fail
-        if !self.check_fuel_on_origin(fork, burn_fuel_method, &origin, fuel_willing_to_spend) {
+        if let Err(e) =
+            self.check_fuel_on_origin(fork, burn_fuel_method, &origin, fuel_willing_to_spend)
+        {
             fork.rollback();
 
             return Receipt {
@@ -261,7 +263,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 index,
                 burned_fuel: 0,
                 success: false,
-                returns: String::from("not enough fuel").as_bytes().to_vec(),
+                returns: e.to_string_full().as_bytes().to_vec(),
                 events: None,
             };
         }
