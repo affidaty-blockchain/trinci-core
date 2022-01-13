@@ -385,6 +385,7 @@ mod tests {
     use crate::{
         base::schema::tests::{
             create_test_account, create_test_block, create_test_bulk_tx, create_test_unit_tx,
+            FUEL_LIMIT,
         },
         channel::simple_channel,
         db::*,
@@ -418,7 +419,7 @@ mod tests {
         });
         db.expect_load_transaction().returning(|hash| {
             match *hash == Hash::from_hex(TX_DATA_HASH_HEX).unwrap() {
-                true => Some(create_test_unit_tx()),
+                true => Some(create_test_unit_tx(FUEL_LIMIT)),
                 false => None,
             }
         });
@@ -444,7 +445,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -483,7 +484,7 @@ mod tests {
     #[test]
     fn put_bad_signature_transaction() {
         let dispatcher = create_dispatcher(false);
-        let mut tx = create_test_unit_tx();
+        let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
@@ -529,7 +530,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
         dispatcher.message_handler_wrap(req.clone()).unwrap();
 
@@ -544,7 +545,7 @@ mod tests {
         let dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -563,7 +564,7 @@ mod tests {
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::GetTransactionResponse {
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
         assert_eq!(res, exp_res);
     }

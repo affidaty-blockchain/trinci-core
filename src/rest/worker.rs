@@ -198,6 +198,7 @@ mod tests {
         base::{
             schema::tests::{
                 create_test_account, create_test_block, create_test_receipt, create_test_unit_tx,
+                FUEL_LIMIT,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -228,7 +229,7 @@ mod tests {
             Message::GetTransactionRequest { hash } => {
                 match hash == Hash::from_hex(HASH_HEX).unwrap() {
                     true => Message::GetTransactionResponse {
-                        tx: create_test_unit_tx(),
+                        tx: create_test_unit_tx(FUEL_LIMIT),
                     },
                     false => Message::Exception(ErrorKind::ResourceNotFound.into()),
                 }
@@ -341,7 +342,7 @@ mod tests {
 
     #[test]
     fn message_get_transaction() {
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let msg = Message::GetTransactionRequest {
             hash: Hash::from_hex(HASH_HEX).unwrap(),
         };
@@ -362,7 +363,7 @@ mod tests {
 
     #[test]
     fn message_put_transaction() {
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let msg = Message::PutTransactionRequest { confirm: true, tx };
         let buf = rmp_serialize(&msg).unwrap();
 
@@ -397,7 +398,7 @@ mod tests {
     fn put_transaction() {
         let mut addr = start_listener();
         addr.push_str("/api/v1/submit");
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let body = rmp_serialize(&tx).unwrap();
 
         let response = ureq::post(&addr).send_bytes(&body).unwrap();
@@ -412,7 +413,7 @@ mod tests {
     fn put_transaction_error() {
         let mut addr = start_listener();
         addr.push_str("/api/v1/submit");
-        let mut tx = create_test_unit_tx();
+        let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
         match tx {
             crate::Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
@@ -440,7 +441,7 @@ mod tests {
 
         assert_eq!(response.status_text(), "OK");
         assert_eq!(response.content_type(), "application/octet-stream");
-        let exp = rmp_serialize(&create_test_unit_tx()).unwrap();
+        let exp = rmp_serialize(&create_test_unit_tx(FUEL_LIMIT)).unwrap();
         assert_eq!(fetch_response_body(response), exp);
     }
 

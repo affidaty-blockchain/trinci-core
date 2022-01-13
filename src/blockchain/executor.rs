@@ -144,6 +144,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
             "I want to burn {} units (max: {}) from {} account with the method: {}",
             fuel, max_fuel, origin, burn_fuel_method
         );
+
+        if burn_fuel_method.is_empty() {
+            return Ok(());
+        }
+
         if fuel > max_fuel {
             error!(" Not enough fuel!");
             return Err(Error::new_ext(
@@ -180,6 +185,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // If the fuel burning is enabled and there are not enough fuel on the origin account fail
         if !self.check_fuel_on_origin(burn_fuel_method, &origin, fuel_willing_to_spend) {
+            fork.rollback();
+
             #[allow(unreachable_code)] // FIXME
             return Receipt {
                 height,
@@ -440,6 +447,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
             Err(e) => {
                 warn!("recpt 0002"); // DELETEME
+                fork.rollback();
                 Receipt {
                     height,
                     index,
@@ -693,8 +701,9 @@ mod tests {
     use crate::{
         base::{
             schema::{
-                BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
-                TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
+                tests::FUEL_LIMIT, BulkTransaction, BulkTransactions, SignedTransaction,
+                TransactionData, TransactionDataBulkNodeV1, TransactionDataBulkV1,
+                UnsignedTransaction,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -714,19 +723,25 @@ mod tests {
 
     const TEST_WASM: &[u8] = include_bytes!("../wm/test.wasm");
 
-    fn create_executor(db_fail: bool) -> Executor<MockDb, MockWm> {
-        let pool = Arc::new(RwLock::new(create_pool()));
+    fn create_executor(db_fail: bool, fuel_limit: u64) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool(fuel_limit)));
         let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair)
+        let mut executor = Executor::new(pool, db, wm, sub, keypair);
+
+        if fuel_limit < FUEL_LIMIT {
+            executor.set_burn_fuel_method(String::from("burn_fuel_method"));
+        }
+
+        executor
     }
 
-    fn create_executor_bulk(db_fail: bool) -> Executor<MockDb, MockWm> {
-        let pool = Arc::new(RwLock::new(create_pool()));
+    fn create_executor_bulk(db_fail: bool, fuel_limit: u64) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool(fuel_limit)));
         let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
         let wm = Arc::new(Mutex::new(create_wm_mock_bulk()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
@@ -907,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_bulk() {
-        let mut executor = create_executor_bulk(false);
+        let mut executor = create_executor_bulk(false, FUEL_LIMIT);
         let mut fork = executor.db.write().fork_create();
 
         let tx = create_bulk_tx();
@@ -919,7 +934,7 @@ mod tests {
 
     #[test]
     fn can_run() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
 
         let runnable = executor.can_run(0);
 
@@ -928,7 +943,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_next_block() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
 
         let runnable = executor.can_run(u64::MAX);
 
@@ -937,7 +952,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_block_tx_hashes() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
         {
             // Steal transaction hashes list.
             let mut pool = executor.pool.write();
@@ -951,7 +966,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_transaction() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
         {
             // Steal one transaction required by the first block.
             let mut pool = executor.pool.write();
@@ -975,7 +990,7 @@ mod tests {
 
     #[test]
     fn exec_block() {
-        let mut executor = create_executor(false);
+        let mut executor = create_executor(false, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -1009,7 +1024,7 @@ mod tests {
 
     #[test]
     fn exec_block_expected_hash_mismatch() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -1042,7 +1057,7 @@ mod tests {
 
     #[test]
     fn exec_block_merge_fail() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -1076,7 +1091,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Unexpected missing transaction")]
     fn exec_block_missing_tx() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = {
             let mut pool = executor.pool.write();
             let hashes = pool

@@ -680,9 +680,9 @@ pub mod tests {
     const CONTRACT_EVENT_HEX: &str = "95c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74c4221220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569ab636f6f6c5f6d6574686f64c403010203";
 
     const TRANSACTION_SCHEMA: &str = "my-cool-schema";
-    const FUEL_LIMIT: u64 = 1000;
+    pub const FUEL_LIMIT: u64 = 1000;
 
-    fn create_test_data_unit() -> TransactionData {
+    fn create_test_data_unit(fuel_limit: u64) -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
         let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
@@ -693,7 +693,7 @@ pub mod tests {
 
         TransactionData::V1(TransactionDataV1 {
             account,
-            fuel_limit: FUEL_LIMIT,
+            fuel_limit,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
             network: "skynet".to_string(),
             contract: Some(contract),
@@ -783,11 +783,11 @@ pub mod tests {
         })
     }
 
-    pub fn create_test_unit_tx() -> Transaction {
+    pub fn create_test_unit_tx(fuel_limit: u64) -> Transaction {
         let signature = hex::decode(TRANSACTION_SIGN_UNIT).unwrap();
 
         Transaction::UnitTransaction(SignedTransaction {
-            data: create_test_data_unit(),
+            data: create_test_data_unit(fuel_limit),
             signature,
         })
     }
@@ -878,7 +878,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_serialize_unit() {
-        let data = create_test_data_unit();
+        let data = create_test_data_unit(FUEL_LIMIT);
 
         let buf = data.serialize();
 
@@ -896,7 +896,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_deserialize_unit() {
-        let expected = create_test_data_unit();
+        let expected = create_test_data_unit(FUEL_LIMIT);
 
         let buf = hex::decode(TRANSACTION_DATA_HEX_UNIT).unwrap();
 
@@ -958,7 +958,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_hash() {
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let hash = match tx {
             Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
             Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
@@ -975,7 +975,7 @@ pub mod tests {
 
     #[test]
     fn transaction_data_verify() {
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let result = tx.verify(tx.get_caller(), tx.get_signature());
         assert!(result.is_ok());
 
@@ -986,7 +986,7 @@ pub mod tests {
 
     #[test]
     fn unit_transaction_data_sign_verify() {
-        let data = create_test_data_unit();
+        let data = create_test_data_unit(FUEL_LIMIT);
         let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
 
         let signature = data.sign(&keypair).unwrap();
@@ -1054,7 +1054,7 @@ pub mod tests {
 
     #[test]
     fn transaction_serialize() {
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
 
         let buf = tx.serialize();
 
@@ -1069,7 +1069,7 @@ pub mod tests {
 
     #[test]
     fn transaction_deserialize() {
-        let expected = create_test_unit_tx();
+        let expected = create_test_unit_tx(FUEL_LIMIT);
         let buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();

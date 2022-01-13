@@ -32,12 +32,13 @@ Additional labels for pre-release metadata:
 Changed
 * Transaction schema
 * Signed blocks
+* Introduction of fuel management structures
 
 Added
 * Bulk transaction
-* bootstrap from wasm or wasm+txs
-* config from bootstrap
-* network name from bootstrap hash
+* Bootstrap from wasm or wasm+txs
+* Config from bootstrap
+* Network name from bootstrap hash
 
 
 0.2.3 - 25-11-2021

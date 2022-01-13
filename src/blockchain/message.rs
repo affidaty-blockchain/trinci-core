@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::tests::{create_test_contract_event, create_test_unit_tx},
+            schema::tests::{create_test_contract_event, create_test_unit_tx, FUEL_LIMIT},
             serialize::{rmp_deserialize, rmp_serialize},
         },
         error::ErrorKind,
@@ -223,7 +223,7 @@ mod tests {
     fn put_transaction_req_msg() -> Message {
         Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         }
     }
 
@@ -241,7 +241,7 @@ mod tests {
 
     fn get_transaction_res_msg() -> Message {
         Message::GetTransactionResponse {
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         }
     }
 
