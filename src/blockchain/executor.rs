@@ -24,6 +24,8 @@
 //! that the hash resulting from the local execution is equal to the expected
 //! one before commiting the execution changes.
 
+use serde_value::{value, Value};
+
 use super::{
     message::Message,
     pool::{BlockInfo, Pool},
@@ -33,7 +35,7 @@ use super::{
 use crate::{
     base::{
         schema::{Block, BlockData, SmartContractEvent},
-        serialize::rmp_serialize,
+        serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
     crypto::{Hash, Hashable},
@@ -105,22 +107,46 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
-    // Check if the origin account has
+    // Checks if the origin account has
     fn check_fuel_on_origin(
         &self,
+        fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
-        _origin: &str,
-        _fuel_willing_to_spend: u64,
+        origin: &str,
+        fuel_willing_to_spend: u64,
     ) -> bool {
         if burn_fuel_method.is_empty() {
             return true;
         }
-        // TODO complete this
-        warn!("check_fuel_on_origin return TRUE");
+
+        let account = match fork.load_account(origin) {
+            Some(account) => account,
+            None => {
+                return false;
+            }
+        };
+
+        let trinci_asset: Value = match rmp_deserialize(&account.load_asset("TRINCI")) {
+            Ok(asset) => asset,
+            Err(_) => {
+                return false;
+            }
+        };
+
+        let units = match trinci_asset.as_u64() {
+            Some(units) => units,
+            None => {
+                return false;
+            }
+        };
+
+        if fuel_willing_to_spend > units as u64 {
+            return false;
+        }
         true
     }
 
-    // Allow to set the burn fuel method
+    // Allows to set the burn fuel method
     pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
         self.burn_fuel_method = burn_fuel_method;
     }
@@ -131,31 +157,74 @@ impl<D: Db, W: Wm> Executor<D, W> {
         1000
     }
 
-    // Try to burn fuel from the origin account
+    // Tries to burn fuel from the origin account
     fn try_burn_fuel(
         &self,
+        fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
         origin: &str,
         fuel: u64,
         max_fuel: u64,
     ) -> Result<()> {
-        // TODO
-        warn!(
-            "I want to burn {} units (max: {}) from {} account with the method: {}",
-            fuel, max_fuel, origin, burn_fuel_method
-        );
-
         if burn_fuel_method.is_empty() {
             return Ok(());
         }
 
         if fuel > max_fuel {
-            error!(" Not enough fuel!");
             return Err(Error::new_ext(
                 ErrorKind::Other,
                 "the fuel consumed exceeds the maximum allowed",
             ));
         }
+
+        // Call to consume fuel
+        let args = value!({
+            "from": origin,
+            "units": fuel
+        });
+
+        let args = match rmp_serialize(&args) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(Error::new_ext(
+                    ErrorKind::Other,
+                    "consume_fuel method failed serialization",
+                ))
+            }
+        };
+
+        let result = match self.wm.lock().call(
+            fork,
+            0,
+            "TRINCI",
+            "TRINCI",
+            "TRINCI",
+            "TRINCI",
+            None,
+            burn_fuel_method,
+            &args,
+            &mut vec![],
+        ) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(Error::new_ext(
+                    ErrorKind::Other,
+                    "consume_fuel method failed",
+                ))
+            }
+        };
+
+        match rmp_deserialize::<bool>(&result) {
+            Ok(value) => {
+                if !value {
+                    return Err(Error::new_ext(
+                        ErrorKind::Other,
+                        "consume_fuel method failed deserialization",
+                    ));
+                }
+            }
+            Err(e) => return Err(e),
+        };
 
         Ok(())
     }
@@ -184,10 +253,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut events: Vec<SmartContractEvent> = vec![];
 
         // If the fuel burning is enabled and there are not enough fuel on the origin account fail
-        if !self.check_fuel_on_origin(burn_fuel_method, &origin, fuel_willing_to_spend) {
+        if !self.check_fuel_on_origin(fork, burn_fuel_method, &origin, fuel_willing_to_spend) {
             fork.rollback();
 
-            #[allow(unreachable_code)] // FIXME
             return Receipt {
                 height,
                 index,
@@ -436,17 +504,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Try to burn fuel from the caller account
         match self.try_burn_fuel(
+            fork,
             burn_fuel_method,
             &tx.get_caller().to_account_id(),
             receipt.burned_fuel,
             fuel_willing_to_spend,
         ) {
-            Ok(_) => {
-                warn!("recpt 0001"); // DELETEME
-                receipt
-            }
+            Ok(_) => receipt,
             Err(e) => {
-                warn!("recpt 0002"); // DELETEME
                 fork.rollback();
                 Receipt {
                     height,
