@@ -48,8 +48,8 @@ use std::{collections::HashMap, sync::Arc};
 /// result struct for bulk trasnsaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
-    success: Option<bool>,
-    result: Option<Result<Vec<u8>>>,
+    success: bool,
+    result: Vec<u8>,
 }
 
 /// Block values when a block is executed to sync
@@ -359,10 +359,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         match result {
                             Ok(rcpt) => {
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
-                                        success: Some(true),
-                                        result: Some(Ok(rcpt)),
+                                        success: true,
+                                        result: rcpt,
                                     },
                                 );
 
@@ -385,10 +385,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             Err(error) => {
                                 execution_fail = true;
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
-                                        success: Some(false),
-                                        result: Some(Err(error)),
+                                        success: false,
+                                        result: error.to_string().as_bytes().to_vec(),
                                     },
                                 );
                             }
@@ -401,36 +401,36 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                     if execution_fail {
                                         results.insert(
-                                            node.get_primary_hash(),
+                                            hex::encode(node.data.primary_hash()),
                                             BulkResult {
-                                                success: None,
-                                                result: None,
+                                                success: false,
+                                                result: "error".as_bytes().to_vec(),
                                             },
                                         );
                                     } else {
                                         let result = self.wm.lock().call(
                                             fork,
                                             0,
-                                            node.get_network(),
-                                            &node.get_caller().to_account_id(),
-                                            node.get_account(),
-                                            &node.get_caller().to_account_id(),
-                                            *node.get_contract(),
-                                            node.get_method(),
-                                            node.get_args(),
+                                            node.data.get_network(),
+                                            &node.data.get_caller().to_account_id(),
+                                            node.data.get_account(),
+                                            &node.data.get_caller().to_account_id(),
+                                            *node.data.get_contract(),
+                                            node.data.get_method(),
+                                            node.data.get_args(),
                                             &mut bulk_events,
                                         );
                                         match result {
                                             Ok(rcpt) => {
                                                 results.insert(
-                                                    node.get_primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(true),
-                                                        result: Some(Ok(rcpt)),
+                                                        success: true,
+                                                        result: rcpt,
                                                     },
                                                 );
 
-                                                let event_tx = node.primary_hash();
+                                                let event_tx = node.data.primary_hash();
                                                 bulk_events
                                                     .iter_mut()
                                                     .for_each(|e| e.event_tx = event_tx);
@@ -456,10 +456,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             }
                                             Err(error) => {
                                                 results.insert(
-                                                    node.primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(false),
-                                                        result: Some(Err(error)),
+                                                        success: false,
+                                                        result: error
+                                                            .to_string()
+                                                            .as_bytes()
+                                                            .to_vec(),
                                                     },
                                                 );
                                                 execution_fail = true;
@@ -701,6 +704,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => (Hash::default(), 0),
         };
 
+        // mabye change seed here? TODo
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
@@ -954,20 +958,19 @@ mod tests {
         });
         let sign_tx2 = data_tx2.sign(&keypair);
 
-        let tx1 = Transaction::UnitTransaction(SignedTransaction {
+        let tx1 = SignedTransaction {
             data: data_tx1,
             signature: sign_tx1.unwrap(),
-        });
+        };
 
-        let tx2 = Transaction::UnitTransaction(SignedTransaction {
+        let tx2 = SignedTransaction {
             data: data_tx2,
             signature: sign_tx2.unwrap(),
-        });
+        };
 
         let nodes = vec![tx1, tx2];
 
         TransactionData::BulkV1(TransactionDataBulkV1 {
-            schema: "schema".to_string(),
             txs: BulkTransactions {
                 root: Box::new(UnsignedTransaction { data: data_tx0 }),
                 nodes: Some(nodes),
