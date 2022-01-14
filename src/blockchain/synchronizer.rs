@@ -80,6 +80,8 @@ impl<D: Db> Synchronizer<D> {
             match pool.confirmed.get(&height) {
                 Some(BlockInfo {
                     hash: _,
+                    signature: _,
+                    validator: _,
                     txs_hashes: Some(hashes),
                 }) => {
                     // We have hases, check if we have every transaction payload

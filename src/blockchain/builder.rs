@@ -106,6 +106,8 @@ impl<D: Db> Builder<D> {
 
                 let blk_info = BlockInfo {
                     hash: None,
+                    validator: None,
+                    signature: None,
                     txs_hashes: Some(txs_hashes),
                 };
                 pool.confirmed.insert(height, blk_info);

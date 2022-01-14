@@ -20,6 +20,7 @@
 use crate::{
     base::{queue_set::QueueSet, schema::Transaction},
     crypto::hash::Hash,
+    PublicKey,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -40,6 +41,12 @@ pub struct BlockInfo {
     /// This is `None` when we're the builder of this block since the hash is
     /// unknown up to the execution phase.
     pub hash: Option<Hash>,
+    /// Block Validator
+    /// This is `None` when we're the builder of this block
+    pub validator: Option<PublicKey>,
+    /// Block Data Signature
+    /// This is `None` when we're the builder of this block
+    pub signature: Option<Vec<u8>>,
     /// Block transactions hashes. This is `None` when we're aware of only the
     /// block header.
     pub txs_hashes: Option<Vec<Hash>>,
@@ -83,6 +90,8 @@ pub mod tests {
         }
         let blk_info = BlockInfo {
             hash: Some(Hash::default()),
+            signature: Some(vec![0, 1, 2]),
+            validator: None,
             txs_hashes: Some(tx_hashes),
         };
         pool.confirmed.insert(0, blk_info);

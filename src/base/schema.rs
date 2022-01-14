@@ -285,9 +285,13 @@ impl TransactionDataBulkV1 {
             true => match &self.txs.nodes {
                 Some(nodes) => {
                     for node in nodes {
-                        let result = node.data.verify(public_key, sig);
-                        if result.is_err() {
-                            return Err(ErrorKind::InvalidSignature.into());
+                        match &node.data {
+                            TransactionData::BulkNodeV1(tx_data) => {
+                                if tx_data.verify(&tx_data.caller, &node.signature).is_err() {
+                                    return Err(ErrorKind::InvalidSignature.into());
+                                };
+                            }
+                            _ => return Err(ErrorKind::WrongTxType.into()),
                         }
                     }
                     Ok(())
@@ -524,7 +528,7 @@ pub struct Block {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BlockData {
     /// Block Validator public key
-    pub validator: PublicKey,
+    pub validator: Option<PublicKey>,
     /// Index in the blockhain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
@@ -542,7 +546,7 @@ pub struct BlockData {
 impl BlockData {
     /// Instance a new block structure.
     pub fn new(
-        validator: PublicKey,
+        validator: Option<PublicKey>,
         height: u64,
         size: u32,
         prev_hash: Hash,
@@ -603,6 +607,15 @@ impl Account {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlockchainSettings {
+    pub accept_broadcast: bool,
+    pub block_threshold: usize,
+    pub block_timeout: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_name: Option<String>,
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -617,19 +630,23 @@ pub mod tests {
 
     const ACCOUNT_ID: &str = "QmNLei78zWmzUdbeRB3CiUfAizWUrbeeZh5K1rhAQKCh51";
 
-    const TRANSACTION_DATA_HEX_UNIT: &str = "99a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
-    const TRANSACTION_DATA_HASH_HEX_UNIT: &str =
+    const UNIT_TRANSACTION_DATA_HEX: &str = "99a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461";
+    const UNIT_TRANSACTION_DATA_HASH_HEX: &str =
         "1220970572e00cacd21dd115e12ed6809f6dcc52f06cbe6e2a96e5e22b370126cc1b";
 
-    const TRANSACTION_DATA_HEX_BULK: &str = "93a3627631ae6d792d636f6f6c2d736368656d61929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0";
-    const TRANSACTION_DATA_HASH_HEX_BULK: &str =
-        "1220ac0568ad7afd28ed14910af0aedd7e85b2b91bd8cde95be2334e8148e18181d8";
+    const BULK_TRANSACTION_DATA_HEX: &str = "92a3627631929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0";
+    const BULK_WITH_NODES_TRANSACTION_DATA_HASH_HEX: &str =
+        "12209d02cba525b07b4208b3bfb8bd71f41e625498c402e9d3e00c7ecbf5e3c649ea";
+    const BULK_WITH_NODES_TRANSACTION_DATA_HEX: &str = "92a3627631929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f70617175654461746192929aa4626e7631d92e516d56513965715a4d33686f5463597a4366365241585078715368583163396a4d48445659444875707862575232cd03e8c403000102a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea86d6574686f645f3193a56563647361a9736563703338347231c461044717583406373a9b47f564e6af4c28d9bc45b11da5de0fdfcd9928dab12eaacaedfabc7357565f2ecfa222f4b4e654a727397c3cad00a2af4c21defe5a0b403d3e62390b71633b203c268fd35ffe2e83fc7c602c2ae19274707a96f579e5439ec403000102c422122000b09762946a4d8f74928eb1b882d0ac2d92803f00199a8af9c89ee411fe54c2c460c7e0cf6099d3cc1f6cd81fcf75c12af8a378c9433299938f15d3ebeee07a9756546420d9a63a83abe4d52dc41b2ab1487d22f54cc5a713daf9cde22341c5fecd24108a73ea2d77bca871e7e16cbe4f07b427db94d4b4ea0051c829b474402d8a929aa4626e7631d92e516d63326d383963624d6d5956516156484c64336655365a6766646d46316d3775537538643246584c35697a745acd03e8c403000102a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea86d6574686f645f3293a56563647361a9736563703338347231c461048295bf9d82b141177ebc03002000573f556bf40bfbd9b70e20c92c45374ed87cdd099759a019dc8665114ab60c83052c37fa99ac6cd933dc635e690d616d42874114dce3b1f41f5fc9b563679e50b0cb5f9295ce8fbaaa812ef69fef6b9b6100c403000102c422122000b09762946a4d8f74928eb1b882d0ac2d92803f00199a8af9c89ee411fe54c2c4605365838d6ea99075b7b08c9186ddd28656b18fa9e975acb5f1bc48b99f46848044a2ab506ebf5da5cdc9e9bd4525751cb537eb30d5d984aca6bd30c2416363b26ce25ca78c33091e7482d150777a69dd082a9b68656c4bc6b5fdd198e86ece53";
+    const BULK_TRANSACTION_DATA_HASH_HEX: &str =
+        "12209d02cba525b07b4208b3bfb8bd71f41e625498c402e9d3e00c7ecbf5e3c649ea";
 
-    const TRANSACTION_HEX_UNIT: &str = "93a7756e69745f747899a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c460380e8f1c241f732743a82b3834d2819e6b52f1858058dfaed76432a4bd9e30039342ffeb63771325ded9ee70eabc30dadc667869ec7607788233f228dd35078e99c65b59f096176ab87d7028764e85850f273a9f7c06bdc34c0188c27801ccad";
-    const TRANSACTION_SIGN_UNIT: &str = "380e8f1c241f732743a82b3834d2819e6b52f1858058dfaed76432a4bd9e30039342ffeb63771325ded9ee70eabc30dadc667869ec7607788233f228dd35078e99c65b59f096176ab87d7028764e85850f273a9f7c06bdc34c0188c27801ccad";
+    const UNIT_TRANSACTION_HEX: &str = "93a7756e69745f747899a27631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c46046d493f0edae8a7fdde770f283c26ab0896d93134770be5f7094a53c8d9638f88e140933222da359677ca5abc046e15c30d6abae9370836d86579e1a4717b285e90e87226ced0d9668cf4fd44c13078c7f8bf77d21ddddb72b123bb73080155c";
+    const UNIT_TRANSACTION_SIGN: &str = "46d493f0edae8a7fdde770f283c26ab0896d93134770be5f7094a53c8d9638f88e140933222da359677ca5abc046e15c30d6abae9370836d86579e1a4717b285e90e87226ced0d9668cf4fd44c13078c7f8bf77d21ddddb72b123bb73080155c";
 
-    const TRANSACTION_HEX_BULK: &str = "93a762756c6b5f747893a3627631ae6d792d636f6f6c2d736368656d61929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0c460f42ff94fcfb863ae4585bc1070756af1b8cc3def3ba47713bde78bf06f97a1098bb3364264537633594352acfbccb63dacfc4e2b47644e0cc3a930790b148ced3c4486bc8a8c5b82e2100b1ec4676c18f9111c4cb8f00b1405fc30cc3978e81e";
-    const TRANSACTION_SIGN_BULK: &str = "f42ff94fcfb863ae4585bc1070756af1b8cc3def3ba47713bde78bf06f97a1098bb3364264537633594352acfbccb63dacfc4e2b47644e0cc3a930790b148ced3c4486bc8a8c5b82e2100b1ec4676c18f9111c4cb8f00b1405fc30cc3978e81e";
+    const BULK_WITHOUT_NODES_TRANSACTION_HEX: &str = "93a762756c6b5f747892a3627631929199a462727631d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c0c460a44e61159c7d9171fadbf2e6e14f5082466129456ee4b19c17c9f2d814e7aeb91697f8650ffd3e1577c90142a310d93029fc30a4eab21c823b2ae1b7ac39dd6ea9778062a936bc7aad4e04427c3375b91fc8bf989c165bf116e26d3bb1d0e7c8";
+    const BULK_WITHOUT_NODES_TRANSACTION_SIGN: &str = "a44e61159c7d9171fadbf2e6e14f5082466129456ee4b19c17c9f2d814e7aeb91697f8650ffd3e1577c90142a310d93029fc30a4eab21c823b2ae1b7ac39dd6ea9778062a936bc7aad4e04427c3375b91fc8bf989c165bf116e26d3bb1d0e7c8";
+    const BULK_WITH_NODES_TRANSACTION_SIGN: &str = "52abc48510a10737c3ddf49de14474f232bfb81bc0f3d32be2ef7f390b52d025a561156f411b67f4e96d4634ee99ef6929c9ad636de7eabaacc2499234bc7f3baec3a2b9c542958a9c2557a4f136dbba824ddc65a04e1dc0447d27f0790c407a";
 
     const RECEIPT_HEX: &str = "960309cd03e7c3c40a4f70617175654461746190";
     const RECEIPT_HASH_HEX: &str =
@@ -653,7 +670,7 @@ pub mod tests {
     fn create_test_data_unit() -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
-        let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
+        let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
         let account = public_key.to_account_id();
         let contract =
             Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
@@ -671,10 +688,48 @@ pub mod tests {
         })
     }
 
-    fn create_test_data_bulk() -> TransactionData {
+    fn create_transactiondata_bulk_node_v1(
+        pk: PublicKey,
+        contract: Hash,
+        method: String,
+        root_hash: Hash,
+    ) -> TransactionData {
+        TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
+            account: pk.to_account_id(),
+            fuel_limit: FUEL_LIMIT,
+            nonce: vec![0, 1, 2],
+            network: "skynet".to_string(),
+            contract: Some(contract),
+            method,
+            caller: pk,
+            args: vec![0, 1, 2],
+            depends_on: root_hash,
+        })
+    }
+
+    fn create_bulk_node_transaction(root_hash: Hash, key: u8, method: String) -> SignedTransaction {
+        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(key));
+        let contract =
+            Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
+                .unwrap();
+
+        let data =
+            create_transactiondata_bulk_node_v1(keypair.public_key(), contract, method, root_hash);
+
+        let signature = match key{
+            // This guarantees a fix signature for tests
+            1 => hex::decode("c7e0cf6099d3cc1f6cd81fcf75c12af8a378c9433299938f15d3ebeee07a9756546420d9a63a83abe4d52dc41b2ab1487d22f54cc5a713daf9cde22341c5fecd24108a73ea2d77bca871e7e16cbe4f07b427db94d4b4ea0051c829b474402d8a").unwrap(),
+            2 => hex::decode("5365838d6ea99075b7b08c9186ddd28656b18fa9e975acb5f1bc48b99f46848044a2ab506ebf5da5cdc9e9bd4525751cb537eb30d5d984aca6bd30c2416363b26ce25ca78c33091e7482d150777a69dd082a9b68656c4bc6b5fdd198e86ece53").unwrap(),
+            _ => panic!()
+        };
+
+        SignedTransaction { data, signature }
+    }
+
+    fn create_test_data_bulk(with_nodes: bool) -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
-        let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
+        let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
         let account = public_key.to_account_id();
         let contract =
             Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
@@ -693,16 +748,34 @@ pub mod tests {
 
         let root = UnsignedTransaction { data: root_data };
 
+        let root_hash = root.data.primary_hash();
+
+        let nodes = if with_nodes {
+            Some(vec![
+                create_bulk_node_transaction(root_hash, 1, String::from("method_1")),
+                create_bulk_node_transaction(root_hash, 2, String::from("method_2")),
+            ])
+        } else {
+            None
+        };
+
         TransactionData::BulkV1(TransactionDataBulkV1 {
             txs: BulkTransactions {
                 root: Box::new(root),
-                nodes: None,
+                nodes,
             },
         })
     }
 
     pub fn create_test_unit_tx() -> Transaction {
-        let signature = hex::decode(TRANSACTION_SIGN_UNIT).unwrap();
+        // UNCOMMENT THIS to create a new signature
+        // let keypair = crate::crypto::sign::tests::create_test_keypair();
+        // let data = create_test_data_unit();
+        // let data = crate::base::serialize::rmp_serialize(&data).unwrap();
+        // let signature = keypair.sign(&data).unwrap();
+        // println!("unit_sign: {}", hex::encode(&signature));
+
+        let signature = hex::decode(UNIT_TRANSACTION_SIGN).unwrap();
 
         Transaction::UnitTransaction(SignedTransaction {
             data: create_test_data_unit(),
@@ -710,10 +783,21 @@ pub mod tests {
         })
     }
 
-    pub fn create_test_bulk_tx() -> Transaction {
-        let signature = hex::decode(TRANSACTION_SIGN_BULK).unwrap();
+    pub fn create_test_bulk_tx(with_nodes: bool) -> Transaction {
+        // UNCOMMENT THIS to create a new signature
+        // let keypair = crate::crypto::sign::tests::create_test_keypair();
+        // let data = create_test_data_bulk(with_nodes);
+        // let data = crate::base::serialize::rmp_serialize(&data).unwrap();
+        // let signature = keypair.sign(&data).unwrap();
+        // println!("bulk_sign: {}", hex::encode(&signature));
+
+        let signature = if with_nodes {
+            hex::decode(BULK_WITH_NODES_TRANSACTION_SIGN).unwrap()
+        } else {
+            hex::decode(BULK_WITHOUT_NODES_TRANSACTION_SIGN).unwrap()
+        };
         Transaction::BulkTransaction(BulkTransaction {
-            data: create_test_data_bulk(),
+            data: create_test_data_bulk(with_nodes),
             signature,
         })
     }
@@ -774,7 +858,7 @@ pub mod tests {
         let keypair = crate::crypto::sign::tests::create_test_keypair();
 
         BlockData {
-            validator: keypair.public_key(),
+            validator: Some(keypair.public_key()),
 
             height: 1,
             size: 3,
@@ -795,28 +879,19 @@ pub mod tests {
     }
 
     #[test]
-    fn transaction_data_serialize_unit() {
+    fn unit_transaction_data_serialize() {
         let data = create_test_data_unit();
 
         let buf = data.serialize();
 
-        assert_eq!(TRANSACTION_DATA_HEX_UNIT, hex::encode(buf));
+        assert_eq!(UNIT_TRANSACTION_DATA_HEX, hex::encode(buf));
     }
 
     #[test]
-    fn transaction_data_serialize_bulk() {
-        let data = create_test_data_bulk();
-
-        let buf = data.serialize();
-
-        assert_eq!(TRANSACTION_DATA_HEX_BULK, hex::encode(buf));
-    }
-
-    #[test]
-    fn transaction_data_deserialize_unit() {
+    fn unit_transaction_data_deserialize() {
         let expected = create_test_data_unit();
 
-        let buf = hex::decode(TRANSACTION_DATA_HEX_UNIT).unwrap();
+        let buf = hex::decode(UNIT_TRANSACTION_DATA_HEX).unwrap();
 
         let data = TransactionData::deserialize(&buf).unwrap();
 
@@ -824,10 +899,19 @@ pub mod tests {
     }
 
     #[test]
-    fn transaction_data_deserialize_bulk() {
-        let expected = create_test_data_bulk();
+    fn bulk_transaction_data_serialize() {
+        let data = create_test_data_bulk(false);
 
-        let buf = hex::decode(TRANSACTION_DATA_HEX_BULK).unwrap();
+        let buf = data.serialize();
+
+        assert_eq!(BULK_TRANSACTION_DATA_HEX, hex::encode(buf));
+    }
+
+    #[test]
+    fn bulk_transaction_data_deserialize() {
+        let expected = create_test_data_bulk(false);
+
+        let buf = hex::decode(BULK_TRANSACTION_DATA_HEX).unwrap();
 
         let data = TransactionData::deserialize(&buf).unwrap();
 
@@ -835,8 +919,28 @@ pub mod tests {
     }
 
     #[test]
-    fn transaction_data_deserialize_fail_unit() {
-        let mut buf = hex::decode(TRANSACTION_DATA_HEX_UNIT).unwrap();
+    fn bulk_with_nodes_transaction_data_serialize() {
+        let data = create_test_data_bulk(true);
+
+        let buf = data.serialize();
+
+        assert_eq!(BULK_WITH_NODES_TRANSACTION_DATA_HEX, hex::encode(buf));
+    }
+
+    #[test]
+    fn bulk_with_nodes_transaction_data_deserialize() {
+        let expected = create_test_data_bulk(true);
+
+        let buf = hex::decode(BULK_WITH_NODES_TRANSACTION_DATA_HEX).unwrap();
+
+        let data = TransactionData::deserialize(&buf).unwrap();
+
+        assert_eq!(expected, data);
+    }
+
+    #[test]
+    fn unit_transaction_data_deserialize_fail() {
+        let mut buf = hex::decode(UNIT_TRANSACTION_DATA_HEX).unwrap();
         buf.pop(); // remove a byte to make it fail
 
         let error = TransactionData::deserialize(&buf).unwrap_err();
@@ -845,8 +949,8 @@ pub mod tests {
     }
 
     #[test]
-    fn transaction_data_deserialize_fail_bulk() {
-        let mut buf = hex::decode(TRANSACTION_DATA_HEX_BULK).unwrap();
+    fn bulk_transaction_data_deserialize_fail() {
+        let mut buf = hex::decode(BULK_TRANSACTION_DATA_HEX).unwrap();
         buf.pop(); // remove a byte to make it fail
 
         let error = TransactionData::deserialize(&buf).unwrap_err();
@@ -855,83 +959,37 @@ pub mod tests {
     }
 
     #[test]
-    fn transaction_data_hash() {
-        let tx = create_test_unit_tx();
-        let hash = match tx {
-            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
-            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
-        };
-        assert_eq!(TRANSACTION_DATA_HASH_HEX_UNIT, hex::encode(hash));
-
-        let tx = create_test_bulk_tx();
-        let hash = match tx {
-            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
-            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
-        };
-        assert_eq!(TRANSACTION_DATA_HASH_HEX_BULK, hex::encode(hash));
-    }
-
-    #[test]
-    fn transaction_data_verify() {
-        let tx = create_test_unit_tx();
-        let result = tx.verify(tx.get_caller(), tx.get_signature());
-        assert!(result.is_ok());
-
-        let tx = create_test_bulk_tx();
-        let result = tx.verify(tx.get_caller(), tx.get_signature());
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn unit_transaction_data_sign_verify() {
-        let data = create_test_data_unit();
-        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair());
-
-        let signature = data.sign(&keypair).unwrap();
-        let result = data.verify(&keypair.public_key(), &signature);
-
-        println!("SIGN: {}", hex::encode(&signature));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn bulk_transaction_data_sign_verify() {
-        let data = create_test_data_bulk();
-        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair());
-
-        let signature = data.sign(&keypair).unwrap();
-        let result = data.verify(&keypair.public_key(), &signature);
-
-        println!("SIGN: {}", hex::encode(&signature));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn transaction_serialize() {
+    fn unit_transaction_serialize() {
         let tx = create_test_unit_tx();
 
         let buf = tx.serialize();
-        //println!("{}", hex::encode(buf));
-        assert_eq!(TRANSACTION_HEX_UNIT, hex::encode(buf));
 
-        let tx = create_test_bulk_tx();
-
-        let buf = tx.serialize();
-
-        assert_eq!(TRANSACTION_HEX_BULK, hex::encode(buf));
+        assert_eq!(UNIT_TRANSACTION_HEX, hex::encode(buf));
     }
 
     #[test]
-    fn transaction_deserialize() {
+    fn unit_transaction_deserialize() {
         let expected = create_test_unit_tx();
-        let buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
+        let buf = hex::decode(UNIT_TRANSACTION_HEX).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
 
         assert_eq!(expected, tx);
+    }
 
-        let expected = create_test_bulk_tx();
-        let buf = hex::decode(TRANSACTION_HEX_BULK).unwrap();
+    #[test]
+    fn bulk_transaction_serialize() {
+        let tx = create_test_bulk_tx(false);
+
+        let buf = tx.serialize();
+
+        assert_eq!(BULK_WITHOUT_NODES_TRANSACTION_HEX, hex::encode(buf));
+    }
+
+    #[test]
+    fn bulk_transaction_deserialize() {
+        let expected = create_test_bulk_tx(false);
+        let buf = hex::decode(BULK_WITHOUT_NODES_TRANSACTION_HEX).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
 
@@ -940,19 +998,131 @@ pub mod tests {
 
     #[test]
     fn transaction_deserialize_fail() {
-        let mut buf = hex::decode(TRANSACTION_HEX_UNIT).unwrap();
+        let mut buf = hex::decode(UNIT_TRANSACTION_HEX).unwrap();
         buf.pop();
 
         let error = Transaction::deserialize(&buf).unwrap_err();
 
         assert_eq!(error.kind, ErrorKind::MalformedData);
 
-        let mut buf = hex::decode(TRANSACTION_HEX_BULK).unwrap();
+        let mut buf = hex::decode(BULK_WITHOUT_NODES_TRANSACTION_HEX).unwrap();
         buf.pop();
 
         let error = Transaction::deserialize(&buf).unwrap_err();
 
         assert_eq!(error.kind, ErrorKind::MalformedData);
+    }
+
+    #[test]
+    fn unit_transaction_data_hash() {
+        let tx = create_test_unit_tx();
+        let hash = match tx {
+            Transaction::UnitTransaction(tx) => tx.data.primary_hash(),
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
+        };
+        assert_eq!(UNIT_TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
+    }
+
+    #[test]
+    fn bulk_transaction_data_hash() {
+        let tx = create_test_bulk_tx(false);
+        let hash = match tx {
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
+            _ => panic!(),
+        };
+        assert_eq!(BULK_TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
+    }
+
+    #[test]
+    fn bulk_with_nodes_transaction_data_hash() {
+        let tx = create_test_bulk_tx(false);
+        let hash = match tx {
+            Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
+            _ => panic!(),
+        };
+        assert_eq!(BULK_WITH_NODES_TRANSACTION_DATA_HASH_HEX, hex::encode(hash));
+    }
+
+    #[test]
+    fn unit_transaction_data_verify() {
+        let tx = create_test_unit_tx();
+        let result = tx.verify(tx.get_caller(), tx.get_signature());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn bulk_transaction_data_verify() {
+        let tx = create_test_bulk_tx(false);
+        let result = tx.verify(tx.get_caller(), tx.get_signature());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn bulk_with_nodes_transaction_data_verify() {
+        let tx = create_test_bulk_tx(true);
+        let result = tx.verify(tx.get_caller(), tx.get_signature());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn unit_transaction_data_sign_verify() {
+        let data = create_test_data_unit();
+        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
+
+        let signature = data.sign(&keypair).unwrap();
+        let result = data.verify(&keypair.public_key(), &signature);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn bulk_transaction_data_sign_verify() {
+        let data = create_test_data_bulk(false);
+        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
+
+        let signature = data.sign(&keypair).unwrap();
+        let result = data.verify(&keypair.public_key(), &signature);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn bulk_transaction_data_with_nodes_sign_verify() {
+        let data = create_test_data_bulk(true);
+        let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
+
+        let signature = data.sign(&keypair).unwrap();
+        let result = data.verify(&keypair.public_key(), &signature);
+
+        assert!(result.is_ok());
+
+        match data {
+            TransactionData::BulkV1(tx_data) => {
+                for node_tx in tx_data.txs.nodes.unwrap() {
+                    match node_tx.data {
+                        TransactionData::BulkNodeV1(tx_data) => {
+                            tx_data.verify(&tx_data.caller, &node_tx.signature).unwrap();
+                        }
+                        _ => panic!(),
+                    }
+                }
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn bulk_transaction_data_check_integrity() {
+        let data = create_test_data_bulk(true);
+
+        assert!(data.check_integrity().is_ok());
+    }
+
+    #[test]
+    fn bulk_transaction_data_with_nodes_check_integrity() {
+        let data = create_test_data_bulk(true);
+
+        assert!(data.check_integrity().is_ok());
     }
 
     #[test]

@@ -85,7 +85,7 @@ pub(crate) mod tests {
         "92a765643235353139c420587b8d516e9605a6ee57a19e2734f1ab3bb8b45e6062801dff3e6408d8594063";
 
     pub fn create_test_keypair() -> KeyPair {
-        KeyPair::Ecdsa(ecdsa_secp384_test_keypair())
+        KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0))
     }
 
     pub fn create_test_public_key() -> PublicKey {
@@ -94,7 +94,7 @@ pub(crate) mod tests {
 
     #[test]
     fn ecdsa_public_key_serialize() {
-        let public = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
+        let public = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
 
         let buf = rmp_serialize(&public).unwrap();
 
@@ -107,7 +107,7 @@ pub(crate) mod tests {
 
         let public = rmp_deserialize(&buf).unwrap();
 
-        let expected = PublicKey::Ecdsa(ecdsa_secp384_test_public_key());
+        let expected = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
         assert_eq!(expected, public);
     }
 
