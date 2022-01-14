@@ -287,9 +287,7 @@ impl TransactionDataBulkV1 {
                     for node in nodes {
                         match &node.data {
                             TransactionData::BulkNodeV1(tx_data) => {
-                                if tx_data.verify(&tx_data.caller, &node.signature).is_err() {
-                                    return Err(ErrorKind::InvalidSignature.into());
-                                };
+                                tx_data.verify(&tx_data.caller, &node.signature)?;
                             }
                             _ => return Err(ErrorKind::WrongTxType.into()),
                         }
