@@ -138,6 +138,12 @@ pub enum Message {
         /// `Event` structure.
         event: SmartContractEvent,
     },
+    /// Get network ID request.
+    #[serde(rename = "16")]
+    GetNetworkIdRequest,
+    /// Get network ID response.
+    #[serde(rename = "17")]
+    GetNetworkIdResponse(String),
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
