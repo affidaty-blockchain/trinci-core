@@ -271,7 +271,7 @@ impl<D: Db> Dispatcher<D> {
             .unwrap(); // If this fails is at the very beginning
         let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
 
-        let network_name = config.network_name.clone().unwrap(); // If this fails is at the very beginning
+        let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
         Message::GetNetworkIdResponse(network_name)
     }
 
