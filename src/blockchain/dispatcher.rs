@@ -35,7 +35,7 @@ use crate::{
     base::{
         schema::Block,
         serialize::{rmp_deserialize, rmp_serialize},
-        Mutex, RwLock,
+        BlockchainSettings, Mutex, RwLock,
     },
     blockchain::{
         message::*,
@@ -263,6 +263,18 @@ impl<D: Db> Dispatcher<D> {
         Message::GetCoreStatsResponse((hash_pool, len_pool, last_block))
     }
 
+    fn get_network_id_handler(&self) -> Message {
+        let buf = self
+            .db
+            .read()
+            .load_configuration("blockchain:settings")
+            .unwrap(); // If this fails is at the very beginning
+        let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+        let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+        Message::GetNetworkIdResponse(network_name)
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -344,6 +356,10 @@ impl<D: Db> Dispatcher<D> {
             }
             Message::GetCoreStatsRequest => {
                 let res = self.get_stats_handler();
+                Some(res)
+            }
+            Message::GetNetworkIdRequest => {
+                let res = self.get_network_id_handler();
                 Some(res)
             }
             Message::Subscribe { id, events } => {
