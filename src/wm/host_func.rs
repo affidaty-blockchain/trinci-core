@@ -193,7 +193,7 @@ mod tests {
         let id = account_id(i);
         let mut account = Account::new(&id, None);
         account.store_asset(ASSET_ACCOUNT, asset_value);
-        account.data_hash = Some(Hash::from_data(
+        account.contract = Some(Hash::from_data(
             crate::crypto::HashAlgorithm::Sha256,
             &asset_value,
         ));
