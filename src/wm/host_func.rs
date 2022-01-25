@@ -127,6 +127,14 @@ pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i
     pk.verify(data, sign) as i32
 }
 
+/// Returns an account hash contract if present for a given `account_id` key
+pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash> {
+    match ctx.db.load_account(account_id) {
+        Some(account) => account.data_hash,
+        None => None,
+    }
+}
+
 /// Call a method resident in another account and contract.
 /// The input and output arguments are subject to the packing format rules of
 /// the called smart contract.
@@ -156,6 +164,7 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::HashAlgorithm;
     use crate::{crypto::sign::tests::create_test_keypair, db::*, wm::*};
     use lazy_static::lazy_static;
     use std::collections::HashMap;
@@ -184,6 +193,10 @@ mod tests {
         let id = account_id(i);
         let mut account = Account::new(&id, None);
         account.store_asset(ASSET_ACCOUNT, asset_value);
+        account.data_hash = Some(Hash::from_data(
+            crate::crypto::HashAlgorithm::Sha256,
+            &asset_value,
+        ));
         store_account(id, account);
     }
 
@@ -288,6 +301,18 @@ mod tests {
         let res = verify(&ctx, &keypair.public_key(), &data, &sig);
 
         assert_eq!(res, 1);
+    }
+
+    #[test]
+    fn get_account_contract_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        let amount = get_account_contract(&ctx, &target_account);
+
+        assert_eq!(amount, Some(Hash::from_data(HashAlgorithm::Sha256, &[9])));
     }
 
     #[test]

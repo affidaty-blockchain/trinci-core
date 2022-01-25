@@ -279,6 +279,28 @@ mod local_host_func {
         return_buf(caller, mem, value)
     }
 
+    /// Get contract hash from an account
+    fn get_account_contract(
+        mut caller: Caller<'_, CallContext>,
+        account_id_offset: i32,
+        account_id_length: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let account_id = String::from_utf8_lossy(buf);
+
+        // Recover execution context.
+        let ctx = caller.data_mut();
+
+        let hash = match host_func::get_account_contract(ctx, &account_id) {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+
+        return_buf(caller, mem, hash)
+    }
+
     /// Digital signature verification.
     fn verify(
         mut caller: Caller<'_, CallContext>,
@@ -368,6 +390,7 @@ mod local_host_func {
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
                 "hf_load_asset" => Func::wrap(&mut store, load_asset),
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
+                "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),
