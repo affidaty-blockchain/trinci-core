@@ -93,6 +93,18 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
     ctx.data_updated = true;
 }
 
+/// Checks if an account has a callable method
+/// Returns:
+///  - 0 the account has no contract
+///  - 1 the account has a contract but we are not sure that `method` is callable
+///  - 2 the account has a contract with a callable `method`
+pub fn is_callable(ctx: &CallContext, account: &str, _method: &str) -> i32 {
+    match get_account_contract(ctx, account) {
+        Some(_) => 1, // TODO - verify that method is really callable
+        None => 0,
+    }
+}
+
 /// Get the account keys that match with the key_pattern provided
 /// key must end with a wildcard `*`
 pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
@@ -193,10 +205,12 @@ mod tests {
         let id = account_id(i);
         let mut account = Account::new(&id, None);
         account.store_asset(ASSET_ACCOUNT, asset_value);
-        account.contract = Some(Hash::from_data(
-            crate::crypto::HashAlgorithm::Sha256,
-            &asset_value,
-        ));
+        if !asset_value.is_empty() {
+            account.contract = Some(Hash::from_data(
+                crate::crypto::HashAlgorithm::Sha256,
+                &asset_value,
+            ));
+        }
         store_account(id, account);
     }
 
@@ -261,6 +275,7 @@ mod tests {
     fn prepare_env() -> TestData {
         create_account(0, &[9]);
         create_account(1, &[1]);
+        create_account(2, &[]);
         TestData::new()
     }
 
@@ -310,9 +325,33 @@ mod tests {
         ctx.owner = ASSET_ACCOUNT;
         let target_account = account_id(0);
 
-        let amount = get_account_contract(&ctx, &target_account);
+        let hash = get_account_contract(&ctx, &target_account);
 
-        assert_eq!(amount, Some(Hash::from_data(HashAlgorithm::Sha256, &[9])));
+        assert_eq!(hash, Some(Hash::from_data(HashAlgorithm::Sha256, &[9])));
+    }
+
+    #[test]
+    fn is_callable_ok_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        let result = is_callable(&ctx, &target_account, "some_method");
+
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn is_not_callable_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(2); // This account has no contract
+
+        let result = is_callable(&ctx, &target_account, "some_method");
+
+        assert_eq!(result, 0);
     }
 
     #[test]
