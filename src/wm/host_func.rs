@@ -130,7 +130,7 @@ pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i
 /// Returns an account hash contract if present for a given `account_id` key
 pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash> {
     match ctx.db.load_account(account_id) {
-        Some(account) => account.data_hash,
+        Some(account) => account.contract,
         None => None,
     }
 }
