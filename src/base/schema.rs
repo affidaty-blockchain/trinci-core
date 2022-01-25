@@ -91,11 +91,11 @@ pub struct TransactionDataBulkV1 {
 pub enum TransactionData {
     #[serde(rename = "a1c8e9e1facd23b35f31e7891a72892d260124108b4232889e839ffc08879db0")]
     V1(TransactionDataV1),
-    #[serde(rename = "76aa228fcde873e8eec3dc823747c62b8fdae221db93649b56f20e5656ee3327bnv1")]
+    #[serde(rename = "76aa228fcde873e8eec3dc823747c62b8fdae221db93649b56f20e5656ee3327")]
     BulkNodeV1(TransactionDataBulkNodeV1),
-    #[serde(rename = "258413fa443fe4cc735077904a02930b23ac2f32142a8b18f86e14dfcc4bcd88brv1")]
+    #[serde(rename = "258413fa443fe4cc735077904a02930b23ac2f32142a8b18f86e14dfcc4bcd88")]
     BulkRootV1(TransactionDataV1),
-    #[serde(rename = "dae7d4beeaf3236b180e50c8222e21119bf811bb9466f2a77ebc93f132357f9fbv1")]
+    #[serde(rename = "dae7d4beeaf3236b180e50c8222e21119bf811bb9466f2a77ebc93f132357f9f")]
     BulkV1(TransactionDataBulkV1),
 }
 
