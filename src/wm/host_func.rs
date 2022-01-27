@@ -170,11 +170,7 @@ pub fn drand(ctx: &CallContext, max: u64) -> u64 {
 mod tests {
     use super::*;
     // add drand
-    use crate::{
-        crypto::{drand, sign::tests::create_test_keypair},
-        db::*,
-        wm::*,
-    };
+    use crate::{crypto::sign::tests::create_test_keypair, db::*, wm::*};
     use lazy_static::lazy_static;
     use std::collections::HashMap;
     use std::sync::Mutex;

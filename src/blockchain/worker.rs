@@ -87,7 +87,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
-        let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
+        let dispatcher = Dispatcher::new(
+            config.clone(),
+            pool.clone(),
+            db.clone(),
+            pubsub.clone(),
+            seed.clone(),
+        );
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
             pool.clone(),

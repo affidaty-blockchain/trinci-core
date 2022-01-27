@@ -1097,8 +1097,21 @@ mod tests {
             .take()
             .unwrap();
 
+        let is_validator_closure = is_validator_function();
+
         let hash = executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
             .unwrap();
 
         //println!(
@@ -1121,7 +1134,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
+            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
         );
     }
 }
