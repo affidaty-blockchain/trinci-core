@@ -1,6 +1,6 @@
 [package]
 name = "trinci-core"
-version = "0.2.4-rc1"
+version = "0.2.5-rc1"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2021"
 description = "TRINCI Blockchain Core"
@@ -17,20 +17,36 @@ futures = "0.3.15"
 parking_lot = "0.11.1"
 rand = "0.7"
 # Serialization
-serde = { version = "1.0.126", features = [ "derive" ] }
+serde = { version = "1.0.126", features = ["derive"] }
 serde_bytes = "0.11.5"
 rmp-serde = "0.15.5"
 # Cryptography primitives
-ring = { version = "0.16.20", default-features = false, features = [ "std" ] }
+ring = { version = "0.16.20", default-features = false, features = ["std"] }
 ed25519-dalek = "1.0.1"
 # Exonum MerkleDB
-merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [ "rocksdb_snappy", "sodiumoxide-crypto" ], optional = true }
+merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-features = false, features = [
+    "rocksdb_snappy",
+    "sodiumoxide-crypto",
+], optional = true }
 # WasmTime
-wasmtime = { version = "0.31.0", default-features = false, features = [ "parallel-compilation", "cranelift" ], optional = true }
+wasmtime = { version = "0.31.0", default-features = false, features = [
+    "parallel-compilation",
+    "cranelift",
+], optional = true }
 # P2P framework
-libp2p = { version = "0.39.1", default-features = false, features = [ "tcp-async-io", "mplex", "plaintext", "mdns", "kad", "gossipsub", "identify"], optional = true }
+libp2p = { version = "0.39.1", default-features = false, features = [
+    "tcp-async-io",
+    "mplex",
+    "plaintext",
+    "mdns",
+    "kad",
+    "gossipsub",
+    "identify",
+], optional = true }
 # HTTP framework
-tide = { version = "0.16", default-features = false, features = [ "h1-server" ], optional = true }
+tide = { version = "0.16", default-features = false, features = [
+    "h1-server",
+], optional = true }
 # TPM2 interaction
 tss-esapi = { version = "6.1.1", default-features = false, optional = true }
 tss-esapi-sys = { version = "0.2.0", default-features = false, optional = true }
@@ -47,9 +63,9 @@ ureq = { version = "2.1.1", default-features = false }
 
 [features]
 default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
-with-rocksdb = [ "merkledb" ]
-with-wasmtime = [ "wasmtime" ]
-p2p = [ "libp2p" ]
-rest = [ "tide" ]
+with-rocksdb = ["merkledb"]
+with-wasmtime = ["wasmtime"]
+p2p = ["libp2p"]
+rest = ["tide"]
 bridge = []
 tpm2 = ["tss-esapi", "tss-esapi-sys"]

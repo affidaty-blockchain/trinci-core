@@ -43,7 +43,7 @@ use crate::{
         pubsub::{Event, PubSub},
         BlockConfig,
     },
-    crypto::{Hash, HashAlgorithm, Hashable},
+    crypto::{drand::SeedSource, Hash, HashAlgorithm, Hashable},
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
@@ -59,6 +59,8 @@ pub(crate) struct Dispatcher<D: Db> {
     db: Arc<RwLock<D>>,
     /// PubSub subsystem to publish blockchain events.
     pubsub: Arc<Mutex<PubSub>>,
+    /// Seed
+    seed: Arc<SeedSource>,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -68,6 +70,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pool: self.pool.clone(),
             db: self.db.clone(),
             pubsub: self.pubsub.clone(),
+            seed: self.seed.clone(),
         }
     }
 }
@@ -79,12 +82,14 @@ impl<D: Db> Dispatcher<D> {
         pool: Arc<RwLock<Pool>>,
         db: Arc<RwLock<D>>,
         pubsub: Arc<Mutex<PubSub>>,
+        seed: Arc<SeedSource>,
     ) -> Self {
         Dispatcher {
             config,
             pool,
             db,
             pubsub,
+            seed,
         }
     }
 
@@ -275,6 +280,11 @@ impl<D: Db> Dispatcher<D> {
         Message::GetNetworkIdResponse(network_name)
     }
 
+    fn get_seed_handler(&self) -> Message {
+        let seed = self.seed.get_seed();
+        Message::GetSeedRespone(seed)
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -362,6 +372,10 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_network_id_handler();
                 Some(res)
             }
+            Message::GetSeedRequest => {
+                let res = self.get_seed_handler();
+                Some(res)
+            }
             Message::Subscribe { id, events } => {
                 self.pubsub
                     .lock()
@@ -416,7 +430,23 @@ mod tests {
             keypair: Arc::new(crate::crypto::sign::tests::create_test_keypair()),
         }));
 
-        Dispatcher::new(config, pool, db, pubsub)
+        // seed init
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        Dispatcher::new(config, pool, db, pubsub, seed)
     }
 
     fn create_db_mock(fail_condition: bool) -> MockDb {
