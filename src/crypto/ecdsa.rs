@@ -237,20 +237,37 @@ pub(crate) mod tests {
     const PRIVATE_KEY_BYTES: &str = "818f1a16382f219b9284442687420caa12a60d8945c93dca6d28e81f1597e6d8abcec81a2dca0fe6eae838891c1b7157";
     const PUBLIC_KEY_BYTES: &str = "045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1";
     const PUBLIC_KEY_HEX: &str = "92a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1";
+    const PRIVATE_KEY_BYTES_1: &str = "f9a2619f076ca99870bb90b4faf63a9ddedc031b07a1f2ea82305b71dc43d040b64ff56af043c887a24f5c4148b15dad";
+    const PUBLIC_KEY_BYTES_1: &str = "044717583406373a9b47f564e6af4c28d9bc45b11da5de0fdfcd9928dab12eaacaedfabc7357565f2ecfa222f4b4e654a727397c3cad00a2af4c21defe5a0b403d3e62390b71633b203c268fd35ffe2e83fc7c602c2ae19274707a96f579e5439e";
+    const PRIVATE_KEY_BYTES_2: &str = "ba94c6966d87699d09f846961def628576272acbd7a97b5068df928a523413a518bb3e716510dac6ff106b04874ff177";
+    const PUBLIC_KEY_BYTES_2: &str = "048295bf9d82b141177ebc03002000573f556bf40bfbd9b70e20c92c45374ed87cdd099759a019dc8665114ab60c83052c37fa99ac6cd933dc635e690d616d42874114dce3b1f41f5fc9b563679e50b0cb5f9295ce8fbaaa812ef69fef6b9b6100";
 
-    pub fn ecdsa_secp384_test_keypair() -> KeyPair {
-        let private_bytes = hex::decode(PRIVATE_KEY_BYTES).unwrap();
-        let public_bytes = hex::decode(PUBLIC_KEY_BYTES).unwrap();
+    pub fn ecdsa_secp384_test_keypair(key: u8) -> KeyPair {
+        let (private_bytes, public_bytes) = match key {
+            0 => (
+                hex::decode(PRIVATE_KEY_BYTES).unwrap(),
+                hex::decode(PUBLIC_KEY_BYTES).unwrap(),
+            ),
+            1 => (
+                hex::decode(PRIVATE_KEY_BYTES_1).unwrap(),
+                hex::decode(PUBLIC_KEY_BYTES_1).unwrap(),
+            ),
+            2 => (
+                hex::decode(PRIVATE_KEY_BYTES_2).unwrap(),
+                hex::decode(PUBLIC_KEY_BYTES_2).unwrap(),
+            ),
+            _ => panic!(),
+        };
         KeyPair::new(CurveId::Secp384R1, &private_bytes, &public_bytes).unwrap()
     }
 
-    pub fn ecdsa_secp384_test_public_key() -> PublicKey {
-        ecdsa_secp384_test_keypair().public_key()
+    pub fn ecdsa_secp384_test_public_key(key: u8) -> PublicKey {
+        ecdsa_secp384_test_keypair(key).public_key()
     }
 
     #[test]
     fn ecdsa_secp384r1_to_account_id() {
-        let public_key = ecdsa_secp384_test_public_key();
+        let public_key = ecdsa_secp384_test_public_key(0);
 
         let account_id = public_key.to_account_id();
 
@@ -259,7 +276,7 @@ pub(crate) mod tests {
 
     #[test]
     fn public_key_serialize() {
-        let public_key = ecdsa_secp384_test_public_key();
+        let public_key = ecdsa_secp384_test_public_key(0);
 
         let buf = rmp_serialize(&public_key).unwrap();
 
@@ -272,7 +289,7 @@ pub(crate) mod tests {
 
         let public_key: PublicKey = rmp_deserialize(&buf).unwrap();
 
-        let expected = ecdsa_secp384_test_public_key();
+        let expected = ecdsa_secp384_test_public_key(0);
         assert_eq!(public_key, expected);
     }
 

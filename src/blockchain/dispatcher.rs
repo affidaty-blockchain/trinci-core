@@ -35,7 +35,7 @@ use crate::{
     base::{
         schema::Block,
         serialize::{rmp_deserialize, rmp_serialize},
-        Mutex, RwLock,
+        BlockchainSettings, Mutex, RwLock,
     },
     blockchain::{
         message::*,
@@ -94,18 +94,9 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
-        let hash = match &tx {
-            Transaction::UnitTransaction(tx) => {
-                tx.data.verify(tx.data.get_caller(), &tx.signature)?;
-                tx.data.check_integrity()?;
-                tx.data.primary_hash()
-            }
-            Transaction::BulkTransaction(tx) => {
-                tx.data.verify(tx.data.get_caller(), &tx.signature)?;
-                tx.data.check_integrity()?;
-                tx.data.primary_hash()
-            }
-        };
+        tx.verify(tx.get_caller(), tx.get_signature())?;
+        tx.check_integrity()?;
+        let hash = tx.get_primary_hash();
 
         debug!("Received transaction: {}", hex::encode(hash));
 
@@ -249,7 +240,9 @@ impl<D: Db> Dispatcher<D> {
                 }
             }
             let blk_info = BlockInfo {
-                hash: Some(block.primary_hash()),
+                hash: Some(block.data.primary_hash()),
+                validator: block.data.validator,
+                signature: Some(block.signature),
                 txs_hashes,
             };
             pool.confirmed.insert(block.data.height, blk_info);
@@ -268,6 +261,18 @@ impl<D: Db> Dispatcher<D> {
         let len_pool = self.pool.read().unconfirmed.len();
         let last_block = self.db.read().load_block(u64::MAX);
         Message::GetCoreStatsResponse((hash_pool, len_pool, last_block))
+    }
+
+    fn get_network_id_handler(&self) -> Message {
+        let buf = self
+            .db
+            .read()
+            .load_configuration("blockchain:settings")
+            .unwrap(); // If this fails is at the very beginning
+        let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+        let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+        Message::GetNetworkIdResponse(network_name)
     }
 
     fn packed_message_handler(
@@ -353,6 +358,10 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_stats_handler();
                 Some(res)
             }
+            Message::GetNetworkIdRequest => {
+                let res = self.get_network_id_handler();
+                Some(res)
+            }
             Message::Subscribe { id, events } => {
                 self.pubsub
                     .lock()
@@ -391,7 +400,9 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const BULK_TX_DATA_HASH_HEX: &str =
-        "1220ac0568ad7afd28ed14910af0aedd7e85b2b91bd8cde95be2334e8148e18181d8";
+        "12209d02cba525b07b4208b3bfb8bd71f41e625498c402e9d3e00c7ecbf5e3c649ea";
+    const BULK_WITH_NODES_TX_DATA_HASH_HEX: &str =
+        "12209f4a8054231e87f752a788c893159174225d3e7756c5b0d91e7733043c571fd4";
     const TX_DATA_HASH_HEX: &str =
         "1220970572e00cacd21dd115e12ed6809f6dcc52f06cbe6e2a96e5e22b370126cc1b";
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
@@ -438,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn put_transaction() {
+    fn put_unit_transaction() {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
@@ -458,22 +469,29 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_bulk_tx(),
+            tx: create_test_bulk_tx(false),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
-        // note: hash of data and not hash of tx
-        //let tx = create_test_bulk_tx();
-        //match tx {
-        //    Transaction::UnitTransaction(_) => (),
-        //    Transaction::BulkTransaction(tx) => {
-        //        println!("{:?}", hex::encode(tx.data.primary_hash()));
-        //    }
-        //}
-
         let exp_res = Message::PutTransactionResponse {
             hash: Hash::from_hex(BULK_TX_DATA_HASH_HEX).unwrap(),
+        };
+        assert_eq!(res, exp_res);
+    }
+
+    #[test]
+    fn put_bulk_transaction_with_nodes() {
+        let dispatcher = create_dispatcher(false);
+        let req = Message::PutTransactionRequest {
+            confirm: true,
+            tx: create_test_bulk_tx(true),
+        };
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        let exp_res = Message::PutTransactionResponse {
+            hash: Hash::from_hex(BULK_WITH_NODES_TX_DATA_HASH_HEX).unwrap(),
         };
         assert_eq!(res, exp_res);
     }
@@ -485,7 +503,7 @@ mod tests {
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
-            Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,
+            _ => panic!(),
         }
 
         let req = Message::PutTransactionRequest { confirm: true, tx };
@@ -503,11 +521,11 @@ mod tests {
     #[test]
     fn put_bad_signature_bulk_transaction() {
         let dispatcher = create_dispatcher(false);
-        let mut tx = create_test_bulk_tx();
+        let mut tx = create_test_bulk_tx(false);
 
         match tx {
-            Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
             Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,
+            _ => panic!(),
         }
 
         let req = Message::PutTransactionRequest { confirm: true, tx };
@@ -634,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_core_stast() {
+    fn test_get_core_stats() {
         let dispatcher = create_dispatcher(false);
         let req = Message::GetCoreStatsRequest;
 
@@ -642,7 +660,7 @@ mod tests {
 
         match res {
             Message::GetCoreStatsResponse(info) => println!("{:?}", info),
-            _ => panic!("Unexepcted response"),
+            _ => panic!("Unexpected response"),
         }
     }
 }

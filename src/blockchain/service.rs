@@ -20,10 +20,10 @@ use super::{
     worker::{BlockWorker, IsValidator},
 };
 use crate::{
-    base::{Mutex, RwLock},
+    base::{serialize::rmp_serialize, BlockchainSettings, Mutex, RwLock},
     channel::confirmed_channel,
     crypto::drand::SeedSource,
-    db::Db,
+    db::{Db, DbFork},
     wm::Wm,
     KeyPair, Transaction,
 };
@@ -154,6 +154,16 @@ impl<D: Db, W: Wm> BlockService<D, W> {
             .as_mut()
             .unwrap()
             .set_config(network, threshold, timeout);
+    }
+
+    // Store the blockchain config in the DB
+    pub fn store_config_into_db(&mut self, config: BlockchainSettings) {
+        let mut db = self.db.write();
+        let mut fork = db.fork_create();
+        let data = rmp_serialize(&config).unwrap(); // If this fails is at the very beginning
+        fork.store_configuration("blockchain:settings", data);
+
+        db.fork_merge(fork).unwrap();
     }
 
     /// Set the Node Validator check

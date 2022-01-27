@@ -177,7 +177,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         });
     }
 
-    fn try_exec_block(&self) {
+    fn try_exec_block(&self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         if !self.executor.can_run(u64::MAX) {
             return;
         }
@@ -188,7 +188,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let mut executor = self.executor.clone();
         let executing = self.executing.clone();
         task::spawn(async move {
-            executor.run();
+            executor.run(is_validator, is_validator_closure);
             executing.store(false, Ordering::Relaxed);
         });
     }
@@ -252,7 +252,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 if validator {
                     self.try_build_block(1);
                 }
-                self.try_exec_block();
+                self.try_exec_block(validator, self.is_validator.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
 
@@ -273,7 +273,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
                 if validator {
-                    self.try_exec_block();
+                    self.try_exec_block(validator, self.is_validator.clone());
                     self.try_build_block(threshold);
                 }
             }

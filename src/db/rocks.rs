@@ -108,6 +108,7 @@ impl BinaryValue for Block {
 }
 
 const ACCOUNTS: &str = "accounts";
+const CONFIG: &str = "config";
 const TRANSACTIONS: &str = "transactions";
 const RECEIPTS: &str = "receipts";
 const TRANSACTIONS_HASH: &str = "transactions_hash";
@@ -222,6 +223,11 @@ impl Db for RocksDb {
         self.snap = self.backend.snapshot();
         Ok(())
     }
+
+    fn load_configuration(&self, id: &str) -> Option<Vec<u8>> {
+        let map: ProofMapIndex<_, str, Vec<u8>> = self.snap.get_proof_map(CONFIG);
+        map.get(id)
+    }
 }
 
 impl DbFork for RocksDbFork {
@@ -320,6 +326,10 @@ impl DbFork for RocksDbFork {
     fn load_account_keys(&self, id: &str) -> Vec<String> {
         let map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map((ACCOUNTS, id));
         map.keys().collect()
+    }
+    fn store_configuration(&mut self, id: &str, config: Vec<u8>) {
+        let mut map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map(CONFIG);
+        map.put(id, config);
     }
 }
 
@@ -649,4 +659,9 @@ mod tests {
         assert_eq!(db.load_transaction(&t2.primary_hash()), None);
         assert_eq!(db.load_transaction(&t3.primary_hash()), Some(t3));
     }
+
+    // TODO Tests on
+    //  - get_keys
+    // store_config
+    // load_config
 }

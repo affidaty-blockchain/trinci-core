@@ -20,4 +20,4 @@ pub mod schema;
 pub mod serialize;
 
 pub use parking_lot::{Mutex, RwLock};
-pub use schema::{Account, Block, Receipt, Transaction, TransactionDataV1};
+pub use schema::{Account, Block, BlockchainSettings, Receipt, Transaction, TransactionDataV1};

@@ -28,6 +28,7 @@ use super::{
     message::Message,
     pool::{BlockInfo, Pool},
     pubsub::{Event, PubSub},
+    IsValidator,
 };
 use crate::{
     base::{
@@ -38,15 +39,22 @@ use crate::{
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Error, ErrorKind, KeyPair, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
 };
 use std::{collections::HashMap, sync::Arc};
 
 /// result struct for bulk trasnsaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
-    success: Option<bool>,
-    result: Option<Result<Vec<u8>>>,
+    success: bool,
+    result: Vec<u8>,
+}
+
+/// Block values when a block is executed to sync
+struct BlockValues {
+    exp_hash: Option<Hash>,
+    signature: Option<Vec<u8>>,
+    validator: Option<PublicKey>,
 }
 
 /// Executor context data.
@@ -196,10 +204,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         match result {
                             Ok(rcpt) => {
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
-                                        success: Some(true),
-                                        result: Some(Ok(rcpt)),
+                                        success: true,
+                                        result: rcpt,
                                     },
                                 );
 
@@ -222,10 +230,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             Err(error) => {
                                 execution_fail = true;
                                 results.insert(
-                                    hash,
+                                    hex::encode(hash),
                                     BulkResult {
-                                        success: Some(false),
-                                        result: Some(Err(error)),
+                                        success: false,
+                                        result: error.to_string().as_bytes().to_vec(),
                                     },
                                 );
                             }
@@ -238,37 +246,36 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                     if execution_fail {
                                         results.insert(
-                                            node.get_primary_hash(),
+                                            hex::encode(node.data.primary_hash()),
                                             BulkResult {
-                                                success: None,
-                                                result: None,
+                                                success: false,
+                                                result: "error".as_bytes().to_vec(),
                                             },
                                         );
                                     } else {
                                         let result = self.wm.lock().call(
                                             fork,
                                             0,
-                                            node.get_network(),
-                                            &node.get_caller().to_account_id(),
-                                            node.get_account(),
-                                            &node.get_caller().to_account_id(),
-                                            *node.get_contract(),
-                                            node.get_method(),
-                                            node.get_args(),
+                                            node.data.get_network(),
+                                            &node.data.get_caller().to_account_id(),
+                                            node.data.get_account(),
+                                            &node.data.get_caller().to_account_id(),
+                                            *node.data.get_contract(),
+                                            node.data.get_method(),
+                                            node.data.get_args(),
                                             &mut bulk_events,
                                         );
-                                        println!("{:?}", result);
                                         match result {
                                             Ok(rcpt) => {
                                                 results.insert(
-                                                    node.get_primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(true),
-                                                        result: Some(Ok(rcpt)),
+                                                        success: true,
+                                                        result: rcpt,
                                                     },
                                                 );
 
-                                                let event_tx = node.primary_hash();
+                                                let event_tx = node.data.primary_hash();
                                                 bulk_events
                                                     .iter_mut()
                                                     .for_each(|e| e.event_tx = event_tx);
@@ -293,12 +300,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 events.append(&mut bulk_events);
                                             }
                                             Err(error) => {
-                                                println!("Execution failure: {}", error);
                                                 results.insert(
-                                                    node.primary_hash(),
+                                                    hex::encode(node.data.primary_hash()),
                                                     BulkResult {
-                                                        success: Some(false),
-                                                        result: Some(Err(error)),
+                                                        success: false,
+                                                        result: error
+                                                            .to_string()
+                                                            .as_bytes()
+                                                            .to_vec(),
                                                     },
                                                 );
                                                 execution_fail = true;
@@ -385,7 +394,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         txs_hashes: &[Hash],
         prev_hash: Hash,
-        exp_hash: Option<Hash>,
+        block_info: BlockValues,
+        is_validator: bool,
+        is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
@@ -396,9 +407,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
 
+        let validator = match block_info.validator.clone() {
+            Some(pk) => Some(pk),
+            None => {
+                if height == 0 {
+                    None
+                } else {
+                    Some(self.keypair.public_key())
+                }
+            }
+        };
+
         // Construct a new block.
         let data = BlockData::new(
-            self.keypair.public_key(),
+            validator,
             height,
             txs_hashes.len() as u32,
             prev_hash,
@@ -407,14 +429,48 @@ impl<D: Db, W: Wm> Executor<D, W> {
             fork.state_hash(""),
         );
 
+        // Verify the block signature
+        if let Some(pk) = block_info.validator {
+            if let Some(ref sig) = block_info.signature {
+                let buf = rmp_serialize(&data)?;
+                if !pk.verify(&buf, sig) {
+                    return Err(Error::new_ext(ErrorKind::Other, "bad block signature"));
+                };
+                // Check that the signer is a validator.
+                match is_validator_closure(pk.to_account_id()) {
+                    Ok(res) => {
+                        if !res {
+                            return Err(Error::new_ext(
+                                ErrorKind::Other,
+                                "unexpected block validator",
+                            ));
+                        }
+                    }
+                    Err(_) => {
+                        return Err(Error::new_ext(
+                            ErrorKind::Other,
+                            "unexpected error in block validator check",
+                        ));
+                    }
+                }
+            }
+        }
+
         let buf = rmp_serialize(&data)?;
-        let signature = self.keypair.sign(&buf)?;
+
+        let signature = if height == 0 {
+            vec![0u8; 5]
+        } else if block_info.signature.is_some() {
+            block_info.signature.unwrap()
+        } else {
+            self.keypair.sign(&buf)?
+        };
 
         let block_hash = data.primary_hash();
 
         let block = Block { data, signature };
 
-        if let Some(exp_hash) = exp_hash {
+        if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
                 // Somethig has gone wrong.
                 return Err(Error::new_ext(ErrorKind::Other, "unexpected block hash"));
@@ -426,14 +482,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
 
-        // edit seed, so that the new db hashes are updated
-        *self.seed.previous_seed.lock() = 0; // at each block generated the seed must be re-initializated
-        *self.seed.prev_hash.lock() = prev_hash;
-        *self.seed.txs_hash.lock() = txs_hash;
-        *self.seed.rxs_hash.lock() = rxs_hash;
-
-        // if self.validator && self.pubsub.lock().has_subscribers(Event::BLOCK) { // FIXME retrieve information about be a validator or not
-        if self.pubsub.lock().has_subscribers(Event::BLOCK) {
+        if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
                 block,
@@ -461,6 +510,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         match pool.confirmed.get(&height) {
             Some(BlockInfo {
                 hash: _,
+                signature: _,
+                validator: _,
                 txs_hashes: Some(hashes),
             }) => hashes
                 .iter()
@@ -469,9 +520,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.primary_hash(), block.data.height + 1),
+            Some(block) => (block.data.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
 
@@ -479,17 +530,35 @@ impl<D: Db, W: Wm> Executor<D, W> {
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
-            let (block_hash, txs_hashes) = match self.pool.write().confirmed.get_mut(&height) {
-                Some(BlockInfo {
-                    hash,
-                    txs_hashes: Some(hashes),
-                }) => (*hash, std::mem::take(hashes)),
-                _ => break,
-            };
+            let (block_hash, block_signature, block_validator, txs_hashes) =
+                match self.pool.write().confirmed.get_mut(&height) {
+                    Some(BlockInfo {
+                        hash,
+                        signature,
+                        validator,
+                        txs_hashes: Some(hashes),
+                    }) => (
+                        *hash,
+                        std::mem::take(signature),
+                        std::mem::take(validator),
+                        std::mem::take(hashes),
+                    ),
+                    _ => break,
+                };
 
             debug!("Executing block {}", height);
-
-            match self.exec_block(height, &txs_hashes, prev_hash, block_hash) {
+            match self.exec_block(
+                height,
+                &txs_hashes,
+                prev_hash,
+                BlockValues {
+                    exp_hash: block_hash,
+                    signature: block_signature.clone(),
+                    validator: block_validator.clone(),
+                },
+                is_validator,
+                is_validator_closure.clone(),
+            ) {
                 Ok(hash) => {
                     let mut pool = self.pool.write();
                     pool.confirmed.remove(&height);
@@ -502,6 +571,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 Err(err) => {
                     let blk_info = BlockInfo {
                         hash: block_hash,
+                        signature: block_signature,
+                        validator: block_validator,
                         txs_hashes: Some(txs_hashes),
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
@@ -742,20 +813,19 @@ mod tests {
         });
         let sign_tx2 = data_tx2.sign(&keypair);
 
-        let tx1 = Transaction::UnitTransaction(SignedTransaction {
+        let tx1 = SignedTransaction {
             data: data_tx1,
             signature: sign_tx1.unwrap(),
-        });
+        };
 
-        let tx2 = Transaction::UnitTransaction(SignedTransaction {
+        let tx2 = SignedTransaction {
             data: data_tx2,
             signature: sign_tx2.unwrap(),
-        });
+        };
 
         let nodes = vec![tx1, tx2];
 
         TransactionData::BulkV1(TransactionDataBulkV1 {
-            schema: "schema".to_string(),
             txs: BulkTransactions {
                 root: Box::new(UnsignedTransaction { data: data_tx0 }),
                 nodes: Some(nodes),
@@ -769,6 +839,10 @@ mod tests {
         let data = create_test_bulk_data("get_random_sequence", value!(null));
         let signature = data.sign(&keypair).unwrap();
         Transaction::BulkTransaction(BulkTransaction { data, signature })
+    }
+
+    fn is_validator_function() -> impl IsValidator {
+        move |_account_id| Ok(true)
     }
 
     #[test]
@@ -851,14 +925,25 @@ mod tests {
             .txs_hashes
             .take()
             .unwrap();
-
+        let is_validator_closure = is_validator_function();
         let hash = executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
             .unwrap();
 
         assert_eq!(
             hex::encode(hash),
-            "1220385797fe75a8488bcf4a4ffc330be4c57edcd8d2c832b0c7d809bef7ade6098c"
+            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
         );
     }
 
@@ -875,8 +960,21 @@ mod tests {
             .take()
             .unwrap();
 
+        let is_validator_closure = is_validator_function();
+
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), Some(Hash::default()))
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: Some(Hash::default()),
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "other: unexpected block hash");
@@ -895,8 +993,21 @@ mod tests {
             .take()
             .unwrap();
 
+        let is_validator_closure = is_validator_function();
+
         let err = executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
             .unwrap_err();
 
         assert_eq!(err.to_string_full(), "database fault: merge error");
@@ -918,9 +1029,21 @@ mod tests {
             let _ = pool.txs.get_mut(&hashes[0]).unwrap().take();
             hashes
         };
+        let is_validator_closure = is_validator_function();
 
         executor
-            .exec_block(0, &hashes, Hash::default(), None)
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: Some(Hash::default()),
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
             .unwrap();
     }
 
