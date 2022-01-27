@@ -22,6 +22,7 @@ use super::{
 use crate::{
     base::{serialize::rmp_serialize, BlockchainSettings, Mutex, RwLock},
     channel::confirmed_channel,
+    crypto::drand::SeedSource,
     db::{Db, DbFork},
     wm::Wm,
     KeyPair, Transaction,
@@ -68,10 +69,11 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         config: BlockConfig,
         db: D,
         wm: W,
+        seed: Arc<SeedSource>,
     ) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
-        let mut worker = BlockWorker::new(worker_is_validator, config, db, wm, rx_chan);
+        let mut worker = BlockWorker::new(worker_is_validator, config, db, wm, rx_chan, seed);
         let db = worker.db_arc();
         let wm = worker.wm_arc();
 
@@ -180,7 +182,7 @@ impl<D: Db, W: Wm> BlockService<D, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::*, wm::*};
+    use crate::{crypto::Hash, db::*, wm::*};
 
     fn is_validator_function() -> impl IsValidator {
         move |_account_id| Ok(true)
@@ -199,7 +201,21 @@ mod tests {
 
         let is_validator = is_validator_function();
 
-        BlockService::new("MyAccount", is_validator, config, db, wm)
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        BlockService::new("MyAccount", is_validator, config, db, wm, seed)
     }
 
     #[test]
