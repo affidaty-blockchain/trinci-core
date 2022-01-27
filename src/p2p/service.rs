@@ -34,6 +34,8 @@ pub struct PeerConfig {
     pub bootstrap_addr: Option<String>,
     /// keypair for p2p interaction
     pub p2p_keypair: Option<KeyPair>,
+    /// p2p active
+    pub active: bool,
 }
 
 /// Peer2Peer service data.
@@ -58,7 +60,7 @@ impl PeerService {
 
     pub fn start(&mut self) {
         debug!("Starting p2p service");
-        if self.is_running() {
+        if self.is_running() || !self.config.active {
             return;
         }
         info!("P2P network_name: {}", self.config.network.lock());

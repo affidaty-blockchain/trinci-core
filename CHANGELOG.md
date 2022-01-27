@@ -33,6 +33,7 @@ Added
 * Drand implementation
 * get_account_contract host function
 * is_callable host function
+* test mode to p2p module (prevent it from start)
 
 0.2.4 - release skipped
 ------------------
