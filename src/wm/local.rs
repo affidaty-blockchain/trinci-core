@@ -227,6 +227,28 @@ mod local_host_func {
         return_buf(caller, mem, buf)
     }
 
+    /// Check if an account has a method
+    fn is_callable(
+        mut caller: Caller<'_, CallContext>,
+        account_offset: i32,
+        account_size: i32,
+        method_offset: i32,
+        method_size: i32,
+    ) -> std::result::Result<i32, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
+        let account = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
+        let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        Ok(host_func::is_callable(ctx, account, method))
+    }
+
+    /// Store asset
+
     fn remove_data(
         mut caller: Caller<'_, CallContext>,
         key_offset: i32,
@@ -278,6 +300,28 @@ mod local_host_func {
         // Invoke portable host function.
         let value = host_func::load_asset(ctx, &account_id);
         return_buf(caller, mem, value)
+    }
+
+    /// Get contract hash from an account
+    fn get_account_contract(
+        mut caller: Caller<'_, CallContext>,
+        account_id_offset: i32,
+        account_id_length: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let account_id = String::from_utf8_lossy(buf);
+
+        // Recover execution context.
+        let ctx = caller.data_mut();
+
+        let hash = match host_func::get_account_contract(ctx, &account_id) {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+
+        return_buf(caller, mem, hash)
     }
 
     /// Digital signature verification.
@@ -376,8 +420,10 @@ mod local_host_func {
                 "hf_load_data" => Func::wrap(&mut store, load_data),
                 "hf_store_data" => Func::wrap(&mut store, store_data),
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
+                "hf_is_callable" => Func::wrap(&mut store, is_callable),
                 "hf_load_asset" => Func::wrap(&mut store, load_asset),
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
+                "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),

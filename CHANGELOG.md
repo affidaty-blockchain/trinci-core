@@ -31,7 +31,8 @@ Additional labels for pre-release metadata:
 
 Added
 * Drand implementation
-
+* get_account_contract host function
+* is_callable host function
 
 0.2.4 - release skipped
 ------------------
@@ -41,7 +42,7 @@ Changed
 * Signed blocks
 
 Added
-* Bulk transaction
+* Bulk transactions
 * bootstrap from wasm or wasm+txs
 * config from bootstrap
 * network name from bootstrap hash
