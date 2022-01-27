@@ -26,7 +26,14 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.4 - unreleased
+0.2.5 - unreleased
+------------------
+
+Added
+* Drand implementation
+
+
+0.2.4 - release skipped
 ------------------
 
 Changed
