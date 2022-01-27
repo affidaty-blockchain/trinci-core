@@ -21,7 +21,7 @@ use crate::{
         schema::SmartContractEvent,
         serialize::{self, rmp_serialize},
     },
-    crypto::Hash,
+    crypto::{drand::SeedSource, Hash},
     db::*,
     wm::{
         host_func::{self, CallContext},
@@ -33,6 +33,7 @@ use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
     slice,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use wasmtime::{
@@ -395,6 +396,15 @@ mod local_host_func {
         return_buf(caller, mem, hash)
     }
 
+    /// Generate a pseudo random number deterministically, based on the seed
+    fn drand(mut caller: Caller<'_, CallContext>, max: u64) -> std::result::Result<u64, Trap> {
+        // seed from ctx
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host fuction
+        Ok(host_func::drand(ctx, max))
+    }
+
     /// Register the required host functions using the same order as the wasm imports list.
     pub(crate) fn host_functions_register(
         mut store: &mut Store<CallContext>,
@@ -418,6 +428,7 @@ mod local_host_func {
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
+                "hf_drand" => Func::wrap(&mut store, drand),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
@@ -625,6 +636,20 @@ impl Wm for WmLocal {
     ) -> Result<Vec<u8>> {
         let app_hash = app_hash_check(db, owner, contract)?;
 
+        let nw_name = String::from("nw_name_test");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
         // Prepare and set execution context for host functions.
         let ctx = CallContext {
             wm: None,
@@ -635,6 +660,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            seed,
         };
 
         // Allocate execution context (aka Store).
@@ -1196,4 +1222,6 @@ mod tests {
             println!(">> {:#?}", imp);
         }
     }
+
+    // TODO: add drand test
 }
