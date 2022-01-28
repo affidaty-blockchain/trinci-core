@@ -1053,7 +1053,7 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
-        assert_eq!(event.event_name, data.get_method());
+        assert_eq!(event.event_name, "event_a");
         assert_eq!(event.emitter_account, data.get_account());
 
         let buf = &event.event_data;
@@ -1198,7 +1198,7 @@ mod tests {
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
-        assert_eq!(err_str, "wasm machine fault: wasm trap: unreachable");
+        assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
     }
 
     #[test]
