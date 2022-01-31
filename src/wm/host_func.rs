@@ -16,9 +16,14 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 //! Generic host functions implementations.
+use std::sync::Arc;
+
 use crate::{
     base::schema::SmartContractEvent,
-    crypto::{Hash, PublicKey},
+    crypto::{
+        drand::{Drand, SeedSource},
+        Hash, PublicKey,
+    },
     db::DbFork,
     wm::Wm,
     Account, Error, ErrorKind, Result,
@@ -43,6 +48,8 @@ pub struct CallContext<'a> {
     pub origin: &'a str,
     /// Smart contracts events
     pub events: &'a mut Vec<SmartContractEvent>,
+    /// Drand seed
+    pub seed: Arc<SeedSource>,
 }
 
 /// WASM logging facility.
@@ -93,6 +100,18 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
     ctx.data_updated = true;
 }
 
+/// Checks if an account has a callable method
+/// Returns:
+///  - 0 the account has no contract
+///  - 1 the account has a contract but we are not sure that `method` is callable
+///  - 2 the account has a contract with a callable `method`
+pub fn is_callable(ctx: &CallContext, account: &str, _method: &str) -> i32 {
+    match get_account_contract(ctx, account) {
+        Some(_) => 1, // TODO - verify that method is really callable
+        None => 0,
+    }
+}
+
 /// Get the account keys that match with the key_pattern provided
 /// key must end with a wildcard `*`
 pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
@@ -127,6 +146,14 @@ pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i
     pk.verify(data, sign) as i32
 }
 
+/// Returns an account hash contract if present for a given `account_id` key
+pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash> {
+    match ctx.db.load_account(account_id) {
+        Some(account) => account.contract,
+        None => None,
+    }
+}
+
 /// Call a method resident in another account and contract.
 /// The input and output arguments are subject to the packing format rules of
 /// the called smart contract.
@@ -153,10 +180,21 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
     }
 }
 
+/// Generate a pseudo random number deterministically, based on the seed
+pub fn drand(ctx: &CallContext, max: u64) -> u64 {
+    let mut drand = Drand::new(ctx.seed.clone());
+    drand.rand(max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{crypto::sign::tests::create_test_keypair, db::*, wm::*};
+
+    use crate::{
+        crypto::{sign::tests::create_test_keypair, HashAlgorithm},
+        db::*,
+        wm::*,
+    };
     use lazy_static::lazy_static;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -184,6 +222,12 @@ mod tests {
         let id = account_id(i);
         let mut account = Account::new(&id, None);
         account.store_asset(ASSET_ACCOUNT, asset_value);
+        if !asset_value.is_empty() {
+            account.contract = Some(Hash::from_data(
+                crate::crypto::HashAlgorithm::Sha256,
+                &asset_value,
+            ));
+        }
         store_account(id, account);
     }
 
@@ -232,6 +276,23 @@ mod tests {
         }
 
         pub fn as_wm_context(&mut self) -> CallContext {
+            let nw_name = String::from("nw_name_test");
+            let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+            let prev_hash = Hash::from_hex(
+                "1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569",
+            )
+            .unwrap();
+            let txs_hash = Hash::from_hex(
+                "1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569",
+            )
+            .unwrap();
+            let rxs_hash = Hash::from_hex(
+                "1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569",
+            )
+            .unwrap();
+            let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+            let seed = Arc::new(seed);
+
             CallContext {
                 wm: Some(&mut self.wm),
                 db: &mut self.db,
@@ -241,6 +302,7 @@ mod tests {
                 network: "skynet",
                 origin: &self.owner,
                 events: &mut self.events,
+                seed,
             }
         }
     }
@@ -248,6 +310,7 @@ mod tests {
     fn prepare_env() -> TestData {
         create_account(0, &[9]);
         create_account(1, &[1]);
+        create_account(2, &[]);
         TestData::new()
     }
 
@@ -291,6 +354,42 @@ mod tests {
     }
 
     #[test]
+    fn get_account_contract_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        let hash = get_account_contract(&ctx, &target_account);
+
+        assert_eq!(hash, Some(Hash::from_data(HashAlgorithm::Sha256, &[9])));
+    }
+
+    #[test]
+    fn is_callable_ok_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        let result = is_callable(&ctx, &target_account, "some_method");
+
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn is_not_callable_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(2); // This account has no contract
+
+        let result = is_callable(&ctx, &target_account, "some_method");
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
     fn sha256_success() {
         let mut ctx = prepare_env();
         let ctx = ctx.as_wm_context();
@@ -316,5 +415,31 @@ mod tests {
         let res = verify(&ctx, &keypair.public_key(), &[1, 2], &sig);
 
         assert_eq!(res, 0);
+    }
+
+    #[test]
+    fn drand_success() {
+        let mut ctx = prepare_env();
+        let ctx = ctx.as_wm_context();
+        let random_number_hf = drand(&ctx, 10);
+
+        let nw_name = String::from("nw_name_test");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+        let random_number_dr = Drand::new(seed.clone()).rand(10);
+
+        println!("{}", random_number_hf);
+
+        assert_eq!(random_number_hf, random_number_dr);
     }
 }

@@ -26,7 +26,16 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.4 - unreleased
+0.2.5 - 28-01-2022
+------------------
+
+Added
+* Drand implementation
+* get_account_contract host function
+* is_callable host function
+* test mode to p2p module (prevent it from start)
+
+0.2.4 - release skipped
 ------------------
 
 Changed
@@ -34,7 +43,7 @@ Changed
 * Signed blocks
 
 Added
-* Bulk transaction
+* Bulk transactions
 * bootstrap from wasm or wasm+txs
 * config from bootstrap
 * network name from bootstrap hash

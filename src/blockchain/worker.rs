@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::crypto::drand::SeedSource;
 use crate::crypto::hash::Hashable;
 use crate::{
     base::{Mutex, RwLock},
@@ -68,7 +69,6 @@ pub struct BlockWorker<D: Db, W: Wm> {
     synchronizing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
     is_validator: Arc<dyn IsValidator>,
-    // TODO: add Arc<seed>
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
@@ -78,6 +78,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         db: D,
         wm: W,
         rx_chan: BlockRequestReceiver,
+        seed: Arc<SeedSource>,
     ) -> Self {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let pubsub = Arc::new(Mutex::new(PubSub::new()));
@@ -86,7 +87,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
-        let dispatcher = Dispatcher::new(config.clone(), pool.clone(), db.clone(), pubsub.clone());
+        let dispatcher = Dispatcher::new(
+            config.clone(),
+            pool.clone(),
+            db.clone(),
+            pubsub.clone(),
+            seed.clone(),
+        );
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
             pool.clone(),
@@ -94,6 +101,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             wm.clone(),
             pubsub.clone(),
             config.lock().keypair.clone(),
+            seed,
         );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 

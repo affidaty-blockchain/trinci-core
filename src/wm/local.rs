@@ -21,7 +21,7 @@ use crate::{
         schema::SmartContractEvent,
         serialize::{self, rmp_serialize},
     },
-    crypto::Hash,
+    crypto::{drand::SeedSource, Hash},
     db::*,
     wm::{
         host_func::{self, CallContext},
@@ -33,6 +33,7 @@ use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
     slice,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use wasmtime::{
@@ -226,6 +227,28 @@ mod local_host_func {
         return_buf(caller, mem, buf)
     }
 
+    /// Check if an account has a method
+    fn is_callable(
+        mut caller: Caller<'_, CallContext>,
+        account_offset: i32,
+        account_size: i32,
+        method_offset: i32,
+        method_size: i32,
+    ) -> std::result::Result<i32, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
+        let account = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
+        let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        Ok(host_func::is_callable(ctx, account, method))
+    }
+
+    /// Store asset
+
     fn remove_data(
         mut caller: Caller<'_, CallContext>,
         key_offset: i32,
@@ -277,6 +300,28 @@ mod local_host_func {
         // Invoke portable host function.
         let value = host_func::load_asset(ctx, &account_id);
         return_buf(caller, mem, value)
+    }
+
+    /// Get contract hash from an account
+    fn get_account_contract(
+        mut caller: Caller<'_, CallContext>,
+        account_id_offset: i32,
+        account_id_length: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let account_id = String::from_utf8_lossy(buf);
+
+        // Recover execution context.
+        let ctx = caller.data_mut();
+
+        let hash = match host_func::get_account_contract(ctx, &account_id) {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+
+        return_buf(caller, mem, hash)
     }
 
     /// Digital signature verification.
@@ -351,6 +396,15 @@ mod local_host_func {
         return_buf(caller, mem, hash)
     }
 
+    /// Generate a pseudo random number deterministically, based on the seed
+    fn drand(mut caller: Caller<'_, CallContext>, max: u64) -> std::result::Result<u64, Trap> {
+        // seed from ctx
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host fuction
+        Ok(host_func::drand(ctx, max))
+    }
+
     /// Register the required host functions using the same order as the wasm imports list.
     pub(crate) fn host_functions_register(
         mut store: &mut Store<CallContext>,
@@ -366,12 +420,15 @@ mod local_host_func {
                 "hf_load_data" => Func::wrap(&mut store, load_data),
                 "hf_store_data" => Func::wrap(&mut store, store_data),
                 "hf_remove_data" => Func::wrap(&mut store, remove_data),
+                "hf_is_callable" => Func::wrap(&mut store, is_callable),
                 "hf_load_asset" => Func::wrap(&mut store, load_asset),
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
+                "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
+                "hf_drand" => Func::wrap(&mut store, drand),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
@@ -579,6 +636,20 @@ impl Wm for WmLocal {
     ) -> Result<Vec<u8>> {
         let app_hash = app_hash_check(db, owner, contract)?;
 
+        let nw_name = String::from("nw_name_test");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
         // Prepare and set execution context for host functions.
         let ctx = CallContext {
             wm: None,
@@ -589,6 +660,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            seed,
         };
 
         // Allocate execution context (aka Store).
@@ -981,7 +1053,7 @@ mod tests {
         assert_eq!(events.len(), 2);
         let event = events.get(0).unwrap();
 
-        assert_eq!(event.event_name, data.get_method());
+        assert_eq!(event.event_name, "event_a");
         assert_eq!(event.emitter_account, data.get_account());
 
         let buf = &event.event_data;
@@ -1126,7 +1198,7 @@ mod tests {
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
-        assert_eq!(err_str, "wasm machine fault: wasm trap: unreachable");
+        assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
     }
 
     #[test]
@@ -1150,4 +1222,6 @@ mod tests {
             println!(">> {:#?}", imp);
         }
     }
+
+    // TODO: add drand test
 }

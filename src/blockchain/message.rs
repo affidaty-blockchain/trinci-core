@@ -144,6 +144,12 @@ pub enum Message {
     /// Get network ID response.
     #[serde(rename = "17")]
     GetNetworkIdResponse(String),
+    /// Get seed request.
+    #[serde(rename = "18")]
+    GetSeedRequest,
+    /// Get seed response.
+    #[serde(rename = "19")]
+    GetSeedRespone(u64),
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
