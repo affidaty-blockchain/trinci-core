@@ -183,12 +183,12 @@ impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
                 // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
                 self.gossip.add_explicit_peer(&peer_id);
                 for addr in info.listen_addrs {
-                    warn!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                    info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
                     // TODO kad address
                     self.kad.add_address(&peer_id, addr);
                 }
             }
-            _ => warn!("[ident] event: {:?}", event),
+            _ => info!("[ident] event: {:?}", event),
         }
     }
 }
