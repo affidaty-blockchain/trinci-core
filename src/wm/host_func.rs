@@ -164,8 +164,6 @@ pub fn call(
     method: &str,
     data: &[u8],
 ) -> Result<Vec<u8>> {
-    // >>>>>>>>>>>>>>> FIXME <<<<<<<<<<<<<<<<<<<<<
-    // User shall be able to pass the contract
     match ctx.wm {
         Some(ref mut wm) => wm.call(
             ctx.db,

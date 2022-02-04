@@ -347,6 +347,7 @@ mod local_host_func {
     }
 
     // Call contract method specifing contract.
+    #[allow(clippy::too_many_arguments)]
     fn s_call(
         mut caller: Caller<'_, CallContext>,
         account_offset: i32,
@@ -362,8 +363,8 @@ mod local_host_func {
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
         let account = String::from_utf8_lossy(buf);
-        let buf = slice_from(&mut caller, &mem, contract_offset, contract_size)?.to_owned();
-        let contract = Hash::from_bytes(&buf).map_err(|_| Trap::new("invalid contract hash"))?;
+        let buf = slice_from(&mut caller, &mem, contract_offset, contract_size)?;
+        let contract = Hash::from_bytes(buf).map_err(|_| Trap::new("invalid contract hash"))?;
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
