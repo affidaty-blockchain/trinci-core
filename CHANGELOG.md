@@ -26,6 +26,11 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
+0.2.6 - 08-02-2022
+------------------
+Changed
+* removed wasm loader from closure
+
 0.2.5 - 02-02-2022
 ------------------
 
