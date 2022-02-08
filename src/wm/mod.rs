@@ -30,7 +30,7 @@ pub mod local;
 use mockall::automock;
 
 #[cfg(feature = "with-wasmtime")]
-pub use local::{WasmLoader, WmLocal};
+pub use local::WmLocal;
 
 /// Web-Assembly machine trait.
 #[cfg_attr(test, automock)]
