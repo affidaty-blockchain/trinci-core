@@ -150,6 +150,12 @@ pub enum Message {
     /// Get seed response.
     #[serde(rename = "19")]
     GetSeedRespone(u64),
+    /// Get seed response.
+    #[serde(rename = "20")]
+    GetP2pIdRequest,
+    /// Get seed response.
+    #[serde(rename = "21")]
+    GetP2pIdResponse(String),
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,

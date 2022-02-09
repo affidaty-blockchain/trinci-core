@@ -146,7 +146,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
                     });
                 }
-
                 let events = if events.is_empty() {
                     None
                 } else {

@@ -285,6 +285,11 @@ impl<D: Db> Dispatcher<D> {
         Message::GetSeedRespone(seed)
     }
 
+    fn get_p2p_id_handler(&self) -> Message {
+        let id = self.config.lock().keypair.public_key().to_account_id();
+        Message::GetP2pIdResponse(id)
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -394,6 +399,7 @@ impl<D: Db> Dispatcher<D> {
                 self.get_transaction_res_handler(tx);
                 None
             }
+            Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
             Message::Packed { buf } => self.packed_message_handler(buf, res_chan, pack_level + 1),
             _ => None,
         }
