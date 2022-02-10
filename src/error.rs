@@ -42,6 +42,7 @@ pub enum ErrorKind {
     Tpm2Error,
     WrongTxType,
     BrokenIntegrity,
+    FuelError,
     Other,
 }
 
@@ -60,6 +61,7 @@ pub(super) mod error_kind_str {
     pub const TPM2_ERROR: &str = "tpm interaction error";
     pub const WRONG_TX_TYPE: &str = "this tx type is not implemented or malformed";
     pub const BROKEN_INTEGRITY: &str = "the integtiry of the node is invalid";
+    pub const FUEL_ERROR: &str = "Error burning fuel";
     pub const OTHER: &str = "other";
 }
 
@@ -81,6 +83,7 @@ impl Display for ErrorKind {
             WrongTxType => error_kind_str::WRONG_TX_TYPE,
             BrokenIntegrity => error_kind_str::BROKEN_INTEGRITY,
             Other => error_kind_str::OTHER,
+            FuelError => error_kind_str::FUEL_ERROR,
         };
         write!(f, "{}", kind_str)
     }

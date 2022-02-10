@@ -41,7 +41,7 @@ use crate::{
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -127,26 +127,38 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let account = match fork.load_account(origin) {
             Some(account) => account,
             None => {
-                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account does not exist!",
+                ));
             }
         };
 
-        let trinci_asset: Value = match rmp_deserialize(&account.load_asset("TRINCI")) {
+        let trinci_asset: Value = match rmp_deserialize(&account.load_asset(SERVICE_ACCOUNT_ID)) {
             Ok(asset) => asset,
             Err(_) => {
-                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account has no fuel",
+                ));
             }
         };
 
         let units = match trinci_asset.as_u64() {
             Some(units) => units,
             None => {
-                return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account has no fuel",
+                ));
             }
         };
 
         if fuel_willing_to_spend > units as u64 {
-            return Err(Error::new_ext(ErrorKind::Other, "xxxxxxxxxxxx"));
+            return Err(Error::new_ext(
+                ErrorKind::FuelError,
+                "Excessive fuel consumption",
+            ));
         }
         Ok(())
     }

@@ -33,7 +33,7 @@ impl From<ErrorKind> for StatusCode {
             InvalidSignature => StatusCode::Unauthorized,
             DuplicatedUnconfirmedTx | DuplicatedConfirmedTx => StatusCode::Conflict,
             ResourceNotFound => StatusCode::NotFound,
-            WasmMachineFault | DatabaseFault => StatusCode::InternalServerError,
+            WasmMachineFault | DatabaseFault | FuelError => StatusCode::InternalServerError,
             SmartContractFault => StatusCode::BadRequest,
             NotImplemented => StatusCode::NotImplemented,
             Tpm2Error => StatusCode::InternalServerError,
