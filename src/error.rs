@@ -65,10 +65,6 @@ pub(super) mod error_kind_str {
     pub const OTHER: &str = "other";
 }
 
-
-
-
-
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ErrorKind::*;
