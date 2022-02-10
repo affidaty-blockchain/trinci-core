@@ -43,7 +43,7 @@ use crate::{
         pubsub::{Event, PubSub},
         BlockConfig,
     },
-    crypto::{Hash, HashAlgorithm, Hashable},
+    crypto::{drand::SeedSource, Hash, HashAlgorithm, Hashable},
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
@@ -59,6 +59,8 @@ pub(crate) struct Dispatcher<D: Db> {
     db: Arc<RwLock<D>>,
     /// PubSub subsystem to publish blockchain events.
     pubsub: Arc<Mutex<PubSub>>,
+    /// Seed
+    seed: Arc<SeedSource>,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -68,6 +70,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pool: self.pool.clone(),
             db: self.db.clone(),
             pubsub: self.pubsub.clone(),
+            seed: self.seed.clone(),
         }
     }
 }
@@ -79,12 +82,14 @@ impl<D: Db> Dispatcher<D> {
         pool: Arc<RwLock<Pool>>,
         db: Arc<RwLock<D>>,
         pubsub: Arc<Mutex<PubSub>>,
+        seed: Arc<SeedSource>,
     ) -> Self {
         Dispatcher {
             config,
             pool,
             db,
             pubsub,
+            seed,
         }
     }
 
@@ -275,6 +280,16 @@ impl<D: Db> Dispatcher<D> {
         Message::GetNetworkIdResponse(network_name)
     }
 
+    fn get_seed_handler(&self) -> Message {
+        let seed = self.seed.get_seed();
+        Message::GetSeedRespone(seed)
+    }
+
+    fn get_p2p_id_handler(&self) -> Message {
+        let id = self.config.lock().keypair.public_key().to_account_id();
+        Message::GetP2pIdResponse(id)
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -362,6 +377,10 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_network_id_handler();
                 Some(res)
             }
+            Message::GetSeedRequest => {
+                let res = self.get_seed_handler();
+                Some(res)
+            }
             Message::Subscribe { id, events } => {
                 self.pubsub
                     .lock()
@@ -380,6 +399,7 @@ impl<D: Db> Dispatcher<D> {
                 self.get_transaction_res_handler(tx);
                 None
             }
+            Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
             Message::Packed { buf } => self.packed_message_handler(buf, res_chan, pack_level + 1),
             _ => None,
         }
@@ -391,8 +411,8 @@ mod tests {
     use super::*;
     use crate::{
         base::schema::tests::{
-            create_test_account, create_test_block, create_test_bulk_tx, create_test_unit_tx,
-            FUEL_LIMIT,
+            create_test_account, create_test_block, create_test_bulk_tx, create_test_bulk_tx_alt,
+            create_test_unit_tx, FUEL_LIMIT,
         },
         channel::simple_channel,
         db::*,
@@ -401,11 +421,11 @@ mod tests {
 
     const ACCOUNT_ID: &str = "AccountId";
     const BULK_TX_DATA_HASH_HEX: &str =
-        "12209d02cba525b07b4208b3bfb8bd71f41e625498c402e9d3e00c7ecbf5e3c649ea";
+        "1220cb7525e6f80b116271e6fc4bbf99b3a10815b3380fc32be2c990a0b2c547bbad";
     const BULK_WITH_NODES_TX_DATA_HASH_HEX: &str =
-        "12209f4a8054231e87f752a788c893159174225d3e7756c5b0d91e7733043c571fd4";
+        "1220656ec5443f3eb0cb47507a858ab0e0e025c9d0d99b167c012d95886c2aa9c508";
     const TX_DATA_HASH_HEX: &str =
-        "1220970572e00cacd21dd115e12ed6809f6dcc52f06cbe6e2a96e5e22b370126cc1b";
+        "12207cfff11a272ad3f5cb60606717adc9984d1cd4dc4c491fdf4c56661ee40caaad";
     fn create_dispatcher(fail_condition: bool) -> Dispatcher<MockDb> {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let db = Arc::new(RwLock::new(create_db_mock(fail_condition)));
@@ -417,7 +437,23 @@ mod tests {
             keypair: Arc::new(crate::crypto::sign::tests::create_test_keypair()),
         }));
 
-        Dispatcher::new(config, pool, db, pubsub)
+        // seed init
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        Dispatcher::new(config, pool, db, pubsub, seed)
     }
 
     fn create_db_mock(fail_condition: bool) -> MockDb {
@@ -459,6 +495,14 @@ mod tests {
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
+        // Uncomment if hash update needed
+        //match res {
+        //    Message::PutTransactionResponse { hash } => {
+        //        println!("{}", hex::encode(hash));
+        //    }
+        //    _ => (),
+        //}
+
         let exp_res = Message::PutTransactionResponse {
             hash: Hash::from_hex(TX_DATA_HASH_HEX).unwrap(),
         };
@@ -475,6 +519,14 @@ mod tests {
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
+        // Uncomment if hash update needed
+        //match res {
+        //    Message::PutTransactionResponse { hash } => {
+        //        println!("{}", hex::encode(hash));
+        //    }
+        //    _ => (),
+        //}
+
         let exp_res = Message::PutTransactionResponse {
             hash: Hash::from_hex(BULK_TX_DATA_HASH_HEX).unwrap(),
         };
@@ -486,10 +538,18 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_bulk_tx(true),
+            tx: create_test_bulk_tx_alt(true),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        // Uncomment if hash update needed
+        //match res {
+        //    Message::PutTransactionResponse { hash } => {
+        //        println!("{}", hex::encode(hash));
+        //    }
+        //    _ => (),
+        //}
 
         let exp_res = Message::PutTransactionResponse {
             hash: Hash::from_hex(BULK_WITH_NODES_TX_DATA_HASH_HEX).unwrap(),

@@ -38,7 +38,7 @@ use crate::{
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
-    crypto::{Hash, Hashable},
+    crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
@@ -73,6 +73,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     keypair: Arc<KeyPair>,
     /// Burn fuel method
     burn_fuel_method: String,
+    /// Drand Seed
+    seed: Arc<SeedSource>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -84,6 +86,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             pubsub: self.pubsub.clone(),
             keypair: self.keypair.clone(),
             burn_fuel_method: self.burn_fuel_method.clone(),
+            seed: self.seed.clone(),
         }
     }
 }
@@ -96,6 +99,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         wm: Arc<Mutex<W>>,
         pubsub: Arc<Mutex<PubSub>>,
         keypair: Arc<KeyPair>,
+        seed: Arc<SeedSource>,
     ) -> Self {
         Executor {
             pool,
@@ -104,6 +108,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             pubsub,
             keypair,
             burn_fuel_method: String::new(),
+            seed,
         }
     }
 
@@ -298,7 +303,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
                     });
                 }
-
                 let events = if events.is_empty() {
                     None
                 } else {
@@ -780,6 +784,7 @@ mod tests {
         },
         blockchain::pool::tests::create_pool,
         crypto::{
+            //drand::Drand,
             sign::tests::{create_test_keypair, create_test_public_key},
             HashAlgorithm,
         },
@@ -802,12 +807,25 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        let mut executor = Executor::new(pool, db, wm, sub, keypair);
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        let mut executor = Executor::new(pool, db, wm, sub, keypair, seed.clone());
 
         if fuel_limit < FUEL_LIMIT {
             executor.set_burn_fuel_method(String::from("burn_fuel_method"));
         }
-
         executor
     }
 
@@ -819,7 +837,32 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair)
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+    }
+
+    fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool(FUEL_LIMIT)));
+        let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
+        let wm = Arc::new(Mutex::new(create_wm_mock()));
+        let sub = Arc::new(Mutex::new(PubSub::new()));
+
+        let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
+
+        Executor::new(pool, db, wm, sub, keypair, seed)
     }
 
     fn create_db_mock(fail: bool) -> MockDb {
@@ -1190,5 +1233,96 @@ mod tests {
                 Arc::new(is_validator_closure),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_drad_seed() {
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = Arc::new(seed);
+
+        //let drand = Drand::new(seed.clone());
+
+        //let seed_test = seed.clone();
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        //println!("pre exec;{}\n---", drand.rand(9));
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        let mut executor = create_executor_drand(false, seed.clone());
+
+        let hashes = executor
+            .pool
+            .write()
+            .confirmed
+            .get_mut(&0)
+            .unwrap()
+            .txs_hashes
+            .take()
+            .unwrap();
+
+        let is_validator_closure = is_validator_function();
+
+        let hash = executor
+            .exec_block(
+                0,
+                &hashes,
+                Hash::default(),
+                BlockValues {
+                    exp_hash: None,
+                    signature: None,
+                    validator: None,
+                },
+                true,
+                Arc::new(is_validator_closure),
+            )
+            .unwrap();
+
+        //println!(
+        //    "AFTER BLOCK GEN\nprev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        //println!("post exec;{}", drand.rand(9));
+
+        //println!(
+        //    "prev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
+        //    seed_test.prev_hash.lock(),
+        //    seed_test.txs_hash.lock(),
+        //    seed_test.rxs_hash.lock(),
+        //    seed_test.previous_seed.lock(),
+        //);
+
+        assert_eq!(
+            hex::encode(hash),
+            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
+        );
     }
 }

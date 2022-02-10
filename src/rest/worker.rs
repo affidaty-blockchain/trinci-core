@@ -172,6 +172,16 @@ async fn get_account(req: Request<BlockRequestSender>) -> tide::Result {
     tide_result(res)
 }
 
+async fn get_p2p_id(req: Request<BlockRequestSender>) -> tide::Result {
+    let bc_req = Message::GetP2pIdRequest;
+    let res = match send_recv(req.state(), bc_req).await? {
+        Message::GetP2pIdResponse(id) => id,
+        Message::Exception(_err) => "ERR".to_string(),
+        _ => "ERR".to_string(),
+    };
+    Ok(res.into())
+}
+
 async fn get_index(_req: Request<BlockRequestSender>) -> tide::Result {
     Ok(format!("TRINCI v{}", VERSION).into())
 }
@@ -185,6 +195,7 @@ pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
     app.at("/api/v1/transaction/:0").get(get_transaction);
     app.at("/api/v1/receipt/:0").get(get_receipt);
     app.at("/api/v1/block/:0").get(get_block);
+    app.at("/api/v1/p2p/id").get(get_p2p_id);
     app.at("/").get(get_index);
 
     let fut = app.listen((addr, port));
