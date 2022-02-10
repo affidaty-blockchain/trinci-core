@@ -609,8 +609,9 @@ pub struct BlockchainSettings {
     pub accept_broadcast: bool,
     pub block_threshold: usize,
     pub block_timeout: u16,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_name: Option<String>,
+    pub is_production: bool,
+    pub min_node_version: String,
 }
 
 #[cfg(test)]

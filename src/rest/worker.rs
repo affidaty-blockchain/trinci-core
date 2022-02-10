@@ -179,7 +179,7 @@ async fn get_p2p_id(req: Request<BlockRequestSender>) -> tide::Result {
         Message::Exception(_err) => "ERR".to_string(),
         _ => "ERR".to_string(),
     };
-    Ok(format!("{}", res).into())
+    Ok(res.into())
 }
 
 async fn get_index(_req: Request<BlockRequestSender>) -> tide::Result {

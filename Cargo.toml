@@ -1,6 +1,6 @@
 [package]
 name = "trinci-core"
-version = "0.2.6"
+version = "0.2.7-rc1"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2021"
 description = "TRINCI Blockchain Core"
@@ -14,7 +14,8 @@ hex = "0.4.3"
 bitflags = "1.2.1"
 async-std = "1.9.0"
 futures = "0.3.15"
-parking_lot = "0.11.1"
+parking_lot = "0.12.0"
+# tand needs to stay at 0.7 for ed25519-dalek
 rand = "0.7"
 # Serialization
 serde = { version = "1.0.126", features = ["derive"] }
@@ -28,8 +29,9 @@ merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-fe
     "rocksdb_snappy",
     "sodiumoxide-crypto",
 ], optional = true }
+
 # WasmTime
-wasmtime = { version = "0.33.0", default-features = false, features = [
+wasmtime = { version = "0.34.0", default-features = false, features = [
     "parallel-compilation",
     "cranelift",
 ], optional = true }
