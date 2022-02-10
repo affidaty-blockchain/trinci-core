@@ -189,7 +189,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         if fuel > max_fuel {
             return Err(Error::new_ext(
-                ErrorKind::Other,
+                ErrorKind::FuelError,
                 "the fuel consumed exceeds the maximum allowed",
             ));
         }
@@ -204,7 +204,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Ok(value) => value,
             Err(_) => {
                 return Err(Error::new_ext(
-                    ErrorKind::Other,
+                    ErrorKind::FuelError,
                     "consume_fuel method failed serialization",
                 ))
             }
@@ -225,7 +225,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Ok(value) => value,
             Err(_) => {
                 return Err(Error::new_ext(
-                    ErrorKind::Other,
+                    ErrorKind::FuelError,
                     "consume_fuel method failed",
                 ))
             }
@@ -235,7 +235,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Ok(value) => {
                 if !value {
                     return Err(Error::new_ext(
-                        ErrorKind::Other,
+                        ErrorKind::FuelError,
                         "consume_fuel method failed deserialization",
                     ));
                 }

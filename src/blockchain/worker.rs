@@ -132,8 +132,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     /// Set the Burn Fuel Method
     pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
-        // DELETE
-        warn!("`burn_fuel_method` name: >>{}<<", burn_fuel_method);
         self.executor.set_burn_fuel_method(burn_fuel_method);
     }
 
