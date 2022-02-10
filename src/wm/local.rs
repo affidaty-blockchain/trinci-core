@@ -33,7 +33,7 @@ use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
     slice,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 use wasmtime::{
@@ -462,7 +462,7 @@ pub struct WmLocal {
     /// Maximum cache size.
     cache_max: usize,
     /// Node execution mode
-    is_production: Arc<Mutex<bool>>,
+    is_production: Arc<AtomicBool>,
 }
 
 impl WmLocal {
@@ -486,7 +486,7 @@ impl WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
-            is_production: Arc::new(Mutex::new(true)),
+            is_production: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -553,7 +553,7 @@ impl WmLocal {
     }
 
     pub fn set_mode(&mut self, is_production: bool) {
-        self.is_production = Arc::new(Mutex::new(is_production));
+        self.is_production = Arc::new(AtomicBool::new(is_production));
     }
 }
 
@@ -655,7 +655,13 @@ impl Wm for WmLocal {
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>> {
-        let app_hash = app_hash_check(db, owner, contract, *self.is_production.lock().unwrap())?;
+        let app_hash = app_hash_check(
+            db,
+            owner,
+            contract,
+            self.is_production
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )?;
 
         let nw_name = String::from("nw_name_test");
         let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
