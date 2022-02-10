@@ -30,7 +30,7 @@ pub mod local;
 use mockall::automock;
 
 #[cfg(feature = "with-wasmtime")]
-pub use local::{WasmLoader, WmLocal};
+pub use local::WmLocal;
 
 /// Web-Assembly machine trait.
 #[cfg_attr(test, automock)]
@@ -53,7 +53,7 @@ pub trait Wm: Send + 'static {
     ) -> Result<Vec<u8>>;
 }
 
-/// Structure passet frin the host to the wasm smart contracts.
+/// Structure passed from the host to the wasm smart contracts.
 /// WARNING: ANY MODIFICATION CAN BREAK COMPATIBILITY WITH THE CORE
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(test, derive(Debug, PartialEq))]

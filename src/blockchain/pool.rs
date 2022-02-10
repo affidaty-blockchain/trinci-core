@@ -73,11 +73,11 @@ pub mod tests {
     use crate::base::schema::tests::create_test_unit_tx;
     use crate::crypto::Hashable;
 
-    pub fn create_pool() -> Pool {
+    pub fn create_pool(fuel_limit: u64) -> Pool {
         let mut pool = Pool::default();
         let mut tx_hashes = vec![];
         for i in 0..3 {
-            let mut tx = create_test_unit_tx();
+            let mut tx = create_test_unit_tx(fuel_limit);
 
             match tx {
                 Transaction::UnitTransaction(ref mut test) => test.data.set_nonce(vec![i as u8; 8]),

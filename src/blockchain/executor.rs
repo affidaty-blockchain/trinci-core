@@ -24,6 +24,8 @@
 //! that the hash resulting from the local execution is equal to the expected
 //! one before commiting the execution changes.
 
+use serde_value::{value, Value};
+
 use super::{
     message::Message,
     pool::{BlockInfo, Pool},
@@ -33,13 +35,13 @@ use super::{
 use crate::{
     base::{
         schema::{Block, BlockData, SmartContractEvent},
-        serialize::rmp_serialize,
+        serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -69,6 +71,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     pubsub: Arc<Mutex<PubSub>>,
     /// Node keypair
     keypair: Arc<KeyPair>,
+    /// Burn fuel method
+    burn_fuel_method: String,
     /// Drand Seed
     seed: Arc<SeedSource>,
 }
@@ -81,6 +85,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             wm: self.wm.clone(),
             pubsub: self.pubsub.clone(),
             keypair: self.keypair.clone(),
+            burn_fuel_method: self.burn_fuel_method.clone(),
             seed: self.seed.clone(),
         }
     }
@@ -102,8 +107,143 @@ impl<D: Db, W: Wm> Executor<D, W> {
             wm,
             pubsub,
             keypair,
+            burn_fuel_method: String::new(),
             seed,
         }
+    }
+
+    // Checks if the origin account has
+    fn check_fuel_on_origin(
+        &self,
+        fork: &mut <D as Db>::DbForkType,
+        burn_fuel_method: &str,
+        origin: &str,
+        fuel_willing_to_spend: u64,
+    ) -> Result<()> {
+        if burn_fuel_method.is_empty() {
+            return Ok(());
+        }
+
+        let account = match fork.load_account(origin) {
+            Some(account) => account,
+            None => {
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account does not exist!",
+                ));
+            }
+        };
+
+        let trinci_asset: Value = match rmp_deserialize(&account.load_asset(SERVICE_ACCOUNT_ID)) {
+            Ok(asset) => asset,
+            Err(_) => {
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account has no fuel",
+                ));
+            }
+        };
+
+        let units = match trinci_asset.as_u64() {
+            Some(units) => units,
+            None => {
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "The paying account has no fuel",
+                ));
+            }
+        };
+
+        if fuel_willing_to_spend > units as u64 {
+            return Err(Error::new_ext(
+                ErrorKind::FuelError,
+                "Excessive fuel consumption",
+            ));
+        }
+        Ok(())
+    }
+
+    // Allows to set the burn fuel method
+    pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
+        self.burn_fuel_method = burn_fuel_method;
+    }
+
+    // Calculates the fuel consumed by the transaction execution
+    fn calculate_burned_fuel(&self) -> u64 {
+        // TODO
+        1000
+    }
+
+    // Tries to burn fuel from the origin account
+    fn try_burn_fuel(
+        &self,
+        fork: &mut <D as Db>::DbForkType,
+        burn_fuel_method: &str,
+        origin: &str,
+        fuel: u64,
+        max_fuel: u64,
+    ) -> Result<()> {
+        if burn_fuel_method.is_empty() {
+            return Ok(());
+        }
+
+        if fuel > max_fuel {
+            return Err(Error::new_ext(
+                ErrorKind::FuelError,
+                "the fuel consumed exceeds the maximum allowed",
+            ));
+        }
+
+        // Call to consume fuel
+        let args = value!({
+            "from": origin,
+            "units": fuel
+        });
+
+        let args = match rmp_serialize(&args) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "consume_fuel method failed serialization",
+                ))
+            }
+        };
+
+        let result = match self.wm.lock().call(
+            fork,
+            0,
+            "TRINCI",
+            "TRINCI",
+            "TRINCI",
+            "TRINCI",
+            None,
+            burn_fuel_method,
+            &args,
+            &mut vec![],
+        ) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(Error::new_ext(
+                    ErrorKind::FuelError,
+                    "consume_fuel method failed",
+                ))
+            }
+        };
+
+        match rmp_deserialize::<bool>(&result) {
+            Ok(value) => {
+                if !value {
+                    return Err(Error::new_ext(
+                        ErrorKind::FuelError,
+                        "consume_fuel method failed deserialization",
+                    ));
+                }
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(())
     }
 
     fn exec_transaction(
@@ -112,11 +252,40 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         index: u32,
+        burn_fuel_method: &str,
     ) -> Receipt {
         fork.flush();
+
+        // The core can verify if the origin owns the fuel that is willing to spend
+        let (origin, fuel_willing_to_spend) = match &tx {
+            Transaction::UnitTransaction(t) => {
+                (t.data.get_caller().to_account_id(), t.data.get_fuel_limit())
+            }
+            Transaction::BulkTransaction(bt) => (
+                bt.data.get_caller().to_account_id(),
+                bt.data.get_fuel_limit(),
+            ),
+        };
+
         let mut events: Vec<SmartContractEvent> = vec![];
 
-        let recepit = match tx {
+        // If the fuel burning is enabled and there are not enough fuel on the origin account fail
+        if let Err(e) =
+            self.check_fuel_on_origin(fork, burn_fuel_method, &origin, fuel_willing_to_spend)
+        {
+            fork.rollback();
+
+            return Receipt {
+                height,
+                index,
+                burned_fuel: 0,
+                success: false,
+                returns: e.to_string_full().as_bytes().to_vec(),
+                events: None,
+            };
+        }
+
+        let receipt = match tx {
             Transaction::UnitTransaction(tx) => {
                 let result = self.wm.lock().call(
                     fork,
@@ -146,7 +315,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
                     });
                 }
-
                 let events = if events.is_empty() {
                     None
                 } else {
@@ -169,9 +337,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         (false, msg.as_bytes().to_vec())
                     }
                 };
+
+                let burned_fuel = self.calculate_burned_fuel();
+
                 Receipt {
                     height,
-                    burned_fuel: 0, // TODO
+                    burned_fuel,
                     index: index as u32,
                     success,
                     returns,
@@ -337,13 +508,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         fork.rollback();
 
                         (None, rmp_serialize(&results))
-                    } // Recepit should be empty?
+                    } // Receipt should be empty?
                 };
+                let burned_fuel = self.calculate_burned_fuel();
 
                 Receipt {
                     height,
                     index,
-                    burned_fuel: 0, // TODO
+                    burned_fuel,
                     success: !execution_fail,
                     returns: results.unwrap(), //mabye handle unwrap
                     events,
@@ -351,7 +523,27 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
-        recepit
+        // Try to burn fuel from the caller account
+        match self.try_burn_fuel(
+            fork,
+            burn_fuel_method,
+            &tx.get_caller().to_account_id(),
+            receipt.burned_fuel,
+            fuel_willing_to_spend,
+        ) {
+            Ok(_) => receipt,
+            Err(e) => {
+                fork.rollback();
+                Receipt {
+                    height,
+                    index,
+                    burned_fuel: 0,
+                    success: false,
+                    returns: e.to_string_full().as_bytes().to_vec(),
+                    events: receipt.events,
+                }
+            }
+        }
     }
 
     /// Returns a vector of executed transactions
@@ -362,6 +554,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         txs_hashes: &[Hash],
     ) -> Vec<Hash> {
         let mut rxs_hashes = vec![];
+
+        let burn_fuel_method = self.burn_fuel_method.clone();
 
         for (index, hash) in txs_hashes.iter().enumerate() {
             debug!("Executing transaction: {}", hex::encode(hash));
@@ -375,7 +569,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 ),
             };
 
-            let rx = self.exec_transaction(&tx, fork, height, index as u32);
+            let rx = self.exec_transaction(&tx, fork, height, index as u32, &burn_fuel_method);
 
             rxs_hashes.push(rx.primary_hash());
 
@@ -594,8 +788,9 @@ mod tests {
     use crate::{
         base::{
             schema::{
-                BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
-                TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
+                tests::FUEL_LIMIT, BulkTransaction, BulkTransactions, SignedTransaction,
+                TransactionData, TransactionDataBulkNodeV1, TransactionDataBulkV1,
+                UnsignedTransaction,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -616,8 +811,8 @@ mod tests {
 
     const TEST_WASM: &[u8] = include_bytes!("../wm/test.wasm");
 
-    fn create_executor(db_fail: bool) -> Executor<MockDb, MockWm> {
-        let pool = Arc::new(RwLock::new(create_pool()));
+    fn create_executor(db_fail: bool, fuel_limit: u64) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool(fuel_limit)));
         let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
@@ -638,11 +833,16 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+        let mut executor = Executor::new(pool, db, wm, sub, keypair, seed.clone());
+
+        if fuel_limit < FUEL_LIMIT {
+            executor.set_burn_fuel_method(String::from("burn_fuel_method"));
+        }
+        executor
     }
 
-    fn create_executor_bulk(db_fail: bool) -> Executor<MockDb, MockWm> {
-        let pool = Arc::new(RwLock::new(create_pool()));
+    fn create_executor_bulk(db_fail: bool, fuel_limit: u64) -> Executor<MockDb, MockWm> {
+        let pool = Arc::new(RwLock::new(create_pool(fuel_limit)));
         let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
         let wm = Arc::new(Mutex::new(create_wm_mock_bulk()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
@@ -667,7 +867,7 @@ mod tests {
     }
 
     fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
-        let pool = Arc::new(RwLock::new(create_pool()));
+        let pool = Arc::new(RwLock::new(create_pool(FUEL_LIMIT)));
         let db = Arc::new(RwLock::new(create_db_mock(db_fail)));
         let wm = Arc::new(Mutex::new(create_wm_mock()));
         let sub = Arc::new(Mutex::new(PubSub::new()));
@@ -847,19 +1047,19 @@ mod tests {
 
     #[test]
     fn test_bulk() {
-        let mut executor = create_executor_bulk(false);
+        let mut executor = create_executor_bulk(false, FUEL_LIMIT);
         let mut fork = executor.db.write().fork_create();
 
         let tx = create_bulk_tx();
 
-        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0);
+        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new());
 
         assert!(rcpt.success);
     }
 
     #[test]
     fn can_run() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
 
         let runnable = executor.can_run(0);
 
@@ -868,7 +1068,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_next_block() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
 
         let runnable = executor.can_run(u64::MAX);
 
@@ -877,7 +1077,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_block_tx_hashes() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
         {
             // Steal transaction hashes list.
             let mut pool = executor.pool.write();
@@ -891,7 +1091,7 @@ mod tests {
 
     #[test]
     fn cant_run_missing_transaction() {
-        let executor = create_executor(false);
+        let executor = create_executor(false, FUEL_LIMIT);
         {
             // Steal one transaction required by the first block.
             let mut pool = executor.pool.write();
@@ -915,7 +1115,7 @@ mod tests {
 
     #[test]
     fn exec_block() {
-        let mut executor = create_executor(false);
+        let mut executor = create_executor(false, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -949,7 +1149,7 @@ mod tests {
 
     #[test]
     fn exec_block_expected_hash_mismatch() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -982,7 +1182,7 @@ mod tests {
 
     #[test]
     fn exec_block_merge_fail() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = executor
             .pool
             .write()
@@ -1016,7 +1216,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Unexpected missing transaction")]
     fn exec_block_missing_tx() {
-        let mut executor = create_executor(true);
+        let mut executor = create_executor(true, FUEL_LIMIT);
         let hashes = {
             let mut pool = executor.pool.write();
             let hashes = pool

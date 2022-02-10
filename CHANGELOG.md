@@ -26,7 +26,20 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.5 - 01-02-2022
+0.2.7 - unreleased
+------------------
+Changed
+* BlockchainSettings struct
+
+Added
+* `secure_call` host function
+
+0.2.6 - 08-02-2022
+------------------
+Changed
+* removed wasm loader from closure
+
+0.2.5 - 02-02-2022
 ------------------
 
 Added
@@ -41,12 +54,13 @@ Added
 Changed
 * Transaction schema
 * Signed blocks
+* Introduction of fuel management structures
 
 Added
-* Bulk transactions
-* bootstrap from wasm or wasm+txs
-* config from bootstrap
-* network name from bootstrap hash
+* Bulk transaction
+* Bootstrap from wasm or wasm+txs
+* Config from bootstrap
+* Network name from bootstrap hash
 
 
 0.2.3 - 25-11-2021

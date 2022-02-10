@@ -49,6 +49,8 @@ pub use blockchain::{BlockConfig, BlockService, Message};
 pub use crypto::{KeyPair, PublicKey};
 pub use error::{Error, ErrorKind, Result};
 
+pub const SERVICE_ACCOUNT_ID: &str = "TRINCI";
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const VERSION_MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
 pub const VERSION_MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");

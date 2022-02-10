@@ -27,7 +27,7 @@ use crate::{
         host_func::{self, CallContext},
         AppOutput, Wm,
     },
-    Account, Error, ErrorKind, Result,
+    Account, Error, ErrorKind, Result, SERVICE_ACCOUNT_ID,
 };
 use serialize::rmp_deserialize;
 use std::{
@@ -493,17 +493,10 @@ struct CachedModule {
     last_used: u64,
 }
 
-/// Closure trait to load a wasm binary.
-pub trait WasmLoader: FnMut(Hash) -> Result<Vec<u8>> + Send + 'static {}
-
-impl<T: FnMut(Hash) -> Result<Vec<u8>> + Send + 'static> WasmLoader for T {}
-
 /// WebAssembly machine using wasmtime as the engine.
 pub struct WmLocal {
     /// Global wasmtime context for compilation and management of wasm modules.
     engine: Engine,
-    /// Callback to load wasm code.
-    loader: Box<dyn WasmLoader>,
     /// Cached wasm modules, ready to be executed.
     cache: HashMap<Hash, CachedModule>,
     /// Maximum cache size.
@@ -518,7 +511,7 @@ impl WmLocal {
     /// Panics if the `cache_max` parameter is zero or if for any reason the
     /// backend fails to initialize.  Failure details are given in the `panic`
     /// error string.
-    pub fn new(loader: impl WasmLoader, cache_max: usize) -> Self {
+    pub fn new(cache_max: usize) -> Self {
         assert!(
             !(cache_max == 0),
             "Fatal: Wm cache size shall be greater than 0"
@@ -529,7 +522,6 @@ impl WmLocal {
 
         WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
-            loader: Box::new(loader),
             cache: HashMap::new(),
             cache_max,
         }
@@ -538,7 +530,7 @@ impl WmLocal {
     /// Caches a wasm using the user-provided callback.
     /// If the cache max size has been reached, it removes the least recently
     /// used module from the cache.
-    fn load_module(&mut self, target: &Hash) -> Result<()> {
+    fn load_module(&mut self, engine: &Engine, db: &dyn DbFork, target: &Hash) -> Result<()> {
         let len = self.cache.len();
         if len > self.cache_max {
             let mut iter = self.cache.iter();
@@ -553,10 +545,22 @@ impl WmLocal {
             self.cache.remove(&older_hash);
         }
 
-        let wasm_bin = (self.loader)(*target)?;
+        // let wasm_bin = (self.loader)(db, *target)?;
+        let mut key = String::from("contracts:code:");
+        key.push_str(&hex::encode(&target));
 
-        let module = Module::new(&self.engine, &wasm_bin)
-            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        let wasm_bin = match db.load_account_data(SERVICE_ACCOUNT_ID, &key) {
+            Some(bin) => bin,
+            None => {
+                return Err(Error::new_ext(
+                    ErrorKind::ResourceNotFound,
+                    "smart contract not found",
+                ))
+            }
+        };
+
+        let module =
+            Module::new(engine, &wasm_bin).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         let entry = CachedModule {
             module,
@@ -568,9 +572,9 @@ impl WmLocal {
     }
 
     /// Get smart contract module instance from the cache.
-    fn get_module(&mut self, target: &Hash) -> Result<&Module> {
+    fn get_module(&mut self, engine: &Engine, db: &dyn DbFork, target: &Hash) -> Result<&Module> {
         if !self.cache.contains_key(target) {
-            self.load_module(target)?;
+            self.load_module(engine, db, target)?;
         }
         // This should not fail
         let mut entry = self
@@ -583,13 +587,6 @@ impl WmLocal {
             .expect("read system time")
             .as_secs();
         Ok(&entry.module)
-    }
-
-    /// Allow to swap the loader after initialization.
-    /// Loader switch flushes the cache.
-    pub fn set_loader(&mut self, loader: impl WasmLoader) {
-        self.loader = Box::new(loader);
-        self.cache.clear();
     }
 }
 
@@ -690,6 +687,10 @@ impl Wm for WmLocal {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
+        let engine1 = self.engine.clone(); // FIXME
+        let engine2 = self.engine.clone();
+        let module = self.get_module(&engine1, db, &app_hash)?;
+
         // Prepare and set execution context for host functions.
         let ctx = CallContext {
             wm: None,
@@ -704,10 +705,7 @@ impl Wm for WmLocal {
         };
 
         // Allocate execution context (aka Store).
-        let mut store: Store<CallContext> = Store::new(&self.engine, ctx);
-
-        // Get the requested wasm module instance.
-        let module = self.get_module(&app_hash)?;
+        let mut store: Store<CallContext> = Store::new(&engine2, ctx);
 
         // Get imported host functions list.
         let imports = local_host_func::host_functions_register(&mut store, module)?;
@@ -865,16 +863,6 @@ mod tests {
         }
     }
 
-    fn wasm_loader(hash: Hash) -> Result<Vec<u8>> {
-        if hash != test_contract_hash() {
-            return Err(Error::new_ext(
-                ErrorKind::ResourceNotFound,
-                "wasm module not found",
-            ));
-        }
-        Ok(TEST_WASM.to_owned())
-    }
-
     fn create_test_db() -> MockDbFork {
         let mut db = MockDbFork::new();
         db.expect_load_account().returning(|id| {
@@ -889,6 +877,13 @@ mod tests {
         });
         db.expect_store_account().returning(move |_id| ());
         db.expect_state_hash().returning(|_| Hash::default());
+        db.expect_load_account_data().returning(|_, key| {
+            if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
+            {
+                return None;
+            }
+            Some(TEST_WASM.to_vec())
+        });
         db
     }
 
@@ -932,17 +927,20 @@ mod tests {
 
     #[test]
     fn instance_machine() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let hash = test_contract_hash();
+        let db = create_test_db();
 
-        let result = vm.get_module(&hash);
+        let engine = vm.engine.clone();
+
+        let result = vm.get_module(&engine, &db, &hash);
 
         assert!(result.is_ok());
     }
 
     #[test]
     fn exec_transfer() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data_transfer();
         let mut db = create_test_db();
 
@@ -954,7 +952,7 @@ mod tests {
 
     #[test]
     fn exec_balance() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
@@ -966,7 +964,7 @@ mod tests {
 
     #[test]
     fn exec_balance_cached() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
@@ -980,7 +978,7 @@ mod tests {
 
     #[test]
     fn exec_inexistent_method() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let args = value!({});
         let data = create_test_data("inexistent", args);
         let mut db = create_test_db();
@@ -996,7 +994,7 @@ mod tests {
 
     #[test]
     fn load_not_existing_module() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut data = create_test_data_transfer();
         data.set_contract(Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()));
         data.set_account("NotExistingTestId".to_string());
@@ -1007,13 +1005,13 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
         assert_eq!(
             err.to_string_full(),
-            "resource not found: wasm module not found"
+            "resource not found: smart contract not found"
         );
     }
 
     #[test]
     fn echo_generic() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut db = create_test_db();
         let input = value!({
             "name": "Davide",
@@ -1036,7 +1034,7 @@ mod tests {
 
     #[test]
     fn echo_typed() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut db = create_test_db();
         let input = value!({
             "name": "Davide",
@@ -1059,7 +1057,7 @@ mod tests {
 
     #[test]
     fn echo_typed_bad() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut db = create_test_db();
         let input = value!({
             "name": "Davide"
@@ -1076,7 +1074,7 @@ mod tests {
 
     #[test]
     fn notify() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut db = create_test_db();
         let input = value!({
             "name": "Davide",
@@ -1111,7 +1109,7 @@ mod tests {
 
     #[test]
     fn nested_call() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let mut db = create_test_db();
         let input = value!({
             "name": "Davide"
@@ -1126,7 +1124,7 @@ mod tests {
 
     #[test]
     fn wasm_divide_by_zero() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_data_divide_by_zero();
         let mut db = create_test_db();
 
@@ -1139,7 +1137,7 @@ mod tests {
 
     #[test]
     fn wasm_trigger_panic() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("trigger_panic", value!(null));
         let mut db = create_test_db();
 
@@ -1152,7 +1150,7 @@ mod tests {
 
     #[test]
     fn wasm_exhaust_memory() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("exhaust_memory", value!(null));
         let mut db = create_test_db();
 
@@ -1165,7 +1163,7 @@ mod tests {
 
     #[test]
     fn wasm_infinite_recursion() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("infinite_recursion", value!(true));
         let mut db = create_test_db();
 
@@ -1181,7 +1179,7 @@ mod tests {
 
     #[test]
     fn get_random_sequence() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("get_random_sequence", value!({}));
         let mut db = create_test_db();
 
@@ -1198,7 +1196,7 @@ mod tests {
 
     #[test]
     fn get_hashmap() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("get_hashmap", value!({}));
         let mut db = create_test_db();
 
@@ -1217,7 +1215,7 @@ mod tests {
     #[test]
     #[ignore = "TODO"]
     fn wasm_infinite_loop() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("infinite_loop", value!(null));
         let mut db = create_test_db();
 
@@ -1230,7 +1228,7 @@ mod tests {
 
     #[test]
     fn wasm_null_pointer_indirection() {
-        let mut vm = WmLocal::new(wasm_loader, CACHE_MAX);
+        let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data("null_pointer_indirection", value!(null));
         let mut db = create_test_db();
 
@@ -1263,5 +1261,5 @@ mod tests {
         }
     }
 
-    // TODO: add drand test
+    // // TODO: add drand test
 }

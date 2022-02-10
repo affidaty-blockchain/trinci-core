@@ -285,6 +285,11 @@ impl<D: Db> Dispatcher<D> {
         Message::GetSeedRespone(seed)
     }
 
+    fn get_p2p_id_handler(&self) -> Message {
+        let id = self.config.lock().keypair.public_key().to_account_id();
+        Message::GetP2pIdResponse(id)
+    }
+
     fn packed_message_handler(
         &self,
         buf: Vec<u8>,
@@ -394,6 +399,7 @@ impl<D: Db> Dispatcher<D> {
                 self.get_transaction_res_handler(tx);
                 None
             }
+            Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
             Message::Packed { buf } => self.packed_message_handler(buf, res_chan, pack_level + 1),
             _ => None,
         }
@@ -406,7 +412,7 @@ mod tests {
     use crate::{
         base::schema::tests::{
             create_test_account, create_test_block, create_test_bulk_tx, create_test_bulk_tx_alt,
-            create_test_unit_tx,
+            create_test_unit_tx, FUEL_LIMIT,
         },
         channel::simple_channel,
         db::*,
@@ -458,7 +464,7 @@ mod tests {
         });
         db.expect_load_transaction().returning(|hash| {
             match *hash == Hash::from_hex(TX_DATA_HASH_HEX).unwrap() {
-                true => Some(create_test_unit_tx()),
+                true => Some(create_test_unit_tx(FUEL_LIMIT)),
                 false => None,
             }
         });
@@ -484,7 +490,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -554,7 +560,7 @@ mod tests {
     #[test]
     fn put_bad_signature_transaction() {
         let dispatcher = create_dispatcher(false);
-        let mut tx = create_test_unit_tx();
+        let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
         match tx {
             Transaction::UnitTransaction(ref mut tx) => tx.signature[0] += 1,
@@ -600,7 +606,7 @@ mod tests {
         let dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
         dispatcher.message_handler_wrap(req.clone()).unwrap();
 
@@ -615,7 +621,7 @@ mod tests {
         let dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -634,7 +640,7 @@ mod tests {
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::GetTransactionResponse {
-            tx: create_test_unit_tx(),
+            tx: create_test_unit_tx(FUEL_LIMIT),
         };
         assert_eq!(res, exp_res);
     }
