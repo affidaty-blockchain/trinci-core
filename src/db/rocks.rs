@@ -337,7 +337,9 @@ impl DbFork for RocksDbFork {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{create_test_account, create_test_block, create_test_unit_tx},
+        base::schema::tests::{
+            create_test_account, create_test_block, create_test_unit_tx, FUEL_LIMIT,
+        },
         base::schema::Account,
         crypto::Hashable,
     };
@@ -491,7 +493,7 @@ mod tests {
     fn store_transaction_no_merge() {
         let mut db = TempDb::new();
         let mut fork = db.fork_create();
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let hash = tx.primary_hash();
 
         fork.store_transaction(&hash, tx);
@@ -503,7 +505,7 @@ mod tests {
     fn store_transaction_merge() {
         let mut db = TempDb::new();
         let mut fork = db.fork_create();
-        let tx = create_test_unit_tx();
+        let tx = create_test_unit_tx(FUEL_LIMIT);
         let hash = tx.primary_hash();
         fork.store_transaction(&hash, tx.clone());
 
@@ -606,7 +608,7 @@ mod tests {
         // Modifications to hold.
         let a1 = Account::new("123", None);
         fork.store_account(a1.clone());
-        let mut t1 = create_test_unit_tx();
+        let mut t1 = create_test_unit_tx(FUEL_LIMIT);
 
         match t1 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![1]),
@@ -624,7 +626,7 @@ mod tests {
                 .unwrap();
         let a2 = Account::new("456", Some(h2));
         fork.store_account(a2.clone());
-        let mut t2 = create_test_unit_tx();
+        let mut t2 = create_test_unit_tx(FUEL_LIMIT);
 
         match t2 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![2]),
@@ -639,7 +641,7 @@ mod tests {
         // Add some other modifications to hold
         let a3 = Account::new("789", None);
         fork.store_account(a3.clone());
-        let mut t3 = create_test_unit_tx();
+        let mut t3 = create_test_unit_tx(FUEL_LIMIT);
 
         match t3 {
             Transaction::UnitTransaction(ref mut tx) => tx.data.set_nonce(vec![3]),
