@@ -30,6 +30,7 @@ Additional labels for pre-release metadata:
 ------------------
 Changed
 * BlockchainSettings struct
+* Test/Production flag
 
 Added
 * `secure_call` host function
