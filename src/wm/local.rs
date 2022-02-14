@@ -33,7 +33,7 @@ use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
     slice,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 use wasmtime::{
@@ -346,6 +346,45 @@ mod local_host_func {
         Ok(host_func::verify(ctx, &pk, data, sign))
     }
 
+    // Call contract method specifing contract.
+    #[allow(clippy::too_many_arguments)]
+    fn s_call(
+        mut caller: Caller<'_, CallContext>,
+        account_offset: i32,
+        account_size: i32,
+        contract_offset: i32,
+        contract_size: i32,
+        method_offset: i32,
+        method_size: i32,
+        args_offset: i32,
+        args_size: i32,
+    ) -> std::result::Result<WasmSlice, Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
+        let account = String::from_utf8_lossy(buf);
+        let buf = slice_from(&mut caller, &mem, contract_offset, contract_size)?;
+        let contract = Hash::from_bytes(buf).map_err(|_| Trap::new("invalid contract hash"))?;
+        let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
+        let method = String::from_utf8_lossy(buf);
+        let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        let buf = match host_func::call(ctx, &account, Some(contract), &method, args) {
+            Ok(buf) => rmp_serialize(&AppOutput {
+                success: true,
+                data: &buf,
+            }),
+            Err(err) => rmp_serialize(&AppOutput {
+                success: false,
+                data: err.to_string_full().as_bytes(),
+            }),
+        }
+        .unwrap_or_default();
+        return_buf(caller, mem, buf)
+    }
+
     /// Call contract method.
     fn call(
         mut caller: Caller<'_, CallContext>,
@@ -366,7 +405,7 @@ mod local_host_func {
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
-        let buf = match host_func::call(ctx, &account, &method, args) {
+        let buf = match host_func::call(ctx, &account, None, &method, args) {
             Ok(buf) => rmp_serialize(&AppOutput {
                 success: true,
                 data: &buf,
@@ -426,6 +465,7 @@ mod local_host_func {
                 "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),
+                "hf_s_call" => Func::wrap(&mut store, s_call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
                 "hf_drand" => Func::wrap(&mut store, drand),
@@ -461,6 +501,8 @@ pub struct WmLocal {
     cache: HashMap<Hash, CachedModule>,
     /// Maximum cache size.
     cache_max: usize,
+    /// Node execution mode
+    is_production: Arc<AtomicBool>,
 }
 
 impl WmLocal {
@@ -484,6 +526,7 @@ impl WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
+            is_production: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -548,6 +591,10 @@ impl WmLocal {
             .as_secs();
         Ok(&entry.module)
     }
+
+    pub fn set_mode(&mut self, is_production: bool) {
+        self.is_production = Arc::new(AtomicBool::new(is_production));
+    }
 }
 
 /// Allocate memory in the wasm and return a pointer to the module linear array memory
@@ -583,21 +630,38 @@ fn write_mem(
     Ok(offset)
 }
 
-fn app_hash_check(db: &mut dyn DbFork, id: &str, mut app_hash: Option<Hash>) -> Result<Hash> {
+fn app_hash_check(
+    db: &mut dyn DbFork,
+    id: &str,
+    mut app_hash: Option<Hash>,
+    is_production: bool,
+) -> Result<Hash> {
     let mut updated = false;
     let account = match db.load_account(id) {
         Some(mut account) if account.contract != app_hash => {
             if account.contract.is_none() {
+                // if the account isn't associated with a smart contract
+                // the `contract` is initialized by `app_hash`
                 account.contract = app_hash;
                 updated = true;
             } else if app_hash.is_none() {
+                // if otherwise app_hash is empty, we initialize
+                // app_hash to the account's smart contract
                 app_hash = account.contract;
-            } else {
+            } else if is_production {
+                // we do not expect both `app_hash`
+                // and account's smart contrcat full
                 debug!("Invalid contract");
                 return Err(Error::new_ext(
                     ErrorKind::ResourceNotFound,
                     "incompatible contract app",
                 ));
+            } else {
+                // in case the `config` it test,
+                // it is needed to overwrite the `account.contract`
+                // with the new `app_hash` contact
+                account.contract = app_hash;
+                updated = true;
             }
             account
         }
@@ -631,7 +695,13 @@ impl Wm for WmLocal {
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>> {
-        let app_hash = app_hash_check(db, owner, contract)?;
+        let app_hash = app_hash_check(
+            db,
+            owner,
+            contract,
+            self.is_production
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )?;
 
         let nw_name = String::from("nw_name_test");
         let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];

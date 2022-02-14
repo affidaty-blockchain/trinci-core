@@ -179,6 +179,15 @@ impl<D: Db, W: Wm> BlockService<D, W> {
     pub fn put_txs(&mut self, txs: Vec<Transaction>) {
         self.worker.as_mut().unwrap().put_txs(txs)
     }
+
+    /// Set the burn fuel method
+    /// If this panics, it panics early at node boot. Not a big deal.
+    pub fn set_burn_fuel_method(&mut self, burn_fuel_method: String) {
+        self.worker
+            .as_mut()
+            .unwrap()
+            .set_burn_fuel_method(burn_fuel_method);
+    }
 }
 
 #[cfg(test)]

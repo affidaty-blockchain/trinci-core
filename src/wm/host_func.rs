@@ -157,9 +157,13 @@ pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash>
 /// Call a method resident in another account and contract.
 /// The input and output arguments are subject to the packing format rules of
 /// the called smart contract.
-pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Result<Vec<u8>> {
-    // >>>>>>>>>>>>>>> FIXME <<<<<<<<<<<<<<<<<<<<<
-    // User shall be able to pass the contract
+pub fn call(
+    ctx: &mut CallContext,
+    owner: &str,
+    contract: Option<Hash>,
+    method: &str,
+    data: &[u8],
+) -> Result<Vec<u8>> {
     match ctx.wm {
         Some(ref mut wm) => wm.call(
             ctx.db,
@@ -168,7 +172,7 @@ pub fn call(ctx: &mut CallContext, owner: &str, method: &str, data: &[u8]) -> Re
             ctx.origin,
             owner,
             ctx.owner,
-            None,
+            contract,
             method,
             data,
             ctx.events,
