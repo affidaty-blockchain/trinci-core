@@ -70,10 +70,12 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         db: D,
         wm: W,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
-        let mut worker = BlockWorker::new(worker_is_validator, config, db, wm, rx_chan, seed);
+        let mut worker =
+            BlockWorker::new(worker_is_validator, config, db, wm, rx_chan, seed, p2p_id);
         let db = worker.db_arc();
         let wm = worker.wm_arc();
 
@@ -215,7 +217,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        BlockService::new("MyAccount", is_validator, config, db, wm, seed)
+        BlockService::new(
+            "MyAccount",
+            is_validator,
+            config,
+            db,
+            wm,
+            seed,
+            "TEST".to_string(),
+        )
     }
 
     #[test]

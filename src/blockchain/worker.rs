@@ -79,6 +79,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         wm: W,
         rx_chan: BlockRequestReceiver,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let pubsub = Arc::new(Mutex::new(PubSub::new()));
@@ -93,6 +94,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             db.clone(),
             pubsub.clone(),
             seed.clone(),
+            p2p_id,
         );
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(

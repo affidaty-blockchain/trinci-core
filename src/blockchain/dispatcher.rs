@@ -61,6 +61,8 @@ pub(crate) struct Dispatcher<D: Db> {
     pubsub: Arc<Mutex<PubSub>>,
     /// Seed
     seed: Arc<SeedSource>,
+    /// P2P ID
+    p2p_id: String,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -71,6 +73,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             db: self.db.clone(),
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
+            p2p_id: self.p2p_id.clone(),
         }
     }
 }
@@ -83,6 +86,7 @@ impl<D: Db> Dispatcher<D> {
         db: Arc<RwLock<D>>,
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         Dispatcher {
             config,
@@ -90,6 +94,7 @@ impl<D: Db> Dispatcher<D> {
             db,
             pubsub,
             seed,
+            p2p_id,
         }
     }
 
@@ -286,7 +291,8 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn get_p2p_id_handler(&self) -> Message {
-        let id = self.config.lock().keypair.public_key().to_account_id();
+        let id = self.p2p_id.clone();
+        //let id = self.config.lock().keypair.public_key().to_account_id();
         Message::GetP2pIdResponse(id)
     }
 
@@ -453,7 +459,7 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Dispatcher::new(config, pool, db, pubsub, seed)
+        Dispatcher::new(config, pool, db, pubsub, seed, "TEST".to_string())
     }
 
     fn create_db_mock(fail_condition: bool) -> MockDb {
