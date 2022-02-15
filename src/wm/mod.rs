@@ -78,8 +78,8 @@ struct AppInput<'a> {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct AppOutput<'a> {
     /// If the method has been executed successfully
-    success: bool,
+    pub success: bool,
     /// Execution result data of success. Error string on failure.
     #[serde(with = "serde_bytes")]
-    data: &'a [u8],
+    pub data: &'a [u8],
 }
