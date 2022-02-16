@@ -33,7 +33,7 @@ use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
     slice,
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use wasmtime::{
@@ -502,7 +502,7 @@ pub struct WmLocal {
     /// Maximum cache size.
     cache_max: usize,
     /// Node execution mode
-    is_production: Arc<AtomicBool>,
+    is_production: bool,
 }
 
 impl WmLocal {
@@ -526,7 +526,7 @@ impl WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
-            is_production: Arc::new(AtomicBool::new(true)),
+            is_production: true,
         }
     }
 
@@ -593,7 +593,7 @@ impl WmLocal {
     }
 
     pub fn set_mode(&mut self, is_production: bool) {
-        self.is_production = Arc::new(AtomicBool::new(is_production));
+        self.is_production = is_production;
     }
 }
 
@@ -641,25 +641,25 @@ fn app_hash_check(
         Some(mut account) if account.contract != app_hash => {
             if account.contract.is_none() {
                 // if the account isn't associated with a smart contract
-                // the `contract` is initialized by `app_hash`
+                // the `contract` is initialized by `app_hash` that is Some()
                 account.contract = app_hash;
                 updated = true;
             } else if app_hash.is_none() {
                 // if otherwise app_hash is empty, we initialize
-                // app_hash to the account's smart contract
+                // app_hash to the account's smart contract that is Some()
                 app_hash = account.contract;
             } else if is_production {
-                // we do not expect both `app_hash`
-                // and account's smart contrcat full
+                // if `app_hash` and `account.contract` are both Some()
+                // but different in production_env is an error
                 debug!("Invalid contract");
                 return Err(Error::new_ext(
                     ErrorKind::ResourceNotFound,
                     "incompatible contract app",
                 ));
             } else {
-                // in case the `config` it test,
-                // it is needed to overwrite the `account.contract`
-                // with the new `app_hash` contact
+                // if `app_hash` and `account.contract` are both Some()
+                // but different in test_env the contract hash will
+                // be overwritten
                 account.contract = app_hash;
                 updated = true;
             }
@@ -695,13 +695,7 @@ impl Wm for WmLocal {
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>> {
-        let app_hash = app_hash_check(
-            db,
-            owner,
-            contract,
-            self.is_production
-                .load(std::sync::atomic::Ordering::Relaxed),
-        )?;
+        let app_hash = app_hash_check(db, owner, contract, self.is_production)?;
 
         let nw_name = String::from("nw_name_test");
         let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
