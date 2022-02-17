@@ -1263,27 +1263,5 @@ mod tests {
         assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
     }
 
-    #[test]
-    #[ignore]
-    fn analyze_wasm_default_module() {
-        println!("Contract Hash: {}", hex::encode(test_contract_hash()));
-
-        let store: Store<()> = Store::default();
-        let module = Module::new(store.engine(), TEST_WASM).unwrap();
-
-        println!("Checking the module exports...");
-        let exports = module.exports();
-        println!("Esports No. {}", exports.len());
-        for export in exports {
-            println!(">> {:#?}", export);
-        }
-
-        let t_imp = module.imports();
-        println!("Imports No. {}", t_imp.len());
-        for imp in t_imp {
-            println!(">> {:#?}", imp);
-        }
-    }
-
     // // TODO: add drand test
 }
