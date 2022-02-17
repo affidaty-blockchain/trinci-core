@@ -23,7 +23,7 @@ use crate::{
 };
 use tide::{http::mime, Request, Response, StatusCode};
 
-/// Coversion from "core" errors to HTTP errors.
+/// Conversion from "core" errors to HTTP errors.
 impl From<ErrorKind> for StatusCode {
     fn from(err: ErrorKind) -> StatusCode {
         use crate::error::ErrorKind::*;

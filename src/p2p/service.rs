@@ -15,9 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{blockchain::BlockRequestSender, crypto::ed25519::KeyPair, p2p::worker};
-//use libp2p::identity::Keypair;
 use crate::base::Mutex;
+use crate::{blockchain::BlockRequestSender, crypto::ed25519::KeyPair, p2p::worker};
 use std::{
     sync::Arc,
     thread::{self, JoinHandle},

@@ -153,7 +153,7 @@ impl Behavior {
         })
     }
 }
-
+/* cSpell::disable */
 // Received {
 //     peer_id: PeerId("12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"),
 //     info: IdentifyInfo {
@@ -176,6 +176,8 @@ impl Behavior {
 //         observed_addr: "/ip4/192.168.1.116/tcp/54612"
 //     }
 // }
+/* cSpell::enable */
+
 impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
     fn inject_event(&mut self, event: IdentifyEvent) {
         match event {

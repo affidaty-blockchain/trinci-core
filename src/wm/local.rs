@@ -188,7 +188,7 @@ mod local_host_func {
         let data = slice_from(&mut caller, &mem, data_offset, data_size)?.to_owned();
         // Recover execution context.
         let ctx = caller.data_mut();
-        // Invoke portable host fuction
+        // Invoke portable host function
         host_func::store_data(ctx, key, data);
         Ok(())
     }
@@ -346,7 +346,7 @@ mod local_host_func {
         Ok(host_func::verify(ctx, &pk, data, sign))
     }
 
-    // Call contract method specifing contract.
+    // Call contract method specifying contract.
     #[allow(clippy::too_many_arguments)]
     fn s_call(
         mut caller: Caller<'_, CallContext>,
@@ -430,7 +430,7 @@ mod local_host_func {
         let data = slice_from(&mut caller, &mem, data_offset, data_size)?.to_owned();
         // Recover execution context.
         let ctx = caller.data_mut();
-        // Invoke portable host fuction
+        // Invoke portable host function
         let hash = host_func::sha256(ctx, data);
         return_buf(caller, mem, hash)
     }
@@ -440,7 +440,7 @@ mod local_host_func {
         // seed from ctx
         // Recover execution context.
         let ctx = caller.data_mut();
-        // Invoke portable host fuction
+        // Invoke portable host function
         Ok(host_func::drand(ctx, max))
     }
 
@@ -639,6 +639,8 @@ fn app_hash_check(
     let mut updated = false;
     let account = match db.load_account(id) {
         Some(mut account) if account.contract != app_hash => {
+            // TODO Replace this if/else statement with a call to TRINCI account method
+
             if account.contract.is_none() {
                 // if the account isn't associated with a smart contract
                 // the `contract` is initialized by `app_hash` that is Some()

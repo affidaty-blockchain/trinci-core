@@ -22,7 +22,7 @@
 //!
 //! When the confirmed block contains a block-header hash the executor checks
 //! that the hash resulting from the local execution is equal to the expected
-//! one before commiting the execution changes.
+//! one before committing the execution changes.
 
 use serde_value::value;
 
@@ -41,11 +41,11 @@ use crate::{
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
     wm::Wm,
-    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
 
-/// result struct for bulk trasnsaction
+/// Result struct for bulk transaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
     success: bool,
@@ -153,10 +153,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         self.wm.lock().call(
             fork,
             0,
-            "TRINCI",
-            "TRINCI",
-            "TRINCI",
-            "TRINCI",
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
             None,
             burn_fuel_method,
             &args,
@@ -425,8 +425,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                         (events, rmp_serialize(&results))
                     }
-                    // this hould never happen because previous controls
-                    // mabye warn
+                    // This should never happen because previous controls
+                    // maybe warn
                     _ => {
                         fork.rollback();
 
@@ -440,7 +440,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     index,
                     burned_fuel,
                     success: !execution_fail,
-                    returns: results.unwrap(), //mabye handle unwrap
+                    returns: results.unwrap(), //FIXME handle unwrap
                     events,
                 }
             }
@@ -608,7 +608,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
-                // Somethig has gone wrong.
+                // Something has gone wrong.
                 return Err(Error::new_ext(ErrorKind::Other, "unexpected block hash"));
             }
         }
@@ -662,7 +662,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => (Hash::default(), 0),
         };
 
-        // mabye change seed here? TODo
+        // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
@@ -1205,6 +1205,7 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
+        /* cSpell:disable */
         //let drand = Drand::new(seed.clone());
 
         //let seed_test = seed.clone();
@@ -1226,6 +1227,7 @@ mod tests {
         //    seed_test.rxs_hash.lock(),
         //    seed_test.previous_seed.lock(),
         //);
+        /* cSpell:enable */
 
         let mut executor = create_executor_drand(false, seed.clone());
 
@@ -1256,6 +1258,8 @@ mod tests {
             )
             .unwrap();
 
+        /* cSpell:disable */
+
         //println!(
         //    "AFTER BLOCK GEN\nprev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
         //    seed_test.prev_hash.lock(),
@@ -1273,6 +1277,7 @@ mod tests {
         //    seed_test.rxs_hash.lock(),
         //    seed_test.previous_seed.lock(),
         //);
+        /* cSpell:enable */
 
         assert_eq!(
             hex::encode(hash),
