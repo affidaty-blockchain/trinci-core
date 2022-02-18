@@ -142,14 +142,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
             "units": fuel
         });
 
-        let args = match rmp_serialize(&args) {
-            Ok(value) => value,
-            Err(_) => {
-                // Note: this should not happen
-                panic!();
-            }
-        };
+        let args = rmp_serialize(&args)?;
 
+        let account = fork
+            .load_account(SERVICE_ACCOUNT_ID)
+            .ok_or_else(|| Error::new_ext(ErrorKind::Other, "The Service Account must exist!"))?;
+
+        let app_hash = account.contract.ok_or_else(|| {
+            Error::new_ext(
+                ErrorKind::Other,
+                "The Service Account must have a contract!",
+            )
+        })?;
         self.wm.lock().call(
             fork,
             0,
@@ -157,7 +161,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             SERVICE_ACCOUNT_ID,
             SERVICE_ACCOUNT_ID,
             SERVICE_ACCOUNT_ID,
-            None,
+            app_hash,
             burn_fuel_method,
             &args,
             &mut vec![],
@@ -210,71 +214,93 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let mut receipt = match tx {
             Transaction::UnitTransaction(tx) => {
-                let result = self.wm.lock().call(
+                let app_hash = self.wm.lock().app_hash_check(
                     fork,
-                    0,
-                    tx.data.get_network(),
+                    tx.data.get_account(),
+                    *tx.data.get_contract(),
+                    false,
                     &tx.data.get_caller().to_account_id(),
                     tx.data.get_account(),
                     &tx.data.get_caller().to_account_id(),
-                    *tx.data.get_contract(),
-                    tx.data.get_method(),
-                    tx.data.get_args(),
-                    &mut events,
                 );
 
-                let event_tx = tx.data.primary_hash();
-                events.iter_mut().for_each(|e| e.event_tx = event_tx);
+                match app_hash {
+                    Ok(app_hash) => {
+                        let result = self.wm.lock().call(
+                            fork,
+                            0,
+                            tx.data.get_network(),
+                            &tx.data.get_caller().to_account_id(),
+                            tx.data.get_account(),
+                            &tx.data.get_caller().to_account_id(),
+                            app_hash,
+                            tx.data.get_method(),
+                            tx.data.get_args(),
+                            &mut events,
+                        );
 
-                if result.is_err() {
-                    fork.rollback();
-                } else if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
-                    events.iter().for_each(|event| {
-                        // Notify subscribers about contract events
-                        let msg = Message::GetContractEvent {
-                            event: event.clone(),
+                        let event_tx = tx.data.primary_hash();
+                        events.iter_mut().for_each(|e| e.event_tx = event_tx);
+
+                        if result.is_err() {
+                            fork.rollback();
+                        } else if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+                            events.iter().for_each(|event| {
+                                // Notify subscribers about contract events
+                                let msg = Message::GetContractEvent {
+                                    event: event.clone(),
+                                };
+
+                                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+                            });
+                        }
+                        let events = if events.is_empty() {
+                            None
+                        } else {
+                            Some(events)
                         };
 
-                        self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
-                    });
-                }
-                let events = if events.is_empty() {
-                    None
-                } else {
-                    Some(events)
-                };
-
-                // On error, receipt data shall contain the full error description
-                // only if error kind is a SmartContractFailure. This is to prevent
-                // internal error conditions leaks to the user.
-                let (success, returns) = match result {
-                    Ok(value) => (true, value),
-                    Err(err) => {
-                        let msg = match err.kind {
-                            ErrorKind::SmartContractFault | ErrorKind::ResourceNotFound => {
-                                err.to_string_full()
+                        // On error, receipt data shall contain the full error description
+                        // only if error kind is a SmartContractFailure. This is to prevent
+                        // internal error conditions leaks to the user.
+                        let (success, returns) = match result {
+                            Ok(value) => (true, value),
+                            Err(err) => {
+                                let msg = match err.kind {
+                                    ErrorKind::SmartContractFault | ErrorKind::ResourceNotFound => {
+                                        err.to_string_full()
+                                    }
+                                    _ => err.to_string(),
+                                };
+                                debug!("Execution failure: {}", msg);
+                                (false, msg.as_bytes().to_vec())
                             }
-                            _ => err.to_string(),
                         };
-                        debug!("Execution failure: {}", msg);
-                        (false, msg.as_bytes().to_vec())
+
+                        Receipt {
+                            height,
+                            burned_fuel: self.calculate_burned_fuel(),
+                            index: index as u32,
+                            success,
+                            returns,
+                            events,
+                        }
                     }
-                };
-
-                let burned_fuel = self.calculate_burned_fuel();
-
-                Receipt {
-                    height,
-                    burned_fuel,
-                    index: index as u32,
-                    success,
-                    returns,
-                    events,
+                    Err(e) => Receipt {
+                        height,
+                        burned_fuel: self.calculate_burned_fuel(),
+                        index: index as u32,
+                        success: false,
+                        returns: e.to_string().as_bytes().to_vec(),
+                        events: None,
+                    },
                 }
             }
             Transaction::BulkTransaction(tx) => {
                 let mut results = HashMap::new();
                 let mut execution_fail = false;
+
+                let mut burned_fuel = 0;
 
                 let (events, results) = match &tx.data {
                     crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
@@ -282,6 +308,28 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         let hash = root_tx.data.primary_hash();
                         let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
+                        let app_hash = match self.wm.lock().app_hash_check(
+                            fork,
+                            root_tx.data.get_account(),
+                            *root_tx.data.get_contract(),
+                            false,
+                            &root_tx.data.get_caller().to_account_id(),
+                            root_tx.data.get_account(),
+                            &root_tx.data.get_caller().to_account_id(),
+                        ) {
+                            Ok(app_hash) => app_hash,
+                            Err(e) => {
+                                burned_fuel += self.calculate_burned_fuel();
+                                return Receipt {
+                                    height,
+                                    index,
+                                    burned_fuel,
+                                    success: false,
+                                    returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
+                                    events: None,
+                                };
+                            }
+                        };
                         let result = self.wm.lock().call(
                             fork,
                             0,
@@ -289,7 +337,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             &root_tx.data.get_caller().to_account_id(),
                             root_tx.data.get_account(),
                             &root_tx.data.get_caller().to_account_id(),
-                            *root_tx.data.get_contract(),
+                            app_hash,
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
                             &mut bulk_events,
@@ -347,61 +395,90 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             },
                                         );
                                     } else {
-                                        let result = self.wm.lock().call(
+                                        match self.wm.lock().app_hash_check(
                                             fork,
-                                            0,
-                                            node.data.get_network(),
+                                            node.data.get_account(),
+                                            *node.data.get_contract(),
+                                            false,
                                             &node.data.get_caller().to_account_id(),
                                             node.data.get_account(),
                                             &node.data.get_caller().to_account_id(),
-                                            *node.data.get_contract(),
-                                            node.data.get_method(),
-                                            node.data.get_args(),
-                                            &mut bulk_events,
-                                        );
-                                        match result {
-                                            Ok(rcpt) => {
-                                                results.insert(
-                                                    hex::encode(node.data.primary_hash()),
-                                                    BulkResult {
-                                                        success: true,
-                                                        result: rcpt,
-                                                    },
+                                        ) {
+                                            Ok(app_hash) => {
+                                                let result = self.wm.lock().call(
+                                                    fork,
+                                                    0,
+                                                    node.data.get_network(),
+                                                    &node.data.get_caller().to_account_id(),
+                                                    node.data.get_account(),
+                                                    &node.data.get_caller().to_account_id(),
+                                                    app_hash,
+                                                    node.data.get_method(),
+                                                    node.data.get_args(),
+                                                    &mut bulk_events,
                                                 );
+                                                burned_fuel += self.calculate_burned_fuel();
 
-                                                let event_tx = node.data.primary_hash();
-                                                bulk_events
-                                                    .iter_mut()
-                                                    .for_each(|e| e.event_tx = event_tx);
+                                                match result {
+                                                    Ok(rcpt) => {
+                                                        results.insert(
+                                                            hex::encode(node.data.primary_hash()),
+                                                            BulkResult {
+                                                                success: true,
+                                                                result: rcpt,
+                                                            },
+                                                        );
 
-                                                if self
-                                                    .pubsub
-                                                    .lock()
-                                                    .has_subscribers(Event::CONTRACT_EVENTS)
-                                                {
-                                                    bulk_events.iter().for_each(|bulk_event| {
-                                                        // Notify subscribers about contract events
-                                                        let msg = Message::GetContractEvent {
-                                                            event: bulk_event.clone(),
-                                                        };
+                                                        let event_tx = node.data.primary_hash();
+                                                        bulk_events
+                                                            .iter_mut()
+                                                            .for_each(|e| e.event_tx = event_tx);
 
-                                                        self.pubsub
+                                                        if self
+                                                            .pubsub
                                                             .lock()
-                                                            .publish(Event::CONTRACT_EVENTS, msg);
-                                                    });
-                                                }
+                                                            .has_subscribers(Event::CONTRACT_EVENTS)
+                                                        {
+                                                            bulk_events.iter().for_each(
+                                                                |bulk_event| {
+                                                                    // Notify subscribers about contract events
+                                                                    let msg =
+                                                                        Message::GetContractEvent {
+                                                                            event: bulk_event
+                                                                                .clone(),
+                                                                        };
 
-                                                events.append(&mut bulk_events);
+                                                                    self.pubsub.lock().publish(
+                                                                        Event::CONTRACT_EVENTS,
+                                                                        msg,
+                                                                    );
+                                                                },
+                                                            );
+                                                        }
+
+                                                        events.append(&mut bulk_events);
+                                                    }
+                                                    Err(error) => {
+                                                        results.insert(
+                                                            hex::encode(node.data.primary_hash()),
+                                                            BulkResult {
+                                                                success: false,
+                                                                result: error
+                                                                    .to_string()
+                                                                    .as_bytes()
+                                                                    .to_vec(),
+                                                            },
+                                                        );
+                                                        execution_fail = true;
+                                                    }
+                                                }
                                             }
-                                            Err(error) => {
+                                            Err(e) => {
                                                 results.insert(
                                                     hex::encode(node.data.primary_hash()),
                                                     BulkResult {
                                                         success: false,
-                                                        result: error
-                                                            .to_string()
-                                                            .as_bytes()
-                                                            .to_vec(),
+                                                        result: e.to_string().as_bytes().to_vec(),
                                                     },
                                                 );
                                                 execution_fail = true;

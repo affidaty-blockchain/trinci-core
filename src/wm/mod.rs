@@ -46,11 +46,35 @@ pub trait Wm: Send + 'static {
         origin: &str,
         owner: &str,
         caller: &str,
-        contract: Option<Hash>,
+        contract: Hash,
         method: &str,
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>>;
+
+    #[allow(clippy::too_many_arguments)] // FIXME  NOW
+    fn app_hash_check(
+        &mut self,
+        db: &mut dyn DbFork,
+        id: &str,
+        app_hash: Option<Hash>,
+        _is_production: bool,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+    ) -> Result<Hash>;
+
+    #[allow(clippy::too_many_arguments)] // FIXME NOW
+    fn contract_updatable(
+        &mut self,
+        fork: &mut dyn DbFork,
+        account: &str,
+        current_hash: Option<Hash>,
+        new_hash: Option<Hash>,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+    ) -> bool;
 }
 
 /// Structure passed from the host to the wasm smart contracts.

@@ -165,18 +165,23 @@ pub fn call(
     data: &[u8],
 ) -> Result<Vec<u8>> {
     match ctx.wm {
-        Some(ref mut wm) => wm.call(
-            ctx.db,
-            ctx.depth + 1,
-            ctx.network,
-            ctx.origin,
-            owner,
-            ctx.owner,
-            contract,
-            method,
-            data,
-            ctx.events,
-        ),
+        Some(ref mut wm) => {
+            let app_hash = wm.app_hash_check(
+                ctx.db, ctx.owner, contract, false, ctx.origin, owner, ctx.owner,
+            )?;
+            wm.call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                owner,
+                ctx.owner,
+                app_hash,
+                method,
+                data,
+                ctx.events,
+            )
+        }
         None => Err(Error::new_ext(
             ErrorKind::WasmMachineFault,
             "nested calls not implemented",
