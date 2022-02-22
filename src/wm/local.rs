@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use super::AppInput;
+use super::{AppInput, CheckHashArgs, CtxArgs};
 use crate::{
     base::{
         schema::SmartContractEvent,
@@ -792,28 +792,23 @@ impl Wm for WmLocal {
         }
     }
 
-    #[allow(clippy::too_many_arguments)] // FIXME NOW
-    fn contract_updatable(
+    fn contract_updatable<'a>(
         &mut self,
         fork: &mut dyn DbFork,
-        account: &str,
-        current_hash: Option<Hash>,
-        new_hash: Option<Hash>,
-        origin: &str,
-        owner: &str,
-        caller: &str,
+        hash_args: CheckHashArgs<'a>,
+        ctx_args: CtxArgs<'a>,
     ) -> bool {
-        let current_contract = match current_hash {
+        let current_contract = match hash_args.current_hash {
             Some(hash) => hash.as_bytes().to_vec(),
             None => vec![],
         };
-        let new_contract = match new_hash {
+        let new_contract = match hash_args.new_hash {
             Some(hash) => hash.as_bytes().to_vec(),
             None => vec![],
         };
 
         let args = ContracUpdatableArgs {
-            account: account.to_string(),
+            account: hash_args.account.to_string(),
             current_contract,
             new_contract,
         };
@@ -839,9 +834,9 @@ impl Wm for WmLocal {
             fork,
             0,
             "",
-            origin,
-            owner,
-            caller,
+            ctx_args.origin,
+            ctx_args.owner,
+            ctx_args.caller,
             contract,
             "contract_updatable",
             &args,
@@ -854,16 +849,13 @@ impl Wm for WmLocal {
         }
     }
 
-    #[allow(clippy::too_many_arguments)] // FIXME NOW
-    fn app_hash_check(
+    fn app_hash_check<'a>(
         &mut self,
         db: &mut dyn DbFork,
         id: &str,
         mut app_hash: Option<Hash>,
         _is_production: bool,
-        origin: &str,
-        owner: &str,
-        caller: &str,
+        ctx_args: CtxArgs<'a>,
     ) -> Result<Hash> {
         let mut updated = false;
         let account = match db.load_account(id) {
@@ -871,12 +863,12 @@ impl Wm for WmLocal {
                 if app_hash.is_some() {
                     if self.contract_updatable(
                         db,
-                        id,
-                        account.contract,
-                        app_hash,
-                        origin,
-                        owner,
-                        caller,
+                        CheckHashArgs {
+                            account: id,
+                            current_hash: account.contract,
+                            new_hash: app_hash,
+                        },
+                        ctx_args,
                     ) {
                         account.contract = app_hash;
                         updated = true;

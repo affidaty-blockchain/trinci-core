@@ -40,7 +40,7 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    wm::Wm,
+    wm::{CtxArgs, Wm},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -214,14 +214,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let mut receipt = match tx {
             Transaction::UnitTransaction(tx) => {
+                let ctx_args = CtxArgs {
+                    origin: &tx.data.get_caller().to_account_id(),
+                    owner: tx.data.get_account(),
+                    caller: &tx.data.get_caller().to_account_id(),
+                };
+
                 let app_hash = self.wm.lock().app_hash_check(
                     fork,
                     tx.data.get_account(),
                     *tx.data.get_contract(),
                     false,
-                    &tx.data.get_caller().to_account_id(),
-                    tx.data.get_account(),
-                    &tx.data.get_caller().to_account_id(),
+                    ctx_args,
                 );
 
                 match app_hash {
@@ -308,14 +312,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         let hash = root_tx.data.primary_hash();
                         let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
+                        let ctx_args = CtxArgs {
+                            origin: &root_tx.data.get_caller().to_account_id(),
+                            owner: root_tx.data.get_account(),
+                            caller: &root_tx.data.get_caller().to_account_id(),
+                        };
+
                         let app_hash = match self.wm.lock().app_hash_check(
                             fork,
                             root_tx.data.get_account(),
                             *root_tx.data.get_contract(),
                             false,
-                            &root_tx.data.get_caller().to_account_id(),
-                            root_tx.data.get_account(),
-                            &root_tx.data.get_caller().to_account_id(),
+                            ctx_args,
                         ) {
                             Ok(app_hash) => app_hash,
                             Err(e) => {
@@ -395,14 +403,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             },
                                         );
                                     } else {
+                                        let ctx_args = CtxArgs {
+                                            origin: &node.data.get_caller().to_account_id(),
+                                            owner: node.data.get_account(),
+                                            caller: &node.data.get_caller().to_account_id(),
+                                        };
+
                                         match self.wm.lock().app_hash_check(
                                             fork,
                                             node.data.get_account(),
                                             *node.data.get_contract(),
                                             false,
-                                            &node.data.get_caller().to_account_id(),
-                                            node.data.get_account(),
-                                            &node.data.get_caller().to_account_id(),
+                                            ctx_args,
                                         ) {
                                             Ok(app_hash) => {
                                                 let result = self.wm.lock().call(
