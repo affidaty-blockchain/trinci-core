@@ -598,7 +598,6 @@ impl WmLocal {
             .as_secs();
         Ok(&entry.module)
     }
-
 }
 
 /// Allocate memory in the wasm and return a pointer to the module linear array memory
@@ -892,7 +891,6 @@ impl Wm for WmLocal {
     }
 }
 
-// FIXME TESTS NOW
 #[cfg(test)]
 mod tests {
     use super::*;
