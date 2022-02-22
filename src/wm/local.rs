@@ -900,433 +900,433 @@ impl Wm for WmLocal {
 }
 
 // FIXME TESTS NOW
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{
-//         base::{schema::TransactionData, serialize::rmp_serialize},
-//         crypto::{sign::tests::create_test_public_key, HashAlgorithm},
-//         wm::*,
-//         TransactionDataV1,
-//     };
-//     use serde_value::{value, Value};
-
-//     const NOT_EXISTING_TARGET_HASH: &str =
-//         "12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f";
-
-//     const CACHE_MAX: usize = 10;
-
-//     const TEST_WASM: &[u8] = include_bytes!("test.wasm");
-
-//     fn test_contract_hash() -> Hash {
-//         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
-//     }
-
-//     impl WmLocal {
-//         fn exec_transaction<T: DbFork>(
-//             &mut self,
-//             db: &mut T,
-//             data: &TransactionData,
-//         ) -> Result<Vec<u8>> {
-//             self.exec_transaction_with_events(db, data, &mut Vec::new())
-//         }
-
-//         fn exec_transaction_with_events<T: DbFork>(
-//             &mut self,
-//             db: &mut T,
-//             data: &TransactionData,
-//             events: &mut Vec<SmartContractEvent>,
-//         ) -> Result<Vec<u8>> {
-//             self.call(
-//                 db,
-//                 0,
-//                 "skynet",
-//                 data.get_caller().to_account_id().as_str(),
-//                 data.get_account(),
-//                 data.get_caller().to_account_id().as_str(),
-//                 *data.get_contract(),
-//                 data.get_method(),
-//                 data.get_args(),
-//                 events,
-//             )
-//         }
-//     }
-
-//     fn create_test_db() -> MockDbFork {
-//         let mut db = MockDbFork::new();
-//         db.expect_load_account().returning(|id| {
-//             let app_hash = if id.eq("NotExistingTestId") {
-//                 Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()
-//             } else {
-//                 test_contract_hash()
-//             };
-//             let mut account = Account::new(id, Some(app_hash));
-//             account.store_asset(&account.id.clone(), 103_u64.to_be_bytes().as_ref());
-//             Some(account)
-//         });
-//         db.expect_store_account().returning(move |_id| ());
-//         db.expect_state_hash().returning(|_| Hash::default());
-//         db.expect_load_account_data().returning(|_, key| {
-//             if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
-//             {
-//                 return None;
-//             }
-//             Some(TEST_WASM.to_vec())
-//         });
-//         db
-//     }
-
-//     fn create_test_data(method: &str, args: Value) -> TransactionData {
-//         let contract_hash = test_contract_hash();
-//         let public_key = create_test_public_key();
-//         let id = public_key.to_account_id();
-//         TransactionData::V1(TransactionDataV1 {
-//             account: id,
-//             fuel_limit: 1000,
-//             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
-//             network: "arya".to_string(),
-//             contract: Some(contract_hash), // Smart contract HASH
-//             method: method.to_string(),
-//             caller: public_key,
-//             args: rmp_serialize(&args).unwrap(),
-//         })
-//     }
-
-//     fn create_test_data_balance() -> TransactionData {
-//         create_test_data("balance", value!(null))
-//     }
-
-//     fn create_data_divide_by_zero() -> TransactionData {
-//         let args = value!({
-//             "zero": 0,
-//         });
-//         create_test_data("divide_by_zero", args)
-//     }
-
-//     fn create_test_data_transfer() -> TransactionData {
-//         let public_key = create_test_public_key();
-//         let from_id = public_key.to_account_id();
-//         let args = value!({
-//             "from": from_id,
-//             "to": from_id,
-//             "units": 11,
-//         });
-//         create_test_data("transfer", args)
-//     }
-
-//     #[test]
-//     fn instance_machine() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let hash = test_contract_hash();
-//         let db = create_test_db();
-
-//         let engine = vm.engine.clone();
-
-//         let result = vm.get_module(&engine, &db, &hash);
-
-//         assert!(result.is_ok());
-//     }
-
-//     #[test]
-//     fn exec_transfer() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data_transfer();
-//         let mut db = create_test_db();
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let val: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(val, value!(null));
-//     }
-
-//     #[test]
-//     fn exec_balance() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data_balance();
-//         let mut db = create_test_db();
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let val: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(val, 103);
-//     }
-
-//     #[test]
-//     fn exec_balance_cached() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data_balance();
-//         let mut db = create_test_db();
-
-//         vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let val: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(val, 103);
-//     }
-
-//     #[test]
-//     fn exec_inexistent_method() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let args = value!({});
-//         let data = create_test_data("inexistent", args);
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         assert_eq!(err.kind, ErrorKind::SmartContractFault);
-//         assert_eq!(
-//             err.to_string_full(),
-//             "smart contract fault: method `inexistent` not found"
-//         );
-//     }
-
-//     #[test]
-//     fn load_not_existing_module() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut data = create_test_data_transfer();
-//         data.set_contract(Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()));
-//         data.set_account("NotExistingTestId".to_string());
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
-//         assert_eq!(
-//             err.to_string_full(),
-//             "resource not found: smart contract not found"
-//         );
-//     }
-
-//     #[test]
-//     fn echo_generic() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut db = create_test_db();
-//         let input = value!({
-//             "name": "Davide",
-//             "surname": "Galassi",
-//             "buf": [[0x01, 0xFF, 0x80]],
-//             "vec8": [0x01_u8, 0xFF_u8, 0x80_u8],
-//             "vec16": [0x01_u8, 0xFFFF_u16, 0x8000_u16],
-//             "map": {
-//                 "k1": { "field1": 123_u8, "field2": "foo" },
-//                 "k2": { "field1": 456_u16, "field2": "bar" },
-//             },
-//         });
-//         let data = create_test_data("echo_generic", input.clone());
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let output: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(input, output);
-//     }
-
-//     #[test]
-//     fn echo_typed() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut db = create_test_db();
-//         let input = value!({
-//             "name": "Davide",
-//             "surname": "Galassi",
-//             "buf": [[0x01, 0xFF, 0x80]],
-//             "vec8": [0x01_u8, 0xFF_u8, 0x80_u8],
-//             "vec16": [0x01_u8, 0xFFFF_u16, 0x8000_u16],
-//             "map": {
-//                 "k1": { "field1": 123_u8, "field2": "foo" },
-//                 "k2": { "field1": 456_u16, "field2": "bar" },
-//             },
-//         });
-//         let data = create_test_data("echo_typed", input.clone());
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let output: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(input, output);
-//     }
-
-//     #[test]
-//     fn echo_typed_bad() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut db = create_test_db();
-//         let input = value!({
-//             "name": "Davide"
-//         });
-//         let data = create_test_data("echo_typed", input);
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         assert_eq!(
-//             err.to_string_full(),
-//             "smart contract fault: deserialization failure"
-//         );
-//     }
-
-//     #[test]
-//     fn notify() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut db = create_test_db();
-//         let input = value!({
-//             "name": "Davide",
-//             "surname": "Galassi",
-
-//         });
-//         let data = create_test_data("notify", input.clone());
-//         let mut events = Vec::new();
-
-//         let _ = vm
-//             .exec_transaction_with_events(&mut db, &data, &mut events)
-//             .unwrap();
-
-//         assert_eq!(events.len(), 2);
-//         let event = events.get(0).unwrap();
-
-//         assert_eq!(event.event_name, "event_a");
-//         assert_eq!(event.emitter_account, data.get_account());
-
-//         let buf = &event.event_data;
-//         let event_data: Value = rmp_deserialize(buf).unwrap();
-
-//         assert_eq!(event_data, input);
-
-//         let event = events.get(1).unwrap();
-
-//         let buf = &event.event_data;
-//         let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
-
-//         assert_eq!(event_data, vec![1u8, 2, 3]);
-//     }
-
-//     #[test]
-//     fn nested_call() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let mut db = create_test_db();
-//         let input = value!({
-//             "name": "Davide"
-//         });
-//         let data = create_test_data("nested_call", input.clone());
-
-//         let buf = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let output: Value = rmp_deserialize(&buf).unwrap();
-//         assert_eq!(input, output);
-//     }
-
-//     #[test]
-//     fn wasm_divide_by_zero() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_data_divide_by_zero();
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("trap").next().unwrap();
-//         assert_eq!(err_str, "wasm machine fault: wasm trap");
-//     }
-
-//     #[test]
-//     fn wasm_trigger_panic() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("trigger_panic", value!(null));
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("trap").next().unwrap();
-//         assert_eq!(err_str, "wasm machine fault: wasm trap");
-//     }
-
-//     #[test]
-//     fn wasm_exhaust_memory() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("exhaust_memory", value!(null));
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("range").next().unwrap();
-//         assert_eq!(err_str, "wasm machine fault: out of bounds memory access");
-//     }
-
-//     #[test]
-//     fn wasm_infinite_recursion() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("infinite_recursion", value!(true));
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("exhausted").next().unwrap();
-//         assert_eq!(
-//             err_str,
-//             "wasm machine fault: wasm trap: call stack exhausted"
-//         );
-//     }
-
-//     #[test]
-//     fn get_random_sequence() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("get_random_sequence", value!({}));
-//         let mut db = create_test_db();
-
-//         let output = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         assert_eq!(
-//             vec![
-//                 147, 206, 21, 0, 11, 52, 206, 76, 128, 38, 222, 207, 0, 10, 128, 0, 76, 130, 188,
-//                 60
-//             ],
-//             output
-//         );
-//     }
-
-//     #[test]
-//     fn get_hashmap() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("get_hashmap", value!({}));
-//         let mut db = create_test_db();
-
-//         let output = vm.exec_transaction(&mut db, &data).unwrap();
-
-//         let input = vec![
-//             131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
-//             51, 205, 3, 21,
-//         ];
-
-//         assert_eq!(input, output);
-//     }
-
-//     // Need to be handle with an interrupt_handle
-//     // https://docs.rs/wasmtime/0.26.0/wasmtime/struct.Store.html#method.interrupt_handle
-//     #[test]
-//     #[ignore = "TODO"]
-//     fn wasm_infinite_loop() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("infinite_loop", value!(null));
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("access").next().unwrap();
-//         assert_eq!(err_str, "TODO");
-//     }
-
-//     #[test]
-//     fn wasm_null_pointer_indirection() {
-//         let mut vm = WmLocal::new(CACHE_MAX);
-//         let data = create_test_data("null_pointer_indirection", value!(null));
-//         let mut db = create_test_db();
-
-//         let err = vm.exec_transaction(&mut db, &data).unwrap_err();
-
-//         let err_str = err.to_string_full();
-//         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
-//         assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
-//     }
-
-//     // // TODO: add drand test
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        base::{schema::TransactionData, serialize::rmp_serialize},
+        crypto::{sign::tests::create_test_public_key, HashAlgorithm},
+        wm::*,
+        TransactionDataV1,
+    };
+    use serde_value::{value, Value};
+
+    const NOT_EXISTING_TARGET_HASH: &str =
+        "12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f";
+
+    const CACHE_MAX: usize = 10;
+
+    const TEST_WASM: &[u8] = include_bytes!("test.wasm");
+
+    fn test_contract_hash() -> Hash {
+        Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
+    }
+
+    impl WmLocal {
+        fn exec_transaction<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            data: &TransactionData,
+        ) -> Result<Vec<u8>> {
+            self.exec_transaction_with_events(db, data, &mut Vec::new())
+        }
+
+        fn exec_transaction_with_events<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            data: &TransactionData,
+            events: &mut Vec<SmartContractEvent>,
+        ) -> Result<Vec<u8>> {
+            self.call(
+                db,
+                0,
+                "skynet",
+                data.get_caller().to_account_id().as_str(),
+                data.get_account(),
+                data.get_caller().to_account_id().as_str(),
+                data.get_contract().unwrap(),
+                data.get_method(),
+                data.get_args(),
+                events,
+            )
+        }
+    }
+
+    fn create_test_db() -> MockDbFork {
+        let mut db = MockDbFork::new();
+        db.expect_load_account().returning(|id| {
+            let app_hash = if id.eq("NotExistingTestId") {
+                Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()
+            } else {
+                test_contract_hash()
+            };
+            let mut account = Account::new(id, Some(app_hash));
+            account.store_asset(&account.id.clone(), 103_u64.to_be_bytes().as_ref());
+            Some(account)
+        });
+        db.expect_store_account().returning(move |_id| ());
+        db.expect_state_hash().returning(|_| Hash::default());
+        db.expect_load_account_data().returning(|_, key| {
+                if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
+                {
+                    return None;
+                }
+                Some(TEST_WASM.to_vec())
+            });
+        db
+    }
+
+    fn create_test_data(method: &str, args: Value) -> TransactionData {
+        let contract_hash = test_contract_hash();
+        let public_key = create_test_public_key();
+        let id = public_key.to_account_id();
+        TransactionData::V1(TransactionDataV1 {
+            account: id,
+            fuel_limit: 1000,
+            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+            network: "arya".to_string(),
+            contract: Some(contract_hash), // Smart contract HASH
+            method: method.to_string(),
+            caller: public_key,
+            args: rmp_serialize(&args).unwrap(),
+        })
+    }
+
+    fn create_test_data_balance() -> TransactionData {
+        create_test_data("balance", value!(null))
+    }
+
+    fn create_data_divide_by_zero() -> TransactionData {
+        let args = value!({
+            "zero": 0,
+        });
+        create_test_data("divide_by_zero", args)
+    }
+
+    fn create_test_data_transfer() -> TransactionData {
+        let public_key = create_test_public_key();
+        let from_id = public_key.to_account_id();
+        let args = value!({
+            "from": from_id,
+            "to": from_id,
+            "units": 11,
+        });
+        create_test_data("transfer", args)
+    }
+
+    #[test]
+    fn instance_machine() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let hash = test_contract_hash();
+        let db = create_test_db();
+
+        let engine = vm.engine.clone();
+
+        let result = vm.get_module(&engine, &db, &hash);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn exec_transfer() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data_transfer();
+        let mut db = create_test_db();
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let val: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(val, value!(null));
+    }
+
+    #[test]
+    fn exec_balance() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data_balance();
+        let mut db = create_test_db();
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let val: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(val, 103);
+    }
+
+    #[test]
+    fn exec_balance_cached() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data_balance();
+        let mut db = create_test_db();
+
+        vm.exec_transaction(&mut db, &data).unwrap();
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let val: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(val, 103);
+    }
+
+    #[test]
+    fn exec_inexistent_method() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let args = value!({});
+        let data = create_test_data("inexistent", args);
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        assert_eq!(err.kind, ErrorKind::SmartContractFault);
+        assert_eq!(
+            err.to_string_full(),
+            "smart contract fault: method `inexistent` not found"
+        );
+    }
+
+    #[test]
+    fn load_not_existing_module() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut data = create_test_data_transfer();
+        data.set_contract(Some(Hash::from_hex(NOT_EXISTING_TARGET_HASH).unwrap()));
+        data.set_account("NotExistingTestId".to_string());
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        assert_eq!(err.kind, ErrorKind::ResourceNotFound);
+        assert_eq!(
+            err.to_string_full(),
+            "resource not found: smart contract not found"
+        );
+    }
+
+    #[test]
+    fn echo_generic() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide",
+            "surname": "Galassi",
+            "buf": [[0x01, 0xFF, 0x80]],
+            "vec8": [0x01_u8, 0xFF_u8, 0x80_u8],
+            "vec16": [0x01_u8, 0xFFFF_u16, 0x8000_u16],
+            "map": {
+                "k1": { "field1": 123_u8, "field2": "foo" },
+                "k2": { "field1": 456_u16, "field2": "bar" },
+            },
+        });
+        let data = create_test_data("echo_generic", input.clone());
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let output: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn echo_typed() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide",
+            "surname": "Galassi",
+            "buf": [[0x01, 0xFF, 0x80]],
+            "vec8": [0x01_u8, 0xFF_u8, 0x80_u8],
+            "vec16": [0x01_u8, 0xFFFF_u16, 0x8000_u16],
+            "map": {
+                "k1": { "field1": 123_u8, "field2": "foo" },
+                "k2": { "field1": 456_u16, "field2": "bar" },
+            },
+        });
+        let data = create_test_data("echo_typed", input.clone());
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let output: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn echo_typed_bad() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide"
+        });
+        let data = create_test_data("echo_typed", input);
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        assert_eq!(
+            err.to_string_full(),
+            "smart contract fault: deserialization failure"
+        );
+    }
+
+    #[test]
+    fn notify() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide",
+            "surname": "Galassi",
+
+        });
+        let data = create_test_data("notify", input.clone());
+        let mut events = Vec::new();
+
+        let _ = vm
+            .exec_transaction_with_events(&mut db, &data, &mut events)
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        let event = events.get(0).unwrap();
+
+        assert_eq!(event.event_name, "event_a");
+        assert_eq!(event.emitter_account, data.get_account());
+
+        let buf = &event.event_data;
+        let event_data: Value = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, input);
+
+        let event = events.get(1).unwrap();
+
+        let buf = &event.event_data;
+        let event_data: Vec<u8> = rmp_deserialize(buf).unwrap();
+
+        assert_eq!(event_data, vec![1u8, 2, 3]);
+    }
+
+    #[test]
+    fn nested_call() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let mut db = create_test_db();
+        let input = value!({
+            "name": "Davide"
+        });
+        let data = create_test_data("nested_call", input.clone());
+
+        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let output: Value = rmp_deserialize(&buf).unwrap();
+        assert_eq!(input, output);
+    }
+
+    #[test]
+    fn wasm_divide_by_zero() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_data_divide_by_zero();
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("trap").next().unwrap();
+        assert_eq!(err_str, "wasm machine fault: wasm trap");
+    }
+
+    #[test]
+    fn wasm_trigger_panic() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("trigger_panic", value!(null));
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("trap").next().unwrap();
+        assert_eq!(err_str, "wasm machine fault: wasm trap");
+    }
+
+    #[test]
+    fn wasm_exhaust_memory() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("exhaust_memory", value!(null));
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("range").next().unwrap();
+        assert_eq!(err_str, "wasm machine fault: out of bounds memory access");
+    }
+
+    #[test]
+    fn wasm_infinite_recursion() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("infinite_recursion", value!(true));
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("exhausted").next().unwrap();
+        assert_eq!(
+            err_str,
+            "wasm machine fault: wasm trap: call stack exhausted"
+        );
+    }
+
+    #[test]
+    fn get_random_sequence() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("get_random_sequence", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        assert_eq!(
+            vec![
+                147, 206, 21, 0, 11, 52, 206, 76, 128, 38, 222, 207, 0, 10, 128, 0, 76, 130, 188,
+                60
+            ],
+            output
+        );
+    }
+
+    #[test]
+    fn get_hashmap() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("get_hashmap", value!({}));
+        let mut db = create_test_db();
+
+        let output = vm.exec_transaction(&mut db, &data).unwrap();
+
+        let input = vec![
+            131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
+            51, 205, 3, 21,
+        ];
+
+        assert_eq!(input, output);
+    }
+
+    // Need to be handle with an interrupt_handle
+    // https://docs.rs/wasmtime/0.26.0/wasmtime/struct.Store.html#method.interrupt_handle
+    #[test]
+    #[ignore = "TODO"]
+    fn wasm_infinite_loop() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("infinite_loop", value!(null));
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("access").next().unwrap();
+        assert_eq!(err_str, "TODO");
+    }
+
+    #[test]
+    fn wasm_null_pointer_indirection() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let data = create_test_data("null_pointer_indirection", value!(null));
+        let mut db = create_test_db();
+
+        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+
+        let err_str = err.to_string_full();
+        let err_str = err_str.split_inclusive("unreachable").next().unwrap();
+        assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
+    }
+
+    // TODO: add drand test
+}

@@ -170,7 +170,7 @@ pub fn call(
         Some(ref mut wm) => {
             let ctx_args = CtxArgs {
                 origin: ctx.origin,
-                owner: owner,
+                owner,
                 caller: ctx.owner,
             };
 
