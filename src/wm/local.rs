@@ -511,8 +511,6 @@ pub struct WmLocal {
     cache: HashMap<Hash, CachedModule>,
     /// Maximum cache size.
     cache_max: usize,
-    /// Node execution mode
-    is_production: bool,
 }
 
 impl WmLocal {
@@ -536,7 +534,6 @@ impl WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
-            is_production: true,
         }
     }
 
@@ -602,9 +599,6 @@ impl WmLocal {
         Ok(&entry.module)
     }
 
-    pub fn set_mode(&mut self, is_production: bool) {
-        self.is_production = is_production;
-    }
 }
 
 /// Allocate memory in the wasm and return a pointer to the module linear array memory
@@ -854,7 +848,6 @@ impl Wm for WmLocal {
         db: &mut dyn DbFork,
         id: &str,
         mut app_hash: Option<Hash>,
-        _is_production: bool,
         ctx_args: CtxArgs<'a>,
     ) -> Result<Hash> {
         let mut updated = false;

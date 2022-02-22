@@ -31,6 +31,7 @@ Additional labels for pre-release metadata:
 Changed
 * BlockchainSettings struct
 * Test/Production flag
+* Call to Service `contract_updatable`
 
 Added
 * `secure_call` host function

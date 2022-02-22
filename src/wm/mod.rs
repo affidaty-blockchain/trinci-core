@@ -57,7 +57,6 @@ pub trait Wm: Send + 'static {
         db: &mut dyn DbFork,
         id: &str,
         app_hash: Option<Hash>,
-        _is_production: bool,
         ctx_args: CtxArgs<'a>,
     ) -> Result<Hash>;
 

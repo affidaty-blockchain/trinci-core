@@ -174,7 +174,7 @@ pub fn call(
                 caller: ctx.owner,
             };
 
-            let app_hash = wm.app_hash_check(ctx.db, ctx.owner, contract, false, ctx_args)?;
+            let app_hash = wm.app_hash_check(ctx.db, ctx.owner, contract, ctx_args)?;
             wm.call(
                 ctx.db,
                 ctx.depth + 1,

@@ -224,7 +224,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     fork,
                     tx.data.get_account(),
                     *tx.data.get_contract(),
-                    false,
                     ctx_args,
                 );
 
@@ -306,6 +305,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                 let mut burned_fuel = 0;
 
+                let mut t_wm = self.wm.lock();
+
                 let (events, results) = match &tx.data {
                     crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
                         let root_tx = &bulk_tx.txs.root;
@@ -318,11 +319,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             caller: &root_tx.data.get_caller().to_account_id(),
                         };
 
-                        let app_hash = match self.wm.lock().app_hash_check(
+                        let app_hash = match t_wm.app_hash_check(
                             fork,
                             root_tx.data.get_account(),
                             *root_tx.data.get_contract(),
-                            false,
                             ctx_args,
                         ) {
                             Ok(app_hash) => app_hash,
@@ -338,7 +338,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 };
                             }
                         };
-                        let result = self.wm.lock().call(
+                        let result = t_wm.call(
                             fork,
                             0,
                             root_tx.data.get_network(),
@@ -409,15 +409,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             caller: &node.data.get_caller().to_account_id(),
                                         };
 
-                                        match self.wm.lock().app_hash_check(
+                                        match t_wm.app_hash_check(
                                             fork,
                                             node.data.get_account(),
                                             *node.data.get_contract(),
-                                            false,
                                             ctx_args,
                                         ) {
                                             Ok(app_hash) => {
-                                                let result = self.wm.lock().call(
+                                                let result = t_wm.call(
                                                     fork,
                                                     0,
                                                     node.data.get_network(),
@@ -429,6 +428,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                     node.data.get_args(),
                                                     &mut bulk_events,
                                                 );
+
                                                 burned_fuel += self.calculate_burned_fuel();
 
                                                 match result {
@@ -963,7 +963,7 @@ mod tests {
                 }
             });
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _, _| Ok(Hash::default()));
+            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
@@ -991,7 +991,8 @@ mod tests {
             });
 
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _, _| Ok(Hash::default()));
+            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+
         wm
     }
 
@@ -999,7 +1000,7 @@ mod tests {
         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
     }
 
-    fn create_test_bulk_data(method: &str, args: Value) -> TransactionData {
+    fn create_test_bulk_data(method: &str, args: Value, nodes: bool) -> TransactionData {
         let contract_hash = test_contract_hash();
         let public_key = create_test_public_key();
         let keypair = create_test_keypair();
@@ -1020,47 +1021,50 @@ mod tests {
         let public_key = create_test_public_key();
         let id = public_key.to_account_id();
 
-        let data_tx1 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
-            account: id,
-            fuel_limit: 1000,
-            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
-            network: "arya".to_string(),
-            contract: Some(contract_hash), // Smart contract HASH
-            method: method.to_string(),
-            caller: public_key,
-            args: rmp_serialize(&value!(null)).unwrap(),
-            depends_on: data_tx0.primary_hash(),
-        });
-        let sign_tx1 = data_tx1.sign(&keypair);
+        let nodes = if nodes {
+            let data_tx1 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
+                account: id,
+                fuel_limit: 1000,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "arya".to_string(),
+                contract: Some(contract_hash), // Smart contract HASH
+                method: method.to_string(),
+                caller: public_key,
+                args: rmp_serialize(&value!(null)).unwrap(),
+                depends_on: data_tx0.primary_hash(),
+            });
+            let sign_tx1 = data_tx1.sign(&keypair);
 
-        let contract_hash = test_contract_hash();
-        let public_key = create_test_public_key();
-        let id = public_key.to_account_id();
+            let contract_hash = test_contract_hash();
+            let public_key = create_test_public_key();
+            let id = public_key.to_account_id();
 
-        let data_tx2 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
-            account: id,
-            fuel_limit: 1000,
-            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
-            network: "arya".to_string(),
-            contract: Some(contract_hash), // Smart contract HASH
-            method: method.to_string(),
-            caller: public_key,
-            args: rmp_serialize(&args).unwrap(),
-            depends_on: data_tx0.primary_hash(),
-        });
-        let sign_tx2 = data_tx2.sign(&keypair);
+            let data_tx2 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
+                account: id,
+                fuel_limit: 1000,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "arya".to_string(),
+                contract: Some(contract_hash), // Smart contract HASH
+                method: method.to_string(),
+                caller: public_key,
+                args: rmp_serialize(&args).unwrap(),
+                depends_on: data_tx0.primary_hash(),
+            });
+            let sign_tx2 = data_tx2.sign(&keypair);
 
-        let tx1 = SignedTransaction {
-            data: data_tx1,
-            signature: sign_tx1.unwrap(),
+            let tx1 = SignedTransaction {
+                data: data_tx1,
+                signature: sign_tx1.unwrap(),
+            };
+
+            let tx2 = SignedTransaction {
+                data: data_tx2,
+                signature: sign_tx2.unwrap(),
+            };
+            vec![tx1, tx2]
+        } else {
+            vec![]
         };
-
-        let tx2 = SignedTransaction {
-            data: data_tx2,
-            signature: sign_tx2.unwrap(),
-        };
-
-        let nodes = vec![tx1, tx2];
 
         TransactionData::BulkV1(TransactionDataBulkV1 {
             txs: BulkTransactions {
@@ -1070,10 +1074,10 @@ mod tests {
         })
     }
 
-    fn create_bulk_tx() -> Transaction {
+    fn create_bulk_tx(nodes: bool) -> Transaction {
         let keypair = create_test_keypair();
 
-        let data = create_test_bulk_data("get_random_sequence", value!(null));
+        let data = create_test_bulk_data("get_random_sequence", value!(null), nodes);
         let signature = data.sign(&keypair).unwrap();
         Transaction::BulkTransaction(BulkTransaction { data, signature })
     }
@@ -1083,12 +1087,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "// FIXME THIS TAKE INFINITE TIME"]
     fn test_bulk() {
         let mut executor = create_executor_bulk(false, FUEL_LIMIT);
         let mut fork = executor.db.write().fork_create();
 
-        let tx = create_bulk_tx();
+        let tx = create_bulk_tx(true);
 
         let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new());
 
@@ -1286,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn test_drad_seed() {
+    fn test_drand_seed() {
         let nw_name = String::from("skynet");
         let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
         let prev_hash =
