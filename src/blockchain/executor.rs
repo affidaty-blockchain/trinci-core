@@ -160,6 +160,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None,
             burn_fuel_method,
             &args,
+            self.seed.clone(),
             &mut vec![],
         )
     }
@@ -220,6 +221,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     *tx.data.get_contract(),
                     tx.data.get_method(),
                     tx.data.get_args(),
+                    self.seed.clone(),
                     &mut events,
                 );
 
@@ -292,6 +294,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             *root_tx.data.get_contract(),
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
+                            self.seed.clone(),
                             &mut bulk_events,
                         );
 
@@ -357,6 +360,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             *node.data.get_contract(),
                                             node.data.get_method(),
                                             node.data.get_args(),
+                                            self.seed.clone(),
                                             &mut bulk_events,
                                         );
                                         match result {
@@ -856,7 +860,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
@@ -880,7 +884,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {

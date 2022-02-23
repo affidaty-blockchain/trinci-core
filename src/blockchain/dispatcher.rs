@@ -260,7 +260,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn get_stats_handler(&self) -> Message {
-        // the turbofish (<Vec<_>>) thanks to _ makes te compiler infre the type
+        // the turbo fish (<Vec<_>>) thanks to _ makes te compiler infers the type
         let hash_pool = self
             .pool
             .read()
