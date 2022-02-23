@@ -220,16 +220,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     caller: &tx.data.get_caller().to_account_id(),
                 };
 
-                let app_hash = self.wm.lock().app_hash_check(
-                    fork,
-                    tx.data.get_account(),
-                    *tx.data.get_contract(),
-                    ctx_args,
-                );
+                let mut t_wm = self.wm.lock();
+
+                let app_hash = t_wm.app_hash_check(fork, *tx.data.get_contract(), ctx_args);
 
                 match app_hash {
                     Ok(app_hash) => {
-                        let result = self.wm.lock().call(
+                        let result = t_wm.call(
                             fork,
                             0,
                             tx.data.get_network(),
@@ -321,7 +318,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                         let app_hash = match t_wm.app_hash_check(
                             fork,
-                            root_tx.data.get_account(),
                             *root_tx.data.get_contract(),
                             ctx_args,
                         ) {
@@ -411,7 +407,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                         match t_wm.app_hash_check(
                                             fork,
-                                            node.data.get_account(),
                                             *node.data.get_contract(),
                                             ctx_args,
                                         ) {
@@ -963,7 +958,7 @@ mod tests {
                 }
             });
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
@@ -991,7 +986,7 @@ mod tests {
             });
 
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }

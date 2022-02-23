@@ -32,6 +32,7 @@ Changed
 * BlockchainSettings struct
 * Test/Production flag
 * Call to Service `contract_updatable`
+* NFA Non-Fungible Account
 
 Added
 * `secure_call` host function

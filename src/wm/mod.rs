@@ -55,7 +55,6 @@ pub trait Wm: Send + 'static {
     fn app_hash_check<'a>(
         &mut self,
         db: &mut dyn DbFork,
-        id: &str,
         app_hash: Option<Hash>,
         ctx_args: CtxArgs<'a>,
     ) -> Result<Hash>;

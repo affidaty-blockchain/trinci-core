@@ -813,7 +813,6 @@ impl Wm for WmLocal {
                 panic!("This should not happen");
             }
         };
-
         let account = match fork.load_account(SERVICE_ACCOUNT_ID) {
             Some(acc) => acc,
             None => return false,
@@ -828,7 +827,7 @@ impl Wm for WmLocal {
             0,
             "",
             ctx_args.origin,
-            ctx_args.owner,
+            SERVICE_ACCOUNT_ID,
             ctx_args.caller,
             contract,
             "contract_updatable",
@@ -845,49 +844,61 @@ impl Wm for WmLocal {
     fn app_hash_check<'a>(
         &mut self,
         db: &mut dyn DbFork,
-        id: &str,
         mut app_hash: Option<Hash>,
         ctx_args: CtxArgs<'a>,
     ) -> Result<Hash> {
         let mut updated = false;
-        let account = match db.load_account(id) {
-            Some(mut account) if account.contract != app_hash => {
-                if app_hash.is_some() {
-                    if self.contract_updatable(
-                        db,
-                        CheckHashArgs {
-                            account: id,
-                            current_hash: account.contract,
-                            new_hash: app_hash,
-                        },
-                        ctx_args,
-                    ) {
-                        account.contract = app_hash;
-                        updated = true;
-                    } else {
-                        return Err(Error::new_ext(
-                            ErrorKind::InvalidContract,
-                            "cannot bind the contract to the account",
-                        ));
-                    };
-                } else {
-                    app_hash = account.contract;
-                }
-                account
-            }
-            Some(account) => account,
-            None => {
-                updated = true;
-                Account::new(id, app_hash)
-            }
+
+        let mut account = match db.load_account(ctx_args.owner) {
+            Some(acc) => acc,
+            None => Account::new(ctx_args.owner, None),
         };
-        let app_hash = app_hash.ok_or_else(|| {
-            Error::new_ext(ErrorKind::ResourceNotFound, "smart contract not specified")
-        })?;
+
+        let app_hash = if account.contract != app_hash {
+            // This prevent to call `contract_updatable` with an empty new hash
+            if let Some(contract) = account.contract {
+                if app_hash.is_none() {
+                    app_hash = Some(contract);
+                }
+            }
+
+            if account.contract == app_hash
+                || self.contract_updatable(
+                    db,
+                    CheckHashArgs {
+                        account: ctx_args.owner,
+                        current_hash: account.contract,
+                        new_hash: app_hash,
+                    },
+                    ctx_args,
+                )
+            {
+                account.contract = app_hash;
+                updated = true;
+                match app_hash {
+                    Some(hash) => Ok(hash),
+                    None => Ok(Hash::default()),
+                }
+            } else {
+                Err(Error::new_ext(
+                    ErrorKind::InvalidContract,
+                    "cannot bind the contract to the account",
+                ))
+            }
+        } else if let Some(hash) = app_hash {
+            Ok(hash)
+        } else {
+            Err(Error::new_ext(
+                ErrorKind::ResourceNotFound,
+                "smart contract not specified",
+            ))
+        };
+
         if updated {
             db.store_account(account);
         }
-        Ok(app_hash)
+
+        app_hash
     }
 }
 
