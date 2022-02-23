@@ -316,24 +316,22 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             caller: &root_tx.data.get_caller().to_account_id(),
                         };
 
-                        let app_hash = match t_wm.app_hash_check(
-                            fork,
-                            *root_tx.data.get_contract(),
-                            ctx_args,
-                        ) {
-                            Ok(app_hash) => app_hash,
-                            Err(e) => {
-                                burned_fuel += self.calculate_burned_fuel();
-                                return Receipt {
-                                    height,
-                                    index,
-                                    burned_fuel,
-                                    success: false,
-                                    returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
-                                    events: None,
-                                };
-                            }
-                        };
+                        let app_hash =
+                            match t_wm.app_hash_check(fork, *root_tx.data.get_contract(), ctx_args)
+                            {
+                                Ok(app_hash) => app_hash,
+                                Err(e) => {
+                                    burned_fuel += self.calculate_burned_fuel();
+                                    return Receipt {
+                                        height,
+                                        index,
+                                        burned_fuel,
+                                        success: false,
+                                        returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
+                                        events: None,
+                                    };
+                                }
+                            };
                         let result = t_wm.call(
                             fork,
                             0,
