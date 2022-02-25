@@ -173,7 +173,7 @@ pub fn call(
                 owner,
                 caller: ctx.owner,
             };
-            let app_hash = wm.app_hash_check(ctx.db, contract, ctx_args)?;
+            let app_hash = wm.app_hash_check(ctx.db, contract, ctx_args, ctx.seed.clone())?;
             wm.call(
                 ctx.db,
                 ctx.depth + 1,
@@ -184,6 +184,7 @@ pub fn call(
                 app_hash,
                 method,
                 data,
+                ctx.seed.clone(),
                 ctx.events,
             )
         }
@@ -257,6 +258,7 @@ mod tests {
              _app_hash,
              _method,
              _args,
+             _seed,
              _events| Ok(vec![]),
         );
         wm

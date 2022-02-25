@@ -20,7 +20,14 @@
 //! The module provides a generic WM trait plus a local implementation
 //! using wasmtime.
 
-use crate::{base::schema::SmartContractEvent, crypto::Hash, db::DbFork, Result};
+use std::sync::Arc;
+
+use crate::{
+    base::schema::SmartContractEvent,
+    crypto::{drand::SeedSource, Hash},
+    db::DbFork,
+    Result,
+};
 
 pub mod host_func;
 #[cfg(feature = "with-wasmtime")]
@@ -49,6 +56,7 @@ pub trait Wm: Send + 'static {
         contract: Hash,
         method: &str,
         args: &[u8],
+        seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
     ) -> Result<Vec<u8>>;
 
@@ -57,6 +65,7 @@ pub trait Wm: Send + 'static {
         db: &mut dyn DbFork,
         app_hash: Option<Hash>,
         ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
     ) -> Result<Hash>;
 
     fn contract_updatable<'a>(
@@ -64,6 +73,7 @@ pub trait Wm: Send + 'static {
         fork: &mut dyn DbFork,
         hash_args: CheckHashArgs<'a>,
         ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
     ) -> bool;
 }
 

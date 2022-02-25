@@ -164,6 +164,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             app_hash,
             burn_fuel_method,
             &args,
+            self.seed.clone(),
             &mut vec![],
         )
     }
@@ -222,7 +223,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                 let mut t_wm = self.wm.lock();
 
-                let app_hash = t_wm.app_hash_check(fork, *tx.data.get_contract(), ctx_args);
+                let app_hash =
+                    t_wm.app_hash_check(fork, *tx.data.get_contract(), ctx_args, self.seed.clone());
 
                 match app_hash {
                     Ok(app_hash) => {
@@ -236,6 +238,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             app_hash,
                             tx.data.get_method(),
                             tx.data.get_args(),
+                            self.seed.clone(),
                             &mut events,
                         );
 
@@ -316,22 +319,25 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             caller: &root_tx.data.get_caller().to_account_id(),
                         };
 
-                        let app_hash =
-                            match t_wm.app_hash_check(fork, *root_tx.data.get_contract(), ctx_args)
-                            {
-                                Ok(app_hash) => app_hash,
-                                Err(e) => {
-                                    burned_fuel += self.calculate_burned_fuel();
-                                    return Receipt {
-                                        height,
-                                        index,
-                                        burned_fuel,
-                                        success: false,
-                                        returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
-                                        events: None,
-                                    };
-                                }
-                            };
+                        let app_hash = match t_wm.app_hash_check(
+                            fork,
+                            *root_tx.data.get_contract(),
+                            ctx_args,
+                            self.seed.clone(),
+                        ) {
+                            Ok(app_hash) => app_hash,
+                            Err(e) => {
+                                burned_fuel += self.calculate_burned_fuel();
+                                return Receipt {
+                                    height,
+                                    index,
+                                    burned_fuel,
+                                    success: false,
+                                    returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
+                                    events: None,
+                                };
+                            }
+                        };
                         let result = t_wm.call(
                             fork,
                             0,
@@ -342,6 +348,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             app_hash,
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
+                            self.seed.clone(),
                             &mut bulk_events,
                         );
 
@@ -407,6 +414,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             fork,
                                             *node.data.get_contract(),
                                             ctx_args,
+                                            self.seed.clone(),
                                         ) {
                                             Ok(app_hash) => {
                                                 let result = t_wm.call(
@@ -419,6 +427,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                     app_hash,
                                                     node.data.get_method(),
                                                     node.data.get_args(),
+                                                    self.seed.clone(),
                                                     &mut bulk_events,
                                                 );
 
@@ -938,7 +947,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
@@ -956,7 +965,7 @@ mod tests {
                 }
             });
         wm.expect_app_hash_check()
-            .returning(move |_, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
@@ -965,7 +974,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
@@ -984,7 +993,7 @@ mod tests {
             });
 
         wm.expect_app_hash_check()
-            .returning(move |_, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
