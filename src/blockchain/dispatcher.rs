@@ -31,6 +31,7 @@
 //!   normally do not send out a response. This is to avoid starvation of
 //!   submitters that are not commonly aware of the actual content of the packed payload.
 //!   In case of messages that are not supposed to send out a real response
+
 use crate::{
     base::{
         schema::Block,
@@ -48,6 +49,9 @@ use crate::{
     Error, ErrorKind, Result, Transaction,
 };
 use std::sync::Arc;
+
+/// WARNING THIS MUST BE AT MAX EQUAL TO THE p2p MAX_TRANSMIT_SIZE
+const MAX_TRANSACTION_SIZE: usize = 524288;
 
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
@@ -104,6 +108,11 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn put_transaction_internal(&self, tx: Transaction) -> Result<Hash> {
+        let buf = rmp_serialize(&tx)?;
+        if buf.len() >= MAX_TRANSACTION_SIZE {
+            return Err(ErrorKind::TooLargeTx.into());
+        }
+
         tx.verify(tx.get_caller(), tx.get_signature())?;
         tx.check_integrity()?;
         let hash = tx.get_primary_hash();
@@ -260,7 +269,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn get_stats_handler(&self) -> Message {
-        // the turbo fish (<Vec<_>>) thanks to _ makes te compiler infers the type
+        // the turbofish (<Vec<_>>) thanks to _ makes te compiler infer the type
         let hash_pool = self
             .pool
             .read()
@@ -416,9 +425,12 @@ impl<D: Db> Dispatcher<D> {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{
-            create_test_account, create_test_block, create_test_bulk_tx, create_test_bulk_tx_alt,
-            create_test_unit_tx, FUEL_LIMIT,
+        base::schema::{
+            tests::{
+                create_test_account, create_test_block, create_test_bulk_tx,
+                create_test_bulk_tx_alt, create_test_unit_tx, FUEL_LIMIT,
+            },
+            TransactionData,
         },
         channel::simple_channel,
         db::*,
@@ -489,6 +501,30 @@ mod tests {
             let (tx_chan, _rx_chan) = simple_channel::<Message>();
             self.message_handler(req, &tx_chan, 0)
         }
+    }
+
+    #[test]
+    fn put_too_large_unit_transaction() {
+        let dispatcher = create_dispatcher(false);
+
+        let mut tx = create_test_unit_tx(FUEL_LIMIT);
+
+        if let Transaction::UnitTransaction(ref mut signed_tx) = tx {
+            if let TransactionData::V1(ref mut tx_data_v1) = signed_tx.data {
+                tx_data_v1.args = vec![0u8; MAX_TRANSACTION_SIZE]
+            } else {
+                panic!();
+            }
+        } else {
+            panic!();
+        };
+
+        let req = Message::PutTransactionRequest { confirm: true, tx };
+
+        let res = dispatcher.message_handler_wrap(req).unwrap();
+
+        let exp_res = Message::Exception(Error::new(ErrorKind::TooLargeTx));
+        assert_eq!(res, exp_res);
     }
 
     #[test]

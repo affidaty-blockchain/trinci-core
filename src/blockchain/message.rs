@@ -126,10 +126,10 @@ pub enum Message {
         /// Account data
         data: Vec<Option<Vec<u8>>>,
     },
-    /// Get core stats requets.
+    /// Get core stats request.
     #[serde(rename = "13")]
     GetCoreStatsRequest,
-    /// Get core stats respinse.
+    /// Get core stats response.
     #[serde(rename = "14")]
     GetCoreStatsResponse((Hash, usize, Option<Block>)),
     /// Get the contracts events.
