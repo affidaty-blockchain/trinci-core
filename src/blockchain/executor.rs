@@ -635,6 +635,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
         }
+        if is_validator {
+            // FIXME
+            // call the validator closure and assign the result to the validator arc
+            // self.
+        }
 
         Ok(block_hash)
     }
