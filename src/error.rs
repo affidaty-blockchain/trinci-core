@@ -60,7 +60,7 @@ pub(super) mod error_kind_str {
     pub const NOT_IMPLEMENTED: &str = "not implemented";
     pub const TPM2_ERROR: &str = "tpm interaction error";
     pub const WRONG_TX_TYPE: &str = "this tx type is not implemented or malformed";
-    pub const BROKEN_INTEGRITY: &str = "the integtiry of the node is invalid";
+    pub const BROKEN_INTEGRITY: &str = "the integrity of the node is invalid";
     pub const FUEL_ERROR: &str = "burning fuel error";
     pub const OTHER: &str = "other";
 }
@@ -140,7 +140,7 @@ impl<'de> Deserialize<'de> for ErrorKind {
 
 /// Project-wide error type.
 /// Contains a kind enumerate and a `source` to identify the subsystem that may
-/// have propageted the error.
+/// have propagated the error.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Error {
     /// Error kind.

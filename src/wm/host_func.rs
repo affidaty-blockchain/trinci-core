@@ -50,6 +50,8 @@ pub struct CallContext<'a> {
     pub events: &'a mut Vec<SmartContractEvent>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
+    /// Initial fuel
+    pub initial_fuel: u64,
 }
 
 /// WASM logging facility.
@@ -157,15 +159,17 @@ pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash>
 /// Call a method resident in another account and contract.
 /// The input and output arguments are subject to the packing format rules of
 /// the called smart contract.
-pub fn call(
+/// // FIXME call
+pub fn call_hf(
     ctx: &mut CallContext,
     owner: &str,
     contract: Option<Hash>,
     method: &str,
     data: &[u8],
-) -> Result<Vec<u8>> {
+    initial_fuel: u64,
+) -> Result<(u64, Vec<u8>)> {
     match ctx.wm {
-        Some(ref mut wm) => wm.call(
+        Some(ref mut wm) => wm.call_wm(
             ctx.db,
             ctx.depth + 1,
             ctx.network,
@@ -176,6 +180,7 @@ pub fn call(
             method,
             data,
             ctx.events,
+            initial_fuel,
         ),
         None => Err(Error::new_ext(
             ErrorKind::WasmMachineFault,
@@ -237,7 +242,7 @@ mod tests {
 
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
-        wm.expect_call().returning(
+        wm.expect_call_wm().returning(
             |_db,
              _depth,
              _network,
@@ -247,7 +252,8 @@ mod tests {
              _app_hash,
              _method,
              _args,
-             _events| Ok(vec![]),
+             _events,
+             _initial_fuel| Ok((0, vec![])),
         );
         wm
     }
@@ -307,6 +313,7 @@ mod tests {
                 origin: &self.owner,
                 events: &mut self.events,
                 seed,
+                initial_fuel: 0,
             }
         }
     }

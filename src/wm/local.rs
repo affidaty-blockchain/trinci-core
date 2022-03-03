@@ -42,6 +42,8 @@ use wasmtime::{
 };
 
 pub type WasmSlice = u64;
+pub const INITIAL_FUEL: u64 = 1_000_000_000; // Internal wasmtime fuel
+pub const FAIL_FUEL_CONSUMPTION: u64 = 100_000_000; // Internal wasmtime fuel
 
 /// Combine two i32 into one u64
 #[inline]
@@ -368,25 +370,48 @@ mod local_host_func {
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+        // TODO this can be used as initial fuel for the next call
+
         // Invoke portable host function.
-        let buf = match host_func::call(ctx, &account, Some(contract), &method, args) {
-            Ok(buf) => rmp_serialize(&AppOutput {
-                success: true,
-                data: &buf,
-            }),
-            Err(err) => rmp_serialize(&AppOutput {
-                success: false,
-                data: err.to_string_full().as_bytes(),
-            }),
-        }
-        .unwrap_or_default();
+        let (consumed_fuel, buf) = match host_func::call_hf(
+            ctx,
+            &account,
+            Some(contract),
+            &method,
+            args,
+            remaining_fuel,
+        ) {
+            Ok((fuel, buf)) => (
+                fuel,
+                rmp_serialize(&AppOutput {
+                    success: true,
+                    data: &buf,
+                }),
+            ),
+            Err(err) => (
+                FAIL_FUEL_CONSUMPTION,
+                rmp_serialize(&AppOutput {
+                    success: false,
+                    data: err.to_string_full().as_bytes(),
+                }),
+            ),
+        };
+        let buf = buf.unwrap_or_default();
+
+        caller.consume_fuel(consumed_fuel)?;
+
         return_buf(caller, mem, buf)
     }
 
     /// Call contract method.
-    fn call(
+    /// /// // FIXME call
+    fn call_extern(
         mut caller: Caller<'_, CallContext>,
         account_offset: i32,
         account_size: i32,
@@ -402,20 +427,36 @@ mod local_host_func {
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+        // TODO this can be used as initial fuel for the next call
+
         // Invoke portable host function.
-        let buf = match host_func::call(ctx, &account, None, &method, args) {
-            Ok(buf) => rmp_serialize(&AppOutput {
-                success: true,
-                data: &buf,
-            }),
-            Err(err) => rmp_serialize(&AppOutput {
-                success: false,
-                data: err.to_string_full().as_bytes(),
-            }),
-        }
-        .unwrap_or_default();
+        let (consumed_fuel, buf) =
+            match host_func::call_hf(ctx, &account, None, &method, args, remaining_fuel) {
+                Ok((fuel, buf)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: true,
+                        data: &buf,
+                    }),
+                ),
+                Err(err) => (
+                    FAIL_FUEL_CONSUMPTION,
+                    rmp_serialize(&AppOutput {
+                        success: false,
+                        data: err.to_string_full().as_bytes(),
+                    }),
+                ),
+            };
+        let buf = buf.unwrap_or_default();
+
+        caller.consume_fuel(consumed_fuel)?;
+
         return_buf(caller, mem, buf)
     }
 
@@ -464,7 +505,7 @@ mod local_host_func {
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
                 "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
-                "hf_call" => Func::wrap(&mut store, call),
+                "hf_call" => Func::wrap(&mut store, call_extern),
                 "hf_s_call" => Func::wrap(&mut store, s_call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
@@ -521,6 +562,7 @@ impl WmLocal {
 
         let mut config = Config::default();
         config.interruptable(true);
+        config.consume_fuel(true);
 
         WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
@@ -684,7 +726,7 @@ fn app_hash_check(
 
 impl Wm for WmLocal {
     /// Execute a smart contract.
-    fn call(
+    fn call_wm(
         &mut self,
         db: &mut dyn DbFork,
         depth: u16,
@@ -696,7 +738,8 @@ impl Wm for WmLocal {
         method: &str,
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
-    ) -> Result<Vec<u8>> {
+        initial_fuel: u64,
+    ) -> Result<(u64, Vec<u8>)> {
         let app_hash = app_hash_check(db, owner, contract, self.is_production)?;
 
         let nw_name = String::from("nw_name_test");
@@ -728,10 +771,13 @@ impl Wm for WmLocal {
             origin,
             events,
             seed,
+            initial_fuel,
         };
 
         // Allocate execution context (aka Store).
         let mut store: Store<CallContext> = Store::new(&engine2, ctx);
+
+        store.add_fuel(initial_fuel).unwrap_or_default();
 
         // Get imported host functions list.
         let imports = local_host_func::host_functions_register(&mut store, module)?;
@@ -806,6 +852,9 @@ impl Wm for WmLocal {
                 Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
             })?;
 
+        let consumed_fuel = store.fuel_consumed().unwrap_or_default();
+        error!("`{}` consumed fuel = {}", method, consumed_fuel);
+
         let ctx = store.data_mut();
 
         if ctx.data_updated {
@@ -817,7 +866,6 @@ impl Wm for WmLocal {
             account.data_hash = Some(ctx.db.state_hash(&account.id));
             ctx.db.store_account(account);
         }
-
         // Extract smart contract result from memory.
         let (offset, length) = wslice_split(wslice);
         let buf = mem
@@ -827,7 +875,7 @@ impl Wm for WmLocal {
                 Error::new_ext(ErrorKind::WasmMachineFault, "out of bounds memory access")
             })?;
         match rmp_deserialize::<AppOutput>(buf) {
-            Ok(res) if res.success => Ok(res.data.to_owned()),
+            Ok(res) if res.success => Ok((consumed_fuel, res.data.to_owned())),
             Ok(res) => Err(Error::new_ext(
                 ErrorKind::SmartContractFault,
                 String::from_utf8_lossy(res.data),
@@ -864,7 +912,7 @@ mod tests {
             &mut self,
             db: &mut T,
             data: &TransactionData,
-        ) -> Result<Vec<u8>> {
+        ) -> Result<(u64, Vec<u8>)> {
             self.exec_transaction_with_events(db, data, &mut Vec::new())
         }
 
@@ -873,8 +921,8 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
-        ) -> Result<Vec<u8>> {
-            self.call(
+        ) -> Result<(u64, Vec<u8>)> {
+            self.call_wm(
                 db,
                 0,
                 "skynet",
@@ -885,6 +933,7 @@ mod tests {
                 data.get_method(),
                 data.get_args(),
                 events,
+                INITIAL_FUEL,
             )
         }
     }
@@ -970,7 +1019,7 @@ mod tests {
         let data = create_test_data_transfer();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, value!(null));
@@ -982,7 +1031,7 @@ mod tests {
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -996,7 +1045,7 @@ mod tests {
 
         vm.exec_transaction(&mut db, &data).unwrap();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -1052,7 +1101,7 @@ mod tests {
         });
         let data = create_test_data("echo_generic", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1075,7 +1124,7 @@ mod tests {
         });
         let data = create_test_data("echo_typed", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1142,7 +1191,7 @@ mod tests {
         });
         let data = create_test_data("nested_call", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, buf) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1209,7 +1258,7 @@ mod tests {
         let data = create_test_data("get_random_sequence", value!({}));
         let mut db = create_test_db();
 
-        let output = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, output) = vm.exec_transaction(&mut db, &data).unwrap();
 
         assert_eq!(
             vec![
@@ -1226,7 +1275,7 @@ mod tests {
         let data = create_test_data("get_hashmap", value!({}));
         let mut db = create_test_db();
 
-        let output = vm.exec_transaction(&mut db, &data).unwrap();
+        let (_, output) = vm.exec_transaction(&mut db, &data).unwrap();
 
         let input = vec![
             131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
@@ -1237,7 +1286,7 @@ mod tests {
     }
 
     // Need to be handle with an interrupt_handle
-    // https://docs.rs/wasmtime/0.26.0/wasmtime/struct.Store.html#method.interrupt_handle
+    // https://docs.rs/wasmtime/0.34.1/wasmtime/struct.Store.html#method.interrupt_handle
     #[test]
     #[ignore = "TODO"]
     fn wasm_infinite_loop() {

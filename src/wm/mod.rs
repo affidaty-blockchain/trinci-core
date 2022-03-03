@@ -38,7 +38,8 @@ pub trait Wm: Send + 'static {
     /// Execute the smart contract method as defined within the `data` parameter.
     /// It is required to pass the database to contextualize the operations.
     #[allow(clippy::too_many_arguments)]
-    fn call(
+    /// // FIXME call
+    fn call_wm(
         &mut self,
         db: &mut dyn DbFork,
         depth: u16,
@@ -50,7 +51,8 @@ pub trait Wm: Send + 'static {
         method: &str,
         args: &[u8],
         events: &mut Vec<SmartContractEvent>,
-    ) -> Result<Vec<u8>>;
+        initial_fuel: u64,
+    ) -> Result<(u64, Vec<u8>)>;
 }
 
 /// Structure passed from the host to the wasm smart contracts.

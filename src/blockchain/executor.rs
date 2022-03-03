@@ -40,7 +40,10 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    wm::Wm,
+    wm::{
+        local::{FAIL_FUEL_CONSUMPTION, INITIAL_FUEL},
+        Wm,
+    },
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -125,9 +128,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     // Calculates the fuel consumed by the transaction execution
-    fn calculate_burned_fuel(&self) -> u64 {
-        // TODO
-        1000
+    fn calculate_burned_fuel(&self, wasmtime_fuel: u64) -> u64 {
+        // TODO find a f(_wasmtime_fuel) to calculate the fuel in TRINCI
+        warn!("calculate_burned_fuel::{}", wasmtime_fuel);
+        wasmtime_fuel
     }
 
     fn call_burn_fuel(
@@ -136,7 +140,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         burn_fuel_method: &str,
         origin: &str,
         fuel: u64,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<(u64, Vec<u8>)> {
         let args = value!({
             "from": origin,
             "units": fuel
@@ -150,7 +154,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
-        self.wm.lock().call(
+        self.wm.lock().call_wm(
             fork,
             0,
             SERVICE_ACCOUNT_ID,
@@ -161,6 +165,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             burn_fuel_method,
             &args,
             &mut vec![],
+            INITIAL_FUEL,
         )
     }
 
@@ -186,7 +191,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Call to consume fuel
         match self.call_burn_fuel(fork, burn_fuel_method, origin, fuel) {
-            Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
+            Ok((_, value)) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
                 Ok(res) => (res.success & max_fuel_result, res.units),
                 Err(_) => (false, 0),
             },
@@ -210,7 +215,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let mut receipt = match tx {
             Transaction::UnitTransaction(tx) => {
-                let result = self.wm.lock().call(
+                let result = self.wm.lock().call_wm(
                     fork,
                     0,
                     tx.data.get_network(),
@@ -221,6 +226,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     tx.data.get_method(),
                     tx.data.get_args(),
                     &mut events,
+                    INITIAL_FUEL,
                 );
 
                 let event_tx = tx.data.primary_hash();
@@ -247,8 +253,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 // On error, receipt data shall contain the full error description
                 // only if error kind is a SmartContractFailure. This is to prevent
                 // internal error conditions leaks to the user.
-                let (success, returns) = match result {
-                    Ok(value) => (true, value),
+                let (success, consumed_fuel, returns) = match result {
+                    Ok((consumed_fuel, value)) => (true, consumed_fuel, value), // FIXME here i can get the real consumed fuel
                     Err(err) => {
                         let msg = match err.kind {
                             ErrorKind::SmartContractFault | ErrorKind::ResourceNotFound => {
@@ -257,11 +263,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             _ => err.to_string(),
                         };
                         debug!("Execution failure: {}", msg);
-                        (false, msg.as_bytes().to_vec())
+                        (false, FAIL_FUEL_CONSUMPTION, msg.as_bytes().to_vec())
                     }
                 };
 
-                let burned_fuel = self.calculate_burned_fuel();
+                let burned_fuel = self.calculate_burned_fuel(consumed_fuel);
 
                 Receipt {
                     height,
@@ -272,6 +278,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     events,
                 }
             }
+            // FIXME IMPLEMENT THE FUEL CONSUMPTION
             Transaction::BulkTransaction(tx) => {
                 let mut results = HashMap::new();
                 let mut execution_fail = false;
@@ -282,7 +289,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         let hash = root_tx.data.primary_hash();
                         let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
-                        let result = self.wm.lock().call(
+                        let result = self.wm.lock().call_wm(
                             fork,
                             0,
                             root_tx.data.get_network(),
@@ -293,6 +300,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
                             &mut bulk_events,
+                            INITIAL_FUEL,
                         );
 
                         match result {
@@ -301,7 +309,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                     hex::encode(hash),
                                     BulkResult {
                                         success: true,
-                                        result: rcpt,
+                                        result: rcpt.1, // FIXME
                                     },
                                 );
 
@@ -347,7 +355,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             },
                                         );
                                     } else {
-                                        let result = self.wm.lock().call(
+                                        let result = self.wm.lock().call_wm(
                                             fork,
                                             0,
                                             node.data.get_network(),
@@ -358,6 +366,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             node.data.get_method(),
                                             node.data.get_args(),
                                             &mut bulk_events,
+                                            0, // FIXME
                                         );
                                         match result {
                                             Ok(rcpt) => {
@@ -365,7 +374,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                     hex::encode(node.data.primary_hash()),
                                                     BulkResult {
                                                         success: true,
-                                                        result: rcpt,
+                                                        result: rcpt.1, // FIXME
                                                     },
                                                 );
 
@@ -433,7 +442,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         (None, rmp_serialize(&results))
                     } // Receipt should be empty?
                 };
-                let burned_fuel = self.calculate_burned_fuel();
+                let burned_fuel = self.calculate_burned_fuel(0); // FIXME
 
                 Receipt {
                     height,
@@ -855,13 +864,13 @@ mod tests {
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call_wm()
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
                         // Dummy opaque information returned the the smart contract.
-                        Ok(hex::decode("4f706171756544617461").unwrap())
+                        Ok((0, hex::decode("4f706171756544617461").unwrap()))
                     }
                     2 => Err(Error::new_ext(
                         ErrorKind::SmartContractFault,
@@ -879,13 +888,13 @@ mod tests {
     fn create_wm_mock_bulk() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call_wm()
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
                         // Dummy opaque information returned the the smart contract.
-                        Ok(hex::decode("4f706171756544617461").unwrap())
+                        Ok((0, hex::decode("4f706171756544617461").unwrap()))
                     }
                     4 => Err(Error::new_ext(
                         ErrorKind::SmartContractFault,
