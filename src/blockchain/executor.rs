@@ -85,6 +85,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     burn_fuel_method: String,
     /// Drand Seed
     seed: Arc<SeedSource>,
+    /// Validator flag
+    is_validator: Arc<bool>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -97,6 +99,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             keypair: self.keypair.clone(),
             burn_fuel_method: self.burn_fuel_method.clone(),
             seed: self.seed.clone(),
+            is_validator: self.is_validator.clone(),
         }
     }
 }
@@ -119,6 +122,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             keypair,
             burn_fuel_method: String::new(),
             seed,
+            is_validator: Arc::new(false),
         }
     }
 
@@ -637,8 +641,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
         if is_validator {
             // FIXME
-            // call the validator closure and assign the result to the validator arc
-            // self.
+            let node_account_id = self.keypair.public_key().to_account_id();
+            let valid = (*is_validator_closure)(node_account_id).unwrap_or_default();
+            self.is_validator = Arc::new(valid);
+            error!("validator_b: {:?}", self.is_validator);
         }
 
         Ok(block_hash)

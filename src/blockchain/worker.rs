@@ -70,7 +70,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
     /// Method to tell if the Node is validator
     is_validator_closure: Arc<dyn IsValidator>,
     /// Variable that store the validator status of the node
-    is_validator: bool,
+    is_validator: Arc<bool>,
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
@@ -126,7 +126,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             executing,
             synchronizing,
             is_validator_closure: Arc::new(is_validator_closure),
-            is_validator: false,
+            is_validator: Arc::new(false),
         }
     }
 
@@ -254,8 +254,10 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         // let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
         // let mut is_validator_fut = Box::pin(is_validator);
 
-        self.is_validator = (*is_validator_closure)(account_id.to_string()).unwrap_or_default();
-        error!("validator: {:?}", self.is_validator);
+        // FIXME This call must be only read/mode
+        self.is_validator =
+            Arc::new((*is_validator_closure)(account_id.to_string()).unwrap_or_default());
+        error!("validator_a: {:?}", self.is_validator);
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             // if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
@@ -266,10 +268,10 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             // }
 
             while exec_sleep.poll_unpin(cx).is_ready() {
-                if self.is_validator {
+                if *self.is_validator {
                     self.try_build_block(1);
                 }
-                self.try_exec_block(self.is_validator, self.is_validator_closure.clone());
+                self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
 
@@ -289,8 +291,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 }
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
-                if self.is_validator {
-                    self.try_exec_block(self.is_validator, self.is_validator_closure.clone());
+                if *self.is_validator {
+                    self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                     self.try_build_block(threshold);
                 }
             }
