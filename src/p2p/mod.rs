@@ -17,6 +17,7 @@
 
 mod behaviour;
 pub mod service;
+mod truster;
 mod worker;
 
 pub use service::PeerService;

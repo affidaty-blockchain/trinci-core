@@ -74,7 +74,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     };
 
     let public_key = keypair.public();
-    let peer_id = public_key.clone().into_peer_id();
+    let peer_id = public_key.clone().to_peer_id();
     info!("P2P PeerId: {}", peer_id);
 
     // Subscribe to blockchain events of interest.
