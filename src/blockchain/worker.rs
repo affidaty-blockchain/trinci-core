@@ -94,7 +94,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             db.clone(),
             pubsub.clone(),
             seed.clone(),
-            p2p_id,
+            p2p_id.clone(),
         );
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
@@ -104,6 +104,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             config.lock().keypair.clone(),
             seed,
+            p2p_id,
         );
         let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 

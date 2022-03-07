@@ -264,6 +264,7 @@ mod tests {
                 0 => Message::GetBlockResponse {
                     block: create_test_block(),
                     txs: None,
+                    origin: None, // TODO: check but it should be local
                 },
                 _ => Message::Exception(ErrorKind::ResourceNotFound.into()),
             },

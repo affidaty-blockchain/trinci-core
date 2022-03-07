@@ -21,13 +21,12 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::{rmp_deserialize, rmp_serialize},
+    base::serialize::rmp_deserialize,
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
-    p2p::truster,
     Error, ErrorKind, Result,
 };
 use async_std::task;
-use futures::{stream::Select, AsyncRead, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use libp2p::{
     core::{
         upgrade::{read_length_prefixed, write_length_prefixed},
@@ -153,9 +152,6 @@ pub(crate) struct Behavior {
     /// To forward incoming messages to blockchain service.
     #[behaviour(ignore)]
     pub bc_chan: BlockRequestSender,
-    /// List of trusted peers
-    #[behaviour(ignore)]
-    pub trusted: truster::trusted,
 }
 
 #[derive(Debug)]
@@ -299,32 +295,6 @@ impl Behavior {
             reqres,
         })
     }
-
-    /// Populate the trusted peer list
-    fn populate_trusted_list() {
-        // save starting time
-        // until x sec passed:
-        //      collect GetBlockResponse
-        // select most shared block peers
-        todo!()
-    }
-
-    ///
-    fn ask_block() {
-        // ask for block to a trusted
-        // if it does not response drop the peer
-        // ask to another
-        // if no peer do populate_trust_list
-    }
-
-    fn ask_tx() {
-        // ask for tx to a trusted
-        // if it does not response drop the peer
-        // ask to another
-        // if no peer do populate_trust_list
-    }
-
-    // TODO: repopulate trusted each x seconds -> use biusy sleep
 }
 /* cSpell::disable */
 // Received {
@@ -442,7 +412,7 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
                             let topic = IdentTopic::new(message.topic.as_str());
                             // TODO: maybe this should be sent in unicast only to the sender.
-                            // it should only answer to requests, if block or tx annunciation, just submit to bc service
+                            // it should only answer to requests, if block or tx annunciation: just submit to bc service
                             if let Err(err) = self.gossip.publish(topic, buf) {
                                 if !matches!(err, PublishError::InsufficientPeers) {
                                     error!("publish error: {:?}", err);
@@ -569,7 +539,11 @@ impl NetworkBehaviourEventProcess<RequestResponseEvent<UnicastMessage, UnicastMe
                                 }
                             }
                         }
-                        Message::GetBlockResponse { block: _, txs: _ } => {
+                        Message::GetBlockResponse {
+                            block: _,
+                            txs: _,
+                            origin: _,
+                        } => {
                             // this is only possible when peer just subscribed to new topic
                             // collect blocks and peer id in a time window
                             // select a group of trusted peers

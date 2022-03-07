@@ -279,6 +279,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         // This also forces the thread termination so that we can join it below...
@@ -305,6 +306,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         pubsub.publish(Event::BLOCK, msg);

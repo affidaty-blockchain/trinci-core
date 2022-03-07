@@ -38,6 +38,7 @@ use crate::{
         BlockchainSettings, Mutex, RwLock,
     },
     blockchain::{
+        aligner,
         message::*,
         pool::{BlockInfo, Pool},
         pubsub::{Event, PubSub},
@@ -63,6 +64,8 @@ pub(crate) struct Dispatcher<D: Db> {
     seed: Arc<SeedSource>,
     /// P2P ID
     p2p_id: String,
+    /// Aligner
+    aligner: Option<aligner::Aligner>,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -74,6 +77,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
+            aligner: self.aligner.clone(),
         }
     }
 }
@@ -95,6 +99,7 @@ impl<D: Db> Dispatcher<D> {
             pubsub,
             seed,
             p2p_id,
+            aligner: None,
         }
     }
 
@@ -196,6 +201,7 @@ impl<D: Db> Dispatcher<D> {
                 Message::GetBlockResponse {
                     block,
                     txs: blk_txs,
+                    origin: Some(self.p2p_id.clone()),
                 }
             }
             None => Message::Exception(Error::new(ErrorKind::ResourceNotFound)),
@@ -226,9 +232,11 @@ impl<D: Db> Dispatcher<D> {
         let _ = self.put_transaction_internal(transaction);
     }
 
-    fn get_block_res_handler(&self, block: Block, txs_hashes: Option<Vec<Hash>>) {
+    fn old_get_block_res_handler(&self, block: Block, txs_hashes: Option<Vec<Hash>>) {
+        // get local last blocl
         let opt = self.db.read().load_block(u64::MAX);
 
+        // collect missing blocks by heights
         let mut missing_headers = match opt {
             Some(last) => last.data.height + 1..block.data.height,
             None => 0..block.data.height,
@@ -237,7 +245,12 @@ impl<D: Db> Dispatcher<D> {
             missing_headers.end += 1;
         }
 
+        // check if wether or not there are missing blocks
         if missing_headers.start <= block.data.height {
+            // if recieved block contains txs
+            //  . remove those from unconfirmed pool
+            //  . add txs to pool.txs if not present
+            // push new block into pool.confirmed
             let mut pool = self.pool.write();
             if let Some(ref hashes) = txs_hashes {
                 for hash in hashes {
@@ -256,6 +269,62 @@ impl<D: Db> Dispatcher<D> {
                 txs_hashes,
             };
             pool.confirmed.insert(block.data.height, blk_info);
+        }
+    }
+
+    fn get_block_res_handler(
+        &self,
+        block: Block,
+        txs_hashes: Option<Vec<Hash>>,
+        origin: Option<String>,
+    ) {
+        // get local last block
+        let opt = self.db.read().load_block(u64::MAX);
+
+        // collect missing blocks by heights
+        let mut missing_headers = match opt {
+            Some(last) => last.data.height + 1..block.data.height,
+            None => 0..block.data.height,
+        };
+        if txs_hashes.is_none() {
+            missing_headers.end += 1;
+        }
+
+        // check if wether or not there are missing blocks
+        // in case is the "next block", it means the behaviour
+        // is the one expected, the node is aligned.
+        // Note: this happens only if the node is not in a
+        // "alignment" status, shown by the status of the aligner
+        if missing_headers.start == block.data.height && self.aligner.is_none() {
+            // if recieved block contains txs
+            //  . remove those from unconfirmed pool
+            //  . add txs to pool.txs if not present
+            // push new block into pool.confirmed
+            let mut pool = self.pool.write();
+            if let Some(ref hashes) = txs_hashes {
+                for hash in hashes {
+                    if pool.unconfirmed.contains(hash) {
+                        pool.unconfirmed.remove(hash);
+                    }
+                    if !pool.txs.contains_key(hash) {
+                        pool.txs.insert(*hash, None);
+                    }
+                }
+            }
+            let blk_info = BlockInfo {
+                hash: Some(block.data.primary_hash()),
+                validator: block.data.validator,
+                signature: Some(block.signature),
+                txs_hashes,
+            };
+            pool.confirmed.insert(block.data.height, blk_info);
+        } else if missing_headers.start < block.data.height {
+            // in this case the node miss some block
+            // it is needed to re-align the node
+
+            // start aligner if not already running
+
+            // send block message
         }
     }
 
@@ -397,8 +466,8 @@ impl<D: Db> Dispatcher<D> {
                 self.pubsub.lock().unsubscribe(id, events);
                 None
             }
-            Message::GetBlockResponse { block, txs } => {
-                self.get_block_res_handler(block, txs);
+            Message::GetBlockResponse { block, txs, origin } => {
+                self.get_block_res_handler(block, txs, origin);
                 None
             }
             Message::GetTransactionResponse { tx } => {
@@ -664,6 +733,7 @@ mod tests {
         let exp_res = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
         assert_eq!(res, exp_res);
     }

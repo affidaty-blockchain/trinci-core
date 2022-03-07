@@ -82,6 +82,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     burn_fuel_method: String,
     /// Drand Seed
     seed: Arc<SeedSource>,
+    /// P2P peer id
+    p2p_id: String,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -94,6 +96,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             keypair: self.keypair.clone(),
             burn_fuel_method: self.burn_fuel_method.clone(),
             seed: self.seed.clone(),
+            p2p_id: self.p2p_id.clone(),
         }
     }
 }
@@ -107,6 +110,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         pubsub: Arc<Mutex<PubSub>>,
         keypair: Arc<KeyPair>,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         Executor {
             pool,
@@ -116,6 +120,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             keypair,
             burn_fuel_method: String::new(),
             seed,
+            p2p_id,
         }
     }
 
@@ -623,6 +628,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             let msg = Message::GetBlockResponse {
                 block,
                 txs: Some(txs_hashes.to_owned()),
+                origin: Some(self.p2p_id.clone()),
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
         }
@@ -775,7 +781,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        let mut executor = Executor::new(pool, db, wm, sub, keypair, seed.clone());
+        let mut executor = Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        );
 
         if fuel_limit < FUEL_LIMIT {
             executor.set_burn_fuel_method(String::from("burn_fuel_method"));
@@ -805,7 +819,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+        Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        )
     }
 
     fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
@@ -816,7 +838,7 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair, seed)
+        Executor::new(pool, db, wm, sub, keypair, seed, "test_id".to_string())
     }
 
     fn create_db_mock(fail: bool) -> MockDb {

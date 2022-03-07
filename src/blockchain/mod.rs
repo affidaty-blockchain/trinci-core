@@ -38,6 +38,7 @@ pub(crate) mod executor;
 pub(crate) mod pool;
 pub(crate) mod synchronizer;
 
+pub mod aligner;
 pub mod message;
 pub mod pubsub;
 pub mod service;

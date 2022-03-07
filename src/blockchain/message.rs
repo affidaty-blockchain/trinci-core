@@ -109,6 +109,9 @@ pub enum Message {
         block: Block,
         /// Block transactions hashes. `None` if not requested.
         txs: Option<Vec<Hash>>,
+        /// Origin of the `Block`. `None` if local operations,
+        /// and no chance to propagate outside the response.
+        origin: Option<String>,
     },
     /// Get account request.
     #[serde(rename = "11")]
@@ -156,6 +159,9 @@ pub enum Message {
     /// Get seed response.
     #[serde(rename = "21")]
     GetP2pIdResponse(String),
+    /// Send block info to aligner
+    #[serde(rename = "22")]
+    AlignBlockInfo { peer_id: String, block: Block },
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
