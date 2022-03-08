@@ -19,6 +19,7 @@ use super::{behaviour::Behavior, service::PeerConfig};
 use crate::{
     base::serialize::rmp_serialize,
     blockchain::{pubsub::Event, BlockRequestSender, Message},
+    p2p::behaviour::UnicastMessage,
 };
 use futures::{future, prelude::*};
 use libp2p::{
@@ -31,8 +32,8 @@ use libp2p::{
     tcp::TcpConfig,
     Multiaddr, PeerId, Transport,
 };
-use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::{str::FromStr, sync::Arc};
 
 const NODE_TOPIC: &str = "node";
 
@@ -80,7 +81,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     // Subscribe to blockchain events of interest.
     let req = Message::Subscribe {
         id: "p2p".to_owned(),
-        events: Event::BLOCK | Event::TRANSACTION | Event::REQUEST,
+        events: Event::BLOCK | Event::TRANSACTION | Event::GOSSIP_REQUEST | Event::UNICAST_REQUEST,
     };
     // We like to receive the payloads already in packed form...
     let buf = rmp_serialize(&req).unwrap();
@@ -132,6 +133,32 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                         if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
                             if !matches!(err, PublishError::InsufficientPeers) {
                                 error!("publish error: {:?}", err);
+                            }
+                        }
+                    }
+                    Message::GetBlockRequest {
+                        height: _,
+                        txs: _,
+                        ref destination,
+                    } => {
+                        match destination {
+                            Some(destination) => {
+                                // send to peer in unicast
+                                let behavior = swarm.behaviour_mut();
+                                let peer = PeerId::from_str(&destination).unwrap();
+                                let buf = rmp_serialize(&msg).unwrap();
+                                let request = UnicastMessage(buf);
+                                behavior.reqres.send_request(&peer, request);
+                            }
+                            None => {
+                                // send in broadcast (gossip)
+                                let behavior = swarm.behaviour_mut();
+                                let buf = rmp_serialize(&msg).unwrap();
+                                if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
+                                    if !matches!(err, PublishError::InsufficientPeers) {
+                                        error!("publish error: {:?}", err);
+                                    }
+                                }
                             }
                         }
                     }

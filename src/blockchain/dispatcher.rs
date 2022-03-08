@@ -65,7 +65,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: Option<aligner::Aligner>,
+    aligner: Option<BlockRequestSender>,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -436,7 +436,11 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.get_receipt_handler(hash);
                 Some(res)
             }
-            Message::GetBlockRequest { height, txs } => {
+            Message::GetBlockRequest {
+                height,
+                txs,
+                destination: _,
+            } => {
                 let res = self.get_block_handler(height, txs);
                 Some(res)
             }
@@ -726,6 +730,7 @@ mod tests {
         let req = Message::GetBlockRequest {
             height: 0,
             txs: false,
+            destination: None,
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();

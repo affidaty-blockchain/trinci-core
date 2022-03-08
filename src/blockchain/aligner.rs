@@ -15,17 +15,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use async_std::future;
-use futures::StreamExt;
+use async_std::{future, task};
+use futures::{FutureExt, StreamExt};
 
-use crate::{channel::confirmed_channel, crypto::Hashable, Block};
+use crate::{
+    base::{serialize::rmp_deserialize, Mutex},
+    channel::confirmed_channel,
+    crypto::{HashAlgorithm, Hashable},
+    Block,
+};
 
-use super::{message::Message, BlockRequestReceiver, BlockRequestSender};
+use super::{
+    message::{Message, MultiMessage},
+    pubsub::PubSub,
+    BlockRequestReceiver, BlockRequestSender, Event,
+};
 use core::hash::Hash;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     sync::Arc,
     task::{Context, Poll},
+    time::Duration,
 };
 
 const MAX_SYNC_REQUESTS: usize = 512;
@@ -33,38 +43,106 @@ const MAX_SYNC_REQUESTS: usize = 512;
 /// Synchronization context data.
 pub(crate) struct Aligner {
     /// Trusted peers (peer, last block hash)
-    trusted_peers: Vec<(String, String, Block)>,
+    trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
     /// Missing blocks
     missing_blocks: Vec<Block>,
     /// Rx channel
-    rx_chan: BlockRequestReceiver,
+    rx_chan: Arc<Mutex<BlockRequestReceiver>>,
     /// Tx channel
     tx_chan: BlockRequestSender,
-    /// Canary
-    canary: Arc<()>,
-    // TODO: add db mabye
+    // Pubsub channel
+    pubsub: Arc<Mutex<PubSub>>,
 }
 
 impl Aligner {
-    pub fn new() -> Self {
+    pub fn new(pubsub: Arc<Mutex<PubSub>>) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
         Aligner {
-            trusted_peers: vec![],
+            trusted_peers: Arc::new(Mutex::new(vec![])),
             missing_blocks: vec![],
-            rx_chan,
+            rx_chan: Arc::new(Mutex::new(rx_chan)),
             tx_chan,
-            canary: Arc::new(()),
+            pubsub,
         }
     }
 
     pub async fn run(&mut self) {
         // first task to complete is to recieve candidates to trusted peers
+        let msg = Message::GetBlockRequest {
+            height: u64::MAX,
+            txs: false,
+            destination: None,
+        };
+        self.pubsub.lock().publish(Event::GOSSIP_REQUEST, msg);
+
+        let mut collect_candidate_time_window = Box::pin(task::sleep(Duration::from_secs(10)));
+
+        let trusted_peers = self.trusted_peers.clone();
+        let rx_chan = self.rx_chan.clone();
+
+        let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+            // collect trusted peers
+            while !collect_candidate_time_window.poll_unpin(cx).is_ready() {
+                match rx_chan.lock().poll_next_unpin(cx) {
+                    Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                    Poll::Ready(Some((req, res_chan))) => {
+                        // the nessages recieved are in packed format,
+                        // need to be deserialize
+                        match req {
+                            Message::Packed { buf } => match rmp_deserialize(&buf) {
+                                Ok(MultiMessage::Simple(req)) => match req {
+                                    Message::GetBlockResponse {
+                                        block,
+                                        txs: _,
+                                        origin,
+                                    } => {
+                                        let hash = block.hash(HashAlgorithm::Sha256);
+                                        let hash = hex::encode(hash.as_bytes());
+                                        trusted_peers.lock().push((
+                                            origin.unwrap().to_string(),
+                                            hash,
+                                            block,
+                                        ));
+                                    }
+                                    _ => (),
+                                },
+                                _ => (),
+                            },
+                            _ => (),
+                        }
+                    }
+                    Poll::Ready(None) => return Poll::Ready(()),
+                    Poll::Pending => break,
+                }
+            }
+            Poll::Pending
+        });
+
+        future.await;
 
         // once the time window is timed out pick the peers with most common block
-        // mabye drop channel?
+        let mut hashmap = HashMap::<String, i64>::new();
+        for entry in self.trusted_peers.lock().iter() {
+            let counter = hashmap.entry(entry.1.clone()).or_default();
+            *counter += 1;
+        }
 
-        // pick a random trusted peer
+        let mut most_common_block = String::from("");
+        let max_occurences: i64 = 0;
+        for (block_hash, occurence) in hashmap.iter() {
+            if max_occurences < *occurence {
+                most_common_block = block_hash.clone();
+            }
+        }
+
+        let mut j: usize = 0;
+        for entry in self.trusted_peers.lock().iter() {
+            if entry.1 != most_common_block {
+                self.trusted_peers.lock().remove(j);
+            }
+            j += 1;
+        }
 
         // send unicast request for every block in missing_blocks
         // should it wait that a block has been executed to send another req?
@@ -72,36 +150,8 @@ impl Aligner {
         // stop aligner
     }
 
-    fn collect_peers() {
-        todo!()
-    }
-
-    fn handle_message(&self, req: Message) {
-        match req {
-            Message::AlignBlockInfo { peer_id, block } => {
-                let mut hasher = DefaultHasher::new();
-                let hash = block.hash(hasher);
-                if self.trusted_peers.is_empty() {
-                    self.trusted_peers.push((peer_id, hash, block));
-                    // launch collector. It should wai for 10 sec
-                    // let time_window = collect();
-                } else {
-                    self.trusted_peers.push((peer_id, hash, block));
-                }
-                // time_window.await
-            }
-            _ => (),
-        }
-    }
-
     /// Get a clone of block-service input channel.
     pub fn request_channel(&self) -> BlockRequestSender {
         self.tx_chan.clone()
-    }
-
-    /// Check if service is running.
-    pub fn is_running(&self) -> bool {
-        // Hack to intercept crashed subthreads.
-        Arc::strong_count(&self.canary) == 2
     }
 }

@@ -101,6 +101,9 @@ pub enum Message {
         height: u64,
         /// Request for block transactions hashes.
         txs: bool,
+        /// Destination of the `Block`. `None` if local operations,
+        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        destination: Option<String>,
     },
     /// Get block response.
     #[serde(rename = "10")]
@@ -466,6 +469,7 @@ mod tests {
             Message::GetBlockRequest {
                 height: 0,
                 txs: true,
+                destination: None,
             },
             Message::Exception(Error::new_ext(ErrorKind::WasmMachineFault, "fatality")),
             Message::Packed { buf: vec![1, 2, 3] },
@@ -485,6 +489,7 @@ mod tests {
         let org_msg = Message::GetBlockRequest {
             height: 0,
             txs: true,
+            destination: None,
         };
         let buf = rmp_serialize(&org_msg).unwrap();
 

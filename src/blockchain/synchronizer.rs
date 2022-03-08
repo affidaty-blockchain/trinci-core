@@ -94,7 +94,11 @@ impl<D: Db> Synchronizer<D> {
                 }
                 _ => {
                     // We don't have the hashes or we've never saw the block, ask for complete block
-                    let req = Message::GetBlockRequest { height, txs: true };
+                    let req = Message::GetBlockRequest {
+                        height,
+                        txs: true,
+                        destination: None,
+                    };
                     messages.push(req);
                 }
             }
@@ -137,7 +141,11 @@ impl<D: Db> Synchronizer<D> {
                 Message::GetTransactionRequest { hash } => {
                     debug!("[sync] get-transaction: {}", hex::encode(hash))
                 }
-                Message::GetBlockRequest { height, txs: _ } => {
+                Message::GetBlockRequest {
+                    height,
+                    txs: _,
+                    destination: _,
+                } => {
                     debug!("[sync] get-block: {}", height)
                 }
                 Message::GetTransactionResponse { tx: _ } => {
@@ -145,7 +153,7 @@ impl<D: Db> Synchronizer<D> {
                 }
                 _ => (),
             }
-            self.pubsub.lock().publish(Event::REQUEST, req);
+            self.pubsub.lock().publish(Event::GOSSIP_REQUEST, req);
         }
     }
 }

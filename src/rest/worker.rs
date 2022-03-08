@@ -146,7 +146,11 @@ async fn get_receipt(req: Request<BlockRequestSender>) -> tide::Result {
 async fn get_block(req: Request<BlockRequestSender>) -> tide::Result {
     let height = req.param("0").unwrap_or_default();
     let height = height.parse::<u64>().unwrap_or_default();
-    let bc_req = Message::GetBlockRequest { height, txs: false };
+    let bc_req = Message::GetBlockRequest {
+        height,
+        txs: false,
+        destination: None, // TODO: check but it should be for internal use
+    };
     let res = match send_recv(req.state(), bc_req).await? {
         Message::GetBlockResponse { block, .. } => rmp_serialize(&block),
         Message::Exception(err) => Err(err),
@@ -260,7 +264,11 @@ mod tests {
                 },
                 false => Message::Exception(ErrorKind::ResourceNotFound.into()),
             },
-            Message::GetBlockRequest { height, txs: _ } => match height {
+            Message::GetBlockRequest {
+                height,
+                txs: _,
+                destination: _,
+            } => match height {
                 0 => Message::GetBlockResponse {
                     block: create_test_block(),
                     txs: None,
