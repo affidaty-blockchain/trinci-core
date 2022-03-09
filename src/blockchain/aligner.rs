@@ -70,7 +70,7 @@ impl Aligner {
         }
     }
 
-    pub async fn run(&mut self) {
+    async fn run_async(&mut self) {
         // first task to complete is to recieve candidates to trusted peers
         let msg = Message::GetBlockRequest {
             height: u64::MAX,
@@ -158,6 +158,11 @@ impl Aligner {
         // should it wait that a block has been executed to send another req?
 
         // stop aligner
+    }
+
+    pub fn run(&mut self) {
+        let fut = self.run_async();
+        async_std::task::block_on(fut);
     }
 
     /// Get a clone of block-service input channel.

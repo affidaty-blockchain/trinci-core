@@ -276,9 +276,9 @@ impl<D: Db> Dispatcher<D> {
 
     fn get_block_res_handler(
         &mut self,
-        block: Block,
-        txs_hashes: Option<Vec<Hash>>,
-        origin: Option<String>,
+        block: &Block,
+        txs_hashes: &Option<Vec<Hash>>,
+        origin: &Option<String>,
         req: Message,
     ) {
         // get local last block
@@ -298,7 +298,7 @@ impl<D: Db> Dispatcher<D> {
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner
-        if missing_headers.start == block.data.height && self.aligner.is_none() {
+        if missing_headers.end == block.data.height && self.aligner.is_none() {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
@@ -316,9 +316,9 @@ impl<D: Db> Dispatcher<D> {
             }
             let blk_info = BlockInfo {
                 hash: Some(block.data.primary_hash()),
-                validator: block.data.validator,
-                signature: Some(block.signature),
-                txs_hashes,
+                validator: block.data.validator.to_owned(),
+                signature: Some(block.signature.clone()),
+                txs_hashes: txs_hashes.to_owned(),
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start < block.data.height {
@@ -327,14 +327,17 @@ impl<D: Db> Dispatcher<D> {
 
             // start aligner if not already running
             if self.aligner.is_none() {
-                let mut aligner_service = Aligner::new(self.pubsub.clone());
+                let aligner_service = Aligner::new(self.pubsub.clone());
                 self.aligner = Some((
                     aligner_service.tx_chan.clone(),
                     aligner_service.status.clone(),
                 ));
 
                 // launch aligner thread
-                thread::spawn(move || aligner_service.run());
+                thread::spawn(move || {
+                    let mut align_svc = aligner_service;
+                    align_svc.run();
+                });
             }
 
             // send block message
@@ -484,8 +487,12 @@ impl<D: Db> Dispatcher<D> {
                 self.pubsub.lock().unsubscribe(id, events);
                 None
             }
-            Message::GetBlockResponse { block, txs, origin } => {
-                self.get_block_res_handler(block, txs, origin, req);
+            Message::GetBlockResponse {
+                ref block,
+                ref txs,
+                ref origin,
+            } => {
+                self.get_block_res_handler(block, txs, origin, req.clone());
                 None
             }
             Message::GetTransactionResponse { tx } => {
