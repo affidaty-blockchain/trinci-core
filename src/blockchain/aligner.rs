@@ -49,9 +49,11 @@ pub(crate) struct Aligner {
     /// Rx channel
     rx_chan: Arc<Mutex<BlockRequestReceiver>>,
     /// Tx channel
-    tx_chan: BlockRequestSender,
-    // Pubsub channel
+    pub tx_chan: BlockRequestSender,
+    /// Pubsub channel
     pubsub: Arc<Mutex<PubSub>>,
+    /// Align status. false => not aligned
+    pub status: Arc<Mutex<bool>>,
 }
 
 impl Aligner {
@@ -64,6 +66,7 @@ impl Aligner {
             rx_chan: Arc::new(Mutex::new(rx_chan)),
             tx_chan,
             pubsub,
+            status: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -143,6 +146,13 @@ impl Aligner {
             }
             j += 1;
         }
+
+        // DEBUG
+        println!("###TRUSTED PEERS###");
+        for peer in self.trusted_peers.lock().iter() {
+            println!("\t\t{}", peer.0);
+        }
+        println!("###################");
 
         // send unicast request for every block in missing_blocks
         // should it wait that a block has been executed to send another req?

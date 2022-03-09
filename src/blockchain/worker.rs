@@ -221,7 +221,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
     }
 
     fn handle_message(&self, req: Message, res_chan: BlockResponseSender) {
-        let dispatcher = self.dispatcher.clone();
+        let mut dispatcher = self.dispatcher.clone();
         task::spawn(async move {
             if let Some(res) = dispatcher.message_handler(req, &res_chan, 0) {
                 if let Err(_err) = res_chan.send(res).await {

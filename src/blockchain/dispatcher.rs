@@ -48,7 +48,9 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::sync::Arc;
+use std::{mem::align_of, sync::Arc, thread};
+
+use super::aligner::Aligner;
 
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
@@ -65,7 +67,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: Option<BlockRequestSender>,
+    aligner: Option<(BlockRequestSender, Arc<Mutex<bool>>)>,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -273,10 +275,11 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn get_block_res_handler(
-        &self,
+        &mut self,
         block: Block,
         txs_hashes: Option<Vec<Hash>>,
         origin: Option<String>,
+        req: Message,
     ) {
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
@@ -323,8 +326,19 @@ impl<D: Db> Dispatcher<D> {
             // it is needed to re-align the node
 
             // start aligner if not already running
+            if self.aligner.is_none() {
+                let mut aligner_service = Aligner::new(self.pubsub.clone());
+                self.aligner = Some((
+                    aligner_service.tx_chan.clone(),
+                    aligner_service.status.clone(),
+                ));
+
+                // launch aligner thread
+                thread::spawn(move || aligner_service.run());
+            }
 
             // send block message
+            self.aligner.as_ref().unwrap().0.send_sync(req);
         }
     }
 
@@ -366,7 +380,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn packed_message_handler(
-        &self,
+        &mut self,
         buf: Vec<u8>,
         res_chan: &BlockResponseSender,
         pack_level: usize,
@@ -418,7 +432,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     pub fn message_handler(
-        &self,
+        &mut self,
         req: Message,
         res_chan: &BlockResponseSender,
         pack_level: usize,
@@ -471,7 +485,7 @@ impl<D: Db> Dispatcher<D> {
                 None
             }
             Message::GetBlockResponse { block, txs, origin } => {
-                self.get_block_res_handler(block, txs, origin);
+                self.get_block_res_handler(block, txs, origin, req);
                 None
             }
             Message::GetTransactionResponse { tx } => {
@@ -558,7 +572,7 @@ mod tests {
     }
 
     impl Dispatcher<MockDb> {
-        fn message_handler_wrap(&self, req: Message) -> Option<Message> {
+        fn message_handler_wrap(&mut self, req: Message) -> Option<Message> {
             let (tx_chan, _rx_chan) = simple_channel::<Message>();
             self.message_handler(req, &tx_chan, 0)
         }
@@ -566,7 +580,7 @@ mod tests {
 
     #[test]
     fn put_unit_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -590,7 +604,7 @@ mod tests {
 
     #[test]
     fn put_bulk_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_bulk_tx(false),
@@ -614,7 +628,7 @@ mod tests {
 
     #[test]
     fn put_bulk_transaction_with_nodes() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_bulk_tx_alt(true),
@@ -638,7 +652,7 @@ mod tests {
 
     #[test]
     fn put_bad_signature_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
         match tx {
@@ -660,7 +674,7 @@ mod tests {
 
     #[test]
     fn put_bad_signature_bulk_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let mut tx = create_test_bulk_tx(false);
 
         match tx {
@@ -682,7 +696,7 @@ mod tests {
 
     #[test]
     fn put_duplicated_unconfirmed_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -697,7 +711,7 @@ mod tests {
 
     #[test]
     fn put_duplicated_confirmed_transaction() {
-        let dispatcher = create_dispatcher(true);
+        let mut dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -711,7 +725,7 @@ mod tests {
 
     #[test]
     fn get_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetTransactionRequest {
             hash: Hash::from_hex(TX_DATA_HASH_HEX).unwrap(),
         };
@@ -726,7 +740,7 @@ mod tests {
 
     #[test]
     fn get_block() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetBlockRequest {
             height: 0,
             txs: false,
@@ -745,7 +759,7 @@ mod tests {
 
     #[test]
     fn get_account() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetAccountRequest {
             id: ACCOUNT_ID.to_owned(),
             data: vec![],
@@ -763,7 +777,7 @@ mod tests {
     #[test]
     fn submit_packed() {
         let get_block_packed = hex::decode("93a13900c2").unwrap();
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::Packed {
             buf: get_block_packed,
         };
@@ -779,7 +793,7 @@ mod tests {
     #[test]
     fn submit_packed_named() {
         let get_block_packed = hex::decode("83a474797065a139a668656967687400a3747873c2").unwrap();
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::Packed {
             buf: get_block_packed,
         };
@@ -795,7 +809,7 @@ mod tests {
 
     #[test]
     fn test_get_core_stats() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetCoreStatsRequest;
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
