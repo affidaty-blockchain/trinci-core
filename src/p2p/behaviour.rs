@@ -61,7 +61,6 @@ pub(crate) struct Behavior {
 
 const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
 
-
 impl Behavior {
     fn identify_new(public_key: PublicKey) -> Result<Identify> {
         debug!("[p2p] identify start");
