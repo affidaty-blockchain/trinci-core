@@ -59,7 +59,8 @@ pub(crate) struct Behavior {
     pub bc_chan: BlockRequestSender,
 }
 
-const MAX_TRANSMIT_SIZE: usize = 524288;
+const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
+
 
 impl Behavior {
     fn identify_new(public_key: PublicKey) -> Result<Identify> {

@@ -51,7 +51,7 @@ use crate::{
 use std::sync::Arc;
 
 /// WARNING THIS MUST BE AT MAX EQUAL TO THE p2p MAX_TRANSMIT_SIZE
-const MAX_TRANSACTION_SIZE: usize = 524288;
+pub const MAX_TRANSACTION_SIZE: usize = 524288*2;
 
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
