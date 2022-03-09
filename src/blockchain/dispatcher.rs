@@ -281,6 +281,8 @@ impl<D: Db> Dispatcher<D> {
         origin: &Option<String>,
         req: Message,
     ) {
+        debug!("GetBlockRes {} recieved", block.data.height.clone());
+
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 

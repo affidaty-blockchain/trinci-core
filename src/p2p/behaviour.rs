@@ -46,7 +46,6 @@ use libp2p::{
         ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseConfig,
         RequestResponseEvent, RequestResponseMessage,
     },
-    swarm::NetworkBehaviourEventProcess,
     Multiaddr, NetworkBehaviour, PeerId,
 };
 use std::{io, iter, str::FromStr};
@@ -152,6 +151,8 @@ pub(crate) struct Behavior {
     /// To forward incoming messages to blockchain service.
     #[behaviour(ignore)]
     pub bc_chan: BlockRequestSender,
+    #[behaviour(ignore)]
+    pub network_name: String,
 }
 
 #[derive(Debug)]
@@ -234,6 +235,8 @@ impl Behavior {
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             let boot_addr = Multiaddr::from_str(boot_addr)
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+
+            debug!("[kad] ADDING BOOT PEER");
             kad.add_address(&boot_peer, boot_addr);
 
             //kad.bootstrap().unwrap();
@@ -293,57 +296,31 @@ impl Behavior {
             kad,
             bc_chan,
             reqres,
+            network_name: "trinci/1.0.0".to_string(),
         })
     }
-}
-/* cSpell::disable */
-// Received {
-//     peer_id: PeerId("12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"),
-//     info: IdentifyInfo {
-//         public_key: Ed25519(PublicKey(compressed): 587b8d516e965a6ee57a19e2734f1ab3bb8b45e6062801dff3e648d8594063),
-//         protocol_version: "trinci/1.0.0",
-//         agent_version: "rust-libp2p/0.30.0",
-//         listen_addrs: [
-//             "/ip4/127.0.0.1/tcp/41907",
-//             "/ip4/192.168.1.125/tcp/41907",
-//             "/ip4/172.18.0.1/tcp/41907",
-//             "/ip4/172.17.0.1/tcp/41907"
-//         ],
-//         protocols: [
-//             "/ipfs/id/1.0.0",
-//             "/ipfs/id/push/1.0.0",
-//             "/meshsub/1.1.0",
-//             "/meshsub/1.0.0",
-//             "/ipfs/kad/1.0.0"
-//         ],
-//         observed_addr: "/ip4/192.168.1.116/tcp/54612"
-//     }
-// }
-/* cSpell::enable */
 
-impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
-    fn inject_event(&mut self, event: IdentifyEvent) {
+    pub fn identify_event_handler(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received { peer_id, info } => {
-                // TODO: check protocol, it identyfies the nw: trinci/{hash(bootstrap)/1.0.0}
-                self.gossip.add_explicit_peer(&peer_id);
-                for addr in info.listen_addrs {
-                    info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
-                    self.kad.add_address(&peer_id, addr.clone());
-                    info!(
-                        "[ident] adding {} to req-res routing table @ {}",
-                        peer_id, addr
-                    );
-                    self.reqres.add_address(&peer_id, addr);
+                if info.protocol_version == self.network_name {
+                    self.gossip.add_explicit_peer(&peer_id);
+                    for addr in info.listen_addrs {
+                        info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                        self.kad.add_address(&peer_id, addr.clone());
+                        info!(
+                            "[ident] adding {} to req-res routing table @ {}",
+                            peer_id, addr
+                        );
+                        self.reqres.add_address(&peer_id, addr);
+                    }
                 }
             }
             _ => info!("[ident] event: {:?}", event),
         }
     }
-}
 
-impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
-    fn inject_event(&mut self, event: MdnsEvent) {
+    pub fn mdsn_event_handler(&mut self, event: MdnsEvent) {
         match event {
             MdnsEvent::Discovered(nodes) => {
                 for (peer, addr) in nodes {
@@ -361,11 +338,8 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
             }
         }
     }
-}
 
-impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
-    fn inject_event(&mut self, event: KademliaEvent) {
-        #[allow(clippy::match_single_binding)]
+    pub fn kad_event_handler(&mut self, event: KademliaEvent) {
         match event {
             KademliaEvent::RoutingUpdated {
                 peer, addresses, ..
@@ -392,10 +366,8 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
             }
         }
     }
-}
 
-impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
-    fn inject_event(&mut self, event: GossipsubEvent) {
+    pub fn gossip_event_handler(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message {
                 propagation_source: _,
@@ -461,12 +433,11 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
             }
         }
     }
-}
 
-impl NetworkBehaviourEventProcess<RequestResponseEvent<UnicastMessage, UnicastMessage>>
-    for Behavior
-{
-    fn inject_event(&mut self, event: RequestResponseEvent<UnicastMessage, UnicastMessage>) {
+    pub fn reqres_event_handler(
+        &mut self,
+        event: RequestResponseEvent<UnicastMessage, UnicastMessage>,
+    ) {
         match event {
             RequestResponseEvent::Message {
                 peer,
@@ -640,3 +611,27 @@ impl NetworkBehaviourEventProcess<RequestResponseEvent<UnicastMessage, UnicastMe
         }
     }
 }
+/* cSpell::disable */
+// Received {
+//     peer_id: PeerId("12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"),
+//     info: IdentifyInfo {
+//         public_key: Ed25519(PublicKey(compressed): 587b8d516e965a6ee57a19e2734f1ab3bb8b45e6062801dff3e648d8594063),
+//         protocol_version: "trinci/1.0.0",
+//         agent_version: "rust-libp2p/0.30.0",
+//         listen_addrs: [
+//             "/ip4/127.0.0.1/tcp/41907",
+//             "/ip4/192.168.1.125/tcp/41907",
+//             "/ip4/172.18.0.1/tcp/41907",
+//             "/ip4/172.17.0.1/tcp/41907"
+//         ],
+//         protocols: [
+//             "/ipfs/id/1.0.0",
+//             "/ipfs/id/push/1.0.0",
+//             "/meshsub/1.1.0",
+//             "/meshsub/1.0.0",
+//             "/ipfs/kad/1.0.0"
+//         ],
+//         observed_addr: "/ip4/192.168.1.116/tcp/54612"
+//     }
+// }
+/* cSpell::enable */

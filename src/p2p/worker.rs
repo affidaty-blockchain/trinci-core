@@ -106,7 +106,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
         block_tx,
     )
     .unwrap();
-    let mut swarm: Swarm<Behavior> = Swarm::new(transport, behaviour, peer_id);
+    let mut swarm = Swarm::new(transport, behaviour, peer_id);
 
     let addr = format!("/ip4/{}/tcp/{}", config.addr, config.port);
     let addr = addr.parse::<Multiaddr>().unwrap();
@@ -176,7 +176,29 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
 
         loop {
             match swarm.poll_next_unpin(cx) {
-                Poll::Ready(Some(event)) => trace!("[p2p] event: {:?}", event),
+                Poll::Ready(Some(event)) => {
+                    trace!("[p2p] event: {:?}", event);
+                    match event {
+                        libp2p::swarm::SwarmEvent::Behaviour(event) => match event {
+                            crate::p2p::behaviour::ComposedEvent::Identify(event) => {
+                                swarm.behaviour_mut().identify_event_handler(event)
+                            }
+                            crate::p2p::behaviour::ComposedEvent::Kademlia(event) => {
+                                swarm.behaviour_mut().kad_event_handler(event)
+                            }
+                            crate::p2p::behaviour::ComposedEvent::Gossip(event) => {
+                                swarm.behaviour_mut().gossip_event_handler(event)
+                            }
+                            crate::p2p::behaviour::ComposedEvent::Mdns(event) => {
+                                swarm.behaviour_mut().mdsn_event_handler(event)
+                            }
+                            crate::p2p::behaviour::ComposedEvent::ReqRes(event) => {
+                                swarm.behaviour_mut().reqres_event_handler(event)
+                            }
+                        },
+                        _ => (),
+                    }
+                }
                 Poll::Ready(None) => {
                     warn!("swarm channel has been closed, exiting");
                     return Poll::Ready(());

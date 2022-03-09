@@ -148,11 +148,11 @@ impl Aligner {
         }
 
         // DEBUG
-        println!("###TRUSTED PEERS###");
+        debug!("###TRUSTED PEERS###");
         for peer in self.trusted_peers.lock().iter() {
-            println!("\t\t{}", peer.0);
+            debug!("\t\t{}", peer.0);
         }
-        println!("###################");
+        debug!("###################");
 
         // send unicast request for every block in missing_blocks
         // should it wait that a block has been executed to send another req?
