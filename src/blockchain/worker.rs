@@ -212,12 +212,13 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             return;
         }
 
-        let synchronizer = self.synchronizer.clone();
-        let synchronizing = self.synchronizing.clone();
-        task::spawn(async move {
-            synchronizer.run();
-            synchronizing.store(false, Ordering::Relaxed);
-        });
+        // TEST
+        //let synchronizer = self.synchronizer.clone();
+        //let synchronizing = self.synchronizing.clone();
+        //task::spawn(async move {
+        //    synchronizer.run();
+        //    synchronizing.store(false, Ordering::Relaxed);
+        //});
     }
 
     fn handle_message(&self, req: Message, res_chan: BlockResponseSender) {

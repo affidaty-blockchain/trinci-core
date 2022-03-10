@@ -21,7 +21,7 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::rmp_deserialize,
+    base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
@@ -53,25 +53,27 @@ use tide::utils::async_trait;
 
 const MAX_TRANSMIT_SIZE: usize = 524288;
 
-// Request-response codec implementation
+// Request-response protocol
 #[derive(Debug, Clone)]
-pub struct TrinciProtocol();
+struct TrinciProtocol();
 #[derive(Clone)]
-pub struct TrinciCodec();
+struct TrinciCodec();
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnicastMessage(pub Vec<u8>);
+pub(crate) struct ReqUnicastMessage(pub Vec<u8>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResUnicastMessage(pub Vec<u8>);
 
 impl ProtocolName for TrinciProtocol {
     fn protocol_name(&self) -> &[u8] {
-        "trinci/1.0.0".as_bytes()
+        "/trinci/1".as_bytes()
     }
 }
 
 #[async_trait]
 impl RequestResponseCodec for TrinciCodec {
     type Protocol = TrinciProtocol;
-    type Request = UnicastMessage;
-    type Response = UnicastMessage;
+    type Request = ReqUnicastMessage;
+    type Response = ResUnicastMessage;
 
     async fn read_request<T>(&mut self, _: &TrinciProtocol, io: &mut T) -> io::Result<Self::Request>
     where
@@ -83,7 +85,7 @@ impl RequestResponseCodec for TrinciCodec {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
 
-        Ok(UnicastMessage(vec))
+        Ok(ReqUnicastMessage(vec))
     }
 
     async fn read_response<T>(
@@ -100,14 +102,14 @@ impl RequestResponseCodec for TrinciCodec {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
 
-        Ok(UnicastMessage(vec))
+        Ok(ResUnicastMessage(vec))
     }
 
     async fn write_request<T>(
         &mut self,
         _: &TrinciProtocol,
         io: &mut T,
-        UnicastMessage(data): UnicastMessage,
+        ReqUnicastMessage(data): ReqUnicastMessage,
     ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
@@ -122,7 +124,7 @@ impl RequestResponseCodec for TrinciCodec {
         &mut self,
         _: &TrinciProtocol,
         io: &mut T,
-        UnicastMessage(data): UnicastMessage,
+        ResUnicastMessage(data): ResUnicastMessage,
     ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
@@ -161,7 +163,7 @@ pub enum ComposedEvent {
     Kademlia(KademliaEvent),
     Gossip(GossipsubEvent),
     Mdns(MdnsEvent),
-    ReqRes(RequestResponseEvent<UnicastMessage, UnicastMessage>),
+    ReqRes(RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>),
 }
 
 impl From<IdentifyEvent> for ComposedEvent {
@@ -188,8 +190,8 @@ impl From<MdnsEvent> for ComposedEvent {
     }
 }
 
-impl From<RequestResponseEvent<UnicastMessage, UnicastMessage>> for ComposedEvent {
-    fn from(event: RequestResponseEvent<UnicastMessage, UnicastMessage>) -> Self {
+impl From<RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>> for ComposedEvent {
+    fn from(event: RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>) -> Self {
         ComposedEvent::ReqRes(event)
     }
 }
@@ -260,9 +262,12 @@ impl Behavior {
         let mut gossip = Gossipsub::new(privacy, gossip_config)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
-        gossip
-            .subscribe(&topic)
-            .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
+        // subcribing here wont launch the "send last block info event",
+        // because the subcription event will be not propagated untill every
+        // behaviour is initializated
+        //gossip
+        //    .subscribe(&topic)
+        //    .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
         Ok(gossip)
     }
@@ -407,13 +412,18 @@ impl Behavior {
                 };
                 match self.bc_chan.send_sync(msg) {
                     Ok(res_chan) => {
-                        if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
+                        if let Ok(msg) = res_chan.recv_sync() {
+                            let buf = rmp_serialize(&msg).unwrap();
                             let request_id =
-                                self.reqres.send_request(&peer_id, UnicastMessage(buf));
+                                self.reqres.send_request(&peer_id, ReqUnicastMessage(buf));
                             debug!(
-                                "[req-res] message (request) {} containing last block sended to {}",
+                                "[req-res](req) message {} containing last block sended to {}",
                                 request_id.to_string(),
                                 peer_id.to_string()
+                            );
+                            debug!(
+                                "[reqres] {:?} ",
+                                self.reqres.is_pending_outbound(&peer_id, &request_id)
                             );
                         }
                     }
@@ -436,14 +446,14 @@ impl Behavior {
 
     pub fn reqres_event_handler(
         &mut self,
-        event: RequestResponseEvent<UnicastMessage, UnicastMessage>,
+        event: RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>,
     ) {
         match event {
             RequestResponseEvent::Message {
                 peer,
                 message:
                     RequestResponseMessage::Request {
-                        request: UnicastMessage(buf),
+                        request: ReqUnicastMessage(buf),
                         request_id,
                         channel,
                     },
@@ -465,7 +475,7 @@ impl Behavior {
                                     if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
                                         if self
                                             .reqres
-                                            .send_response(channel, UnicastMessage(buf))
+                                            .send_response(channel, ResUnicastMessage(buf))
                                             .is_ok()
                                         {
                                             debug!(
@@ -494,7 +504,7 @@ impl Behavior {
                                 if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
                                     if self
                                         .reqres
-                                        .send_response(channel, UnicastMessage(buf))
+                                        .send_response(channel, ResUnicastMessage(buf))
                                         .is_ok()
                                     {
                                         debug!(
@@ -546,8 +556,8 @@ impl Behavior {
                 peer,
                 message:
                     RequestResponseMessage::Response {
-                        response: UnicastMessage(buf),
-                        ..
+                        request_id: _,
+                        response: ResUnicastMessage(buf),
                     },
             } => {
                 // In this scenario only response from blockchain are expected:

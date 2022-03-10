@@ -19,7 +19,7 @@ use super::{behaviour::Behavior, service::PeerConfig};
 use crate::{
     base::serialize::rmp_serialize,
     blockchain::{pubsub::Event, BlockRequestSender, Message},
-    p2p::behaviour::UnicastMessage,
+    p2p::behaviour::ReqUnicastMessage,
 };
 use futures::{future, prelude::*};
 use libp2p::{
@@ -147,7 +147,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 let behavior = swarm.behaviour_mut();
                                 let peer = PeerId::from_str(&destination).unwrap();
                                 let buf = rmp_serialize(&msg).unwrap();
-                                let request = UnicastMessage(buf);
+                                let request = ReqUnicastMessage(buf);
                                 behavior.reqres.send_request(&peer, request);
                             }
                             None => {
@@ -209,6 +209,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             debug!("[p2p] listening on {}", addr);
                             listening = true;
                         }
+                        // TEST
+                        swarm.behaviour_mut().gossip.subscribe(&topic).unwrap();
                     }
                     break;
                 }
