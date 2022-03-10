@@ -55,13 +55,13 @@ const MAX_TRANSMIT_SIZE: usize = 524288;
 
 // Request-response protocol
 #[derive(Debug, Clone)]
-struct TrinciProtocol();
+pub struct TrinciProtocol();
 #[derive(Clone)]
-struct TrinciCodec();
+pub struct TrinciCodec();
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReqUnicastMessage(pub Vec<u8>);
+pub struct ReqUnicastMessage(pub Vec<u8>);
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ResUnicastMessage(pub Vec<u8>);
+pub struct ResUnicastMessage(pub Vec<u8>);
 
 impl ProtocolName for TrinciProtocol {
     fn protocol_name(&self) -> &[u8] {
@@ -379,7 +379,6 @@ impl Behavior {
                 message,
                 message_id: _,
             } => {
-                // TOCHECK
                 match self
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
@@ -387,13 +386,21 @@ impl Behavior {
                     Ok(res_chan) => {
                         // Check if the blockchain has a response or if has dropped the response channel.
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
-                            let topic = IdentTopic::new(message.topic.as_str());
-                            // TODO: maybe this should be sent in unicast only to the sender.
-                            // it should only answer to requests, if block or tx annunciation: just submit to bc service
-                            if let Err(err) = self.gossip.publish(topic, buf) {
-                                if !matches!(err, PublishError::InsufficientPeers) {
-                                    error!("publish error: {:?}", err);
-                                }
+                            // In case of TX or Block only execute it, response is not needed to be propagated (gossip will do it!)
+                            // In case of a *Response send back to the requester the outcome
+                            match rmp_deserialize(&buf) {
+                                Ok(MultiMessage::Simple(req)) => match req {
+                                    //Message::GetTransactionResponse { tx } => todo!(), => implemente origni field
+                                    Message::GetBlockResponse { block, txs, origin } => {
+                                        self.reqres.send_request(
+                                            &PeerId::from_str(&origin.unwrap()).unwrap(),
+                                            ReqUnicastMessage(buf),
+                                        );
+                                    }
+                                    _ => (),
+                                },
+                                _ => (),
+                                Err(_) => warn!("blockchain service seems down"),
                             }
                         }
                     }
@@ -404,33 +411,6 @@ impl Behavior {
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
-                // Sending local last block to new comers in unicast
-                let msg = Message::GetBlockRequest {
-                    height: u64::MAX,
-                    txs: false,
-                    destination: Some(peer_id.to_string()),
-                };
-                match self.bc_chan.send_sync(msg) {
-                    Ok(res_chan) => {
-                        if let Ok(msg) = res_chan.recv_sync() {
-                            let buf = rmp_serialize(&msg).unwrap();
-                            let request_id =
-                                self.reqres.send_request(&peer_id, ReqUnicastMessage(buf));
-                            debug!(
-                                "[req-res](req) message {} containing last block sended to {}",
-                                request_id.to_string(),
-                                peer_id.to_string()
-                            );
-                            debug!(
-                                "[reqres] {:?} ",
-                                self.reqres.is_pending_outbound(&peer_id, &request_id)
-                            );
-                        }
-                    }
-                    Err(_err) => {
-                        warn!("blockchain service seems down");
-                    }
-                }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 debug!(
