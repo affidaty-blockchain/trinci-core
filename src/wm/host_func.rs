@@ -175,6 +175,7 @@ pub fn call(
             contract,
             method,
             data,
+            ctx.seed.clone(),
             ctx.events,
         ),
         None => Err(Error::new_ext(
@@ -247,6 +248,7 @@ mod tests {
              _app_hash,
              _method,
              _args,
+             _seed,
              _events| Ok(vec![]),
         );
         wm
