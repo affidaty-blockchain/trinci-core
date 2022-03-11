@@ -286,7 +286,7 @@ impl TransactionDataBulkV1 {
     }
 
     /// Transaction data signature verification.
-    // it sould take the public key of the first tx
+    // it should take the public key of the first tx
     // check sign
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         let data = self.serialize();
@@ -316,7 +316,7 @@ impl TransactionDataBulkV1 {
         let network = self.txs.root.data.get_network();
         match &self.txs.nodes {
             Some(nodes) => {
-                // check depens on
+                // check depends on
                 // check nws all equals && != none
                 for node in nodes {
                     // check depends_on filed
@@ -542,7 +542,7 @@ pub struct Block {
 pub struct BlockData {
     /// Block Validator public key
     pub validator: Option<PublicKey>,
-    /// Index in the blockhain, which is also the number of ancestors blocks.
+    /// Index in the blockchain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
     pub size: u32,
@@ -634,7 +634,7 @@ pub struct BlockchainSettings {
     pub network_name: Option<String>,
     /// Flag that identify a production environment
     pub is_production: bool,
-    /// Compatibility of the boostrap.bin
+    /// Compatibility of the bootstrap.bin
     pub min_node_version: String,
 }
 

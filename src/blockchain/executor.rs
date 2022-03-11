@@ -168,6 +168,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None,
             burn_fuel_method,
             &args,
+            self.seed.clone(),
             &mut vec![],
             INITIAL_FUEL,
         )
@@ -229,6 +230,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     *tx.data.get_contract(),
                     tx.data.get_method(),
                     tx.data.get_args(),
+                    self.seed.clone(),
                     &mut events,
                     INITIAL_FUEL,
                 );
@@ -303,6 +305,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             *root_tx.data.get_contract(),
                             root_tx.data.get_method(),
                             root_tx.data.get_args(),
+                            self.seed.clone(),
                             &mut bulk_events,
                             INITIAL_FUEL,
                         );
@@ -369,6 +372,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             *node.data.get_contract(),
                                             node.data.get_method(),
                                             node.data.get_args(),
+                                            self.seed.clone(),
                                             &mut bulk_events,
                                             0, // FIXME
                                         );
@@ -899,8 +903,8 @@ mod tests {
     fn create_wm_mock_bulk() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call_wm()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call_wm().returning(
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
@@ -916,7 +920,8 @@ mod tests {
                         "internal error",
                     )),
                 }
-            });
+            },
+        );
         wm
     }
 

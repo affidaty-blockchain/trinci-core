@@ -34,6 +34,7 @@ pub enum ErrorKind {
     InvalidSignature,
     DuplicatedUnconfirmedTx,
     DuplicatedConfirmedTx,
+    TooLargeTx,
     DatabaseFault,
     WasmMachineFault,
     SmartContractFault,
@@ -53,6 +54,7 @@ pub(super) mod error_kind_str {
     pub const INVALID_SIGNATURE: &str = "invalid signature";
     pub const DUPLICATED_UNCONFIRMED_TX: &str = "duplicated unconfirmed transaction";
     pub const DUPLICATED_CONFIRMED_TX: &str = "duplicated confirmed transaction";
+    pub const TOO_LARGE_TX: &str = "transaction too large";
     pub const RESOURCE_NOT_FOUND: &str = "resource not found";
     pub const DATABASE_FAULT: &str = "database fault";
     pub const WASM_MACHINE_FAULT: &str = "wasm machine fault";
@@ -84,6 +86,7 @@ impl Display for ErrorKind {
             BrokenIntegrity => error_kind_str::BROKEN_INTEGRITY,
             FuelError => error_kind_str::FUEL_ERROR,
             Other => error_kind_str::OTHER,
+            TooLargeTx => error_kind_str::TOO_LARGE_TX,
         };
         write!(f, "{}", kind_str)
     }

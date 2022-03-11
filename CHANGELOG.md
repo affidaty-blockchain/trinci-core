@@ -31,6 +31,7 @@ Additional labels for pre-release metadata:
 Changed
 * BlockchainSettings struct
 * Test/Production flag
+* Added size limit on transaction that can be executed
 
 Added
 * `secure_call` host function

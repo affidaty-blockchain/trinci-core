@@ -179,6 +179,7 @@ pub fn call_hf(
             contract,
             method,
             data,
+            ctx.seed.clone(),
             ctx.events,
             initial_fuel,
         ),
@@ -252,6 +253,7 @@ mod tests {
              _app_hash,
              _method,
              _args,
+             _seed,
              _events,
              _initial_fuel| Ok((0, vec![])),
         );

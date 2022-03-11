@@ -737,24 +737,25 @@ impl Wm for WmLocal {
         contract: Option<Hash>,
         method: &str,
         args: &[u8],
+        seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
     ) -> Result<(u64, Vec<u8>)> {
         let app_hash = app_hash_check(db, owner, contract, self.is_production)?;
 
-        let nw_name = String::from("nw_name_test");
-        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
-        let prev_hash =
-            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
-                .unwrap();
-        let txs_hash =
-            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
-                .unwrap();
-        let rxs_hash =
-            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
-                .unwrap();
-        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
-        let seed = Arc::new(seed);
+        // let nw_name = String::from("nw_name_test");
+        // let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        // let prev_hash =
+        //     Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+        //         .unwrap();
+        // let txs_hash =
+        //     Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+        //         .unwrap();
+        // let rxs_hash =
+        //     Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+        //         .unwrap();
+        // let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        // let seed = Arc::new(seed);
 
         let engine1 = self.engine.clone(); // FIXME
         let engine2 = self.engine.clone();
@@ -907,13 +908,29 @@ mod tests {
         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
     }
 
+    fn create_arc_seed() -> Arc<SeedSource> {
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        Arc::new(seed)
+    }
+
     impl WmLocal {
         fn exec_transaction<T: DbFork>(
             &mut self,
             db: &mut T,
             data: &TransactionData,
         ) -> Result<(u64, Vec<u8>)> {
-            self.exec_transaction_with_events(db, data, &mut Vec::new())
+            self.exec_transaction_with_events(db, data, &mut Vec::new(), create_arc_seed())
         }
 
         fn exec_transaction_with_events<T: DbFork>(
@@ -921,6 +938,7 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
+            seed: Arc<SeedSource>,
         ) -> Result<(u64, Vec<u8>)> {
             self.call_wm(
                 db,
@@ -932,6 +950,7 @@ mod tests {
                 *data.get_contract(),
                 data.get_method(),
                 data.get_args(),
+                seed,
                 events,
                 INITIAL_FUEL,
             )
@@ -1160,7 +1179,7 @@ mod tests {
         let mut events = Vec::new();
 
         let _ = vm
-            .exec_transaction_with_events(&mut db, &data, &mut events)
+            .exec_transaction_with_events(&mut db, &data, &mut events, create_arc_seed())
             .unwrap();
 
         assert_eq!(events.len(), 2);
