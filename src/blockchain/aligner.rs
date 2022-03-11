@@ -33,7 +33,10 @@ use super::{
 use core::hash::Hash;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     task::{Context, Poll},
     time::Duration,
 };
@@ -53,7 +56,7 @@ pub(crate) struct Aligner {
     /// Pubsub channel
     pubsub: Arc<Mutex<PubSub>>,
     /// Align status. false => not aligned
-    pub status: Arc<Mutex<bool>>,
+    pub status: Arc<AtomicBool>,
 }
 
 impl Aligner {
@@ -66,11 +69,12 @@ impl Aligner {
             rx_chan: Arc::new(Mutex::new(rx_chan)),
             tx_chan,
             pubsub,
-            status: Arc::new(Mutex::new(false)),
+            status: Arc::new(AtomicBool::new(true)),
         }
     }
 
-    async fn run_async(&mut self) {
+    async fn run_async(&self) {
+        debug!("###Aligner up###");
         // first task to complete is to recieve candidates to trusted peers
         let msg = Message::GetBlockRequest {
             height: u64::MAX,
@@ -86,37 +90,41 @@ impl Aligner {
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             // collect trusted peers
-            while !collect_candidate_time_window.poll_unpin(cx).is_ready() {
-                match rx_chan.lock().poll_next_unpin(cx) {
-                    Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
-                    Poll::Ready(Some((req, res_chan))) => {
-                        // the nessages recieved are in packed format,
-                        // need to be deserialize
-                        match req {
-                            Message::Packed { buf } => match rmp_deserialize(&buf) {
-                                Ok(MultiMessage::Simple(req)) => match req {
-                                    Message::GetBlockResponse {
-                                        block,
-                                        txs: _,
-                                        origin,
-                                    } => {
-                                        let hash = block.hash(HashAlgorithm::Sha256);
-                                        let hash = hex::encode(hash.as_bytes());
-                                        trusted_peers.lock().push((
-                                            origin.unwrap().to_string(),
-                                            hash,
-                                            block,
-                                        ));
-                                    }
+            loop {
+                if !self.status.load(Ordering::AcqRel) {
+                    while !collect_candidate_time_window.poll_unpin(cx).is_ready() {
+                        match rx_chan.lock().poll_next_unpin(cx) {
+                            Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                            Poll::Ready(Some((req, res_chan))) => {
+                                // the nessages recieved are in packed format,
+                                // need to be deserialize
+                                match req {
+                                    Message::Packed { buf } => match rmp_deserialize(&buf) {
+                                        Ok(MultiMessage::Simple(req)) => match req {
+                                            Message::GetBlockResponse {
+                                                block,
+                                                txs: _,
+                                                origin,
+                                            } => {
+                                                let hash = block.hash(HashAlgorithm::Sha256);
+                                                let hash = hex::encode(hash.as_bytes());
+                                                trusted_peers.lock().push((
+                                                    origin.unwrap().to_string(),
+                                                    hash,
+                                                    block,
+                                                ));
+                                            }
+                                            _ => (),
+                                        },
+                                        _ => (),
+                                    },
                                     _ => (),
-                                },
-                                _ => (),
-                            },
-                            _ => (),
+                                }
+                            }
+                            Poll::Ready(None) => return Poll::Ready(()),
+                            Poll::Pending => break,
                         }
                     }
-                    Poll::Ready(None) => return Poll::Ready(()),
-                    Poll::Pending => break,
                 }
             }
             Poll::Pending

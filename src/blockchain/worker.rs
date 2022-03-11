@@ -32,11 +32,13 @@ use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
 use futures::{future, prelude::*};
 use std::sync::Arc;
+use std::thread;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
+use super::aligner::Aligner;
 use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
@@ -88,6 +90,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
+        // launch aligner thread
+        let mut aligner = Aligner::new(pubsub.clone());
+
         let dispatcher = Dispatcher::new(
             config.clone(),
             pool.clone(),
@@ -95,7 +100,11 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             seed.clone(),
             p2p_id.clone(),
+            (aligner.tx_chan.clone(), aligner.status.clone()),
         );
+
+        thread::spawn(move || aligner.run());
+
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
             pool.clone(),

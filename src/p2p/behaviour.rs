@@ -262,12 +262,9 @@ impl Behavior {
         let mut gossip = Gossipsub::new(privacy, gossip_config)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
-        // subcribing here wont launch the "send last block info event",
-        // because the subcription event will be not propagated untill every
-        // behaviour is initializated
-        //gossip
-        //    .subscribe(&topic)
-        //    .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
+        gossip
+            .subscribe(&topic)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
         Ok(gossip)
     }
@@ -387,13 +384,18 @@ impl Behavior {
                         // Check if the blockchain has a response or if has dropped the response channel.
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
                             // In case of TX or Block only execute it, response is not needed to be propagated (gossip will do it!)
-                            // In case of a *Response send back to the requester the outcome
+                            // In case of a *Request send back to the requester the *Response
                             match rmp_deserialize(&buf) {
                                 Ok(MultiMessage::Simple(req)) => match req {
-                                    //Message::GetTransactionResponse { tx } => todo!(), => implemente origni field
-                                    Message::GetBlockResponse { block, txs, origin } => {
+                                    Message::GetTransactionResponse { .. } => {
                                         self.reqres.send_request(
-                                            &PeerId::from_str(&origin.unwrap()).unwrap(),
+                                            &message.source.unwrap(),
+                                            ReqUnicastMessage(buf),
+                                        );
+                                    }
+                                    Message::GetBlockResponse { .. } => {
+                                        self.reqres.send_request(
+                                            &message.source.unwrap(),
                                             ReqUnicastMessage(buf),
                                         );
                                     }

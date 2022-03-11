@@ -116,6 +116,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     }
 
     let mut listening = false;
+    let mut introduciton_message = false;
 
     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
         loop {
@@ -209,9 +210,33 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             debug!("[p2p] listening on {}", addr);
                             listening = true;
                         }
-                        // TEST
-                        swarm.behaviour_mut().gossip.subscribe(&topic).unwrap();
                     }
+                    if !introduciton_message {
+                        // once the p2p service is ready,
+                        // we ask to the gossip network
+                        // the last block foreach peer
+                        let last_block_request = rmp_serialize(&Message::GetBlockRequest {
+                            height: u64::MAX,
+                            txs: false,
+                            destination: None,
+                        })
+                        .unwrap();
+                        if let Err(err) = swarm
+                            .behaviour_mut()
+                            .gossip
+                            .publish(topic.clone(), last_block_request)
+                        {
+                            match err {
+                                PublishError::InsufficientPeers => (),
+                                _ => {
+                                    error!("[gossip] {:?}", err)
+                                }
+                            }
+                        } else {
+                            introduciton_message = true;
+                        }
+                    }
+
                     break;
                 }
             }

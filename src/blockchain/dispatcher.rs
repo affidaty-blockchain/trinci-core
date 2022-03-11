@@ -31,6 +31,8 @@
 //!   normally do not send out a response. This is to avoid starvation of
 //!   submitters that are not commonly aware of the actual content of the packed payload.
 //!   In case of messages that are not supposed to send out a real response
+use parking_lot::lock_api::RawMutex;
+
 use crate::{
     base::{
         schema::Block,
@@ -38,7 +40,6 @@ use crate::{
         BlockchainSettings, Mutex, RwLock,
     },
     blockchain::{
-        aligner,
         message::*,
         pool::{BlockInfo, Pool},
         pubsub::{Event, PubSub},
@@ -48,7 +49,13 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::{mem::align_of, sync::Arc, thread};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 use super::aligner::Aligner;
 
@@ -67,7 +74,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: Option<(BlockRequestSender, Arc<Mutex<bool>>)>,
+    aligner: (BlockRequestSender, Arc<AtomicBool>),
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -79,7 +86,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
-            aligner: self.aligner.clone(),
+            aligner: (self.aligner.0.clone(), self.aligner.1.clone()),
         }
     }
 }
@@ -93,6 +100,7 @@ impl<D: Db> Dispatcher<D> {
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        aligner: (BlockRequestSender, Arc<AtomicBool>),
     ) -> Self {
         Dispatcher {
             config,
@@ -101,7 +109,7 @@ impl<D: Db> Dispatcher<D> {
             pubsub,
             seed,
             p2p_id,
-            aligner: None,
+            aligner,
         }
     }
 
@@ -283,6 +291,8 @@ impl<D: Db> Dispatcher<D> {
     ) {
         debug!("GetBlockRes {} recieved", block.data.height.clone());
 
+        debug!("Aligner: {:?}", self.aligner.1);
+
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 
@@ -300,7 +310,7 @@ impl<D: Db> Dispatcher<D> {
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner
-        if missing_headers.end == block.data.height && self.aligner.is_none() {
+        if missing_headers.end == block.data.height && self.aligner.1.load(Ordering::AcqRel) {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
@@ -324,26 +334,19 @@ impl<D: Db> Dispatcher<D> {
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start < block.data.height {
+            debug!("Node is misaligned");
             // in this case the node miss some block
-            // it is needed to re-align the node
+            // it needes to be re-align
 
             // start aligner if not already running
-            if self.aligner.is_none() {
-                let aligner_service = Aligner::new(self.pubsub.clone());
-                self.aligner = Some((
-                    aligner_service.tx_chan.clone(),
-                    aligner_service.status.clone(),
-                ));
+            if self.aligner.1.load(Ordering::AcqRel) {
+                debug!("Launching aligner service");
 
-                // launch aligner thread
-                thread::spawn(move || {
-                    let mut align_svc = aligner_service;
-                    align_svc.run();
-                });
+                self.aligner.1.store(false, Ordering::AcqRel);
             }
 
             // send block message
-            self.aligner.as_ref().unwrap().0.send_sync(req);
+            self.aligner.0.send_sync(req);
         }
     }
 
@@ -555,7 +558,17 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Dispatcher::new(config, pool, db, pubsub, seed, "TEST".to_string())
+        let aligner = Aligner::new(pubsub.clone());
+
+        Dispatcher::new(
+            config,
+            pool,
+            db,
+            pubsub,
+            seed,
+            "TEST".to_string(),
+            (aligner.tx_chan.clone(), aligner.status.clone()),
+        )
     }
 
     fn create_db_mock(fail_condition: bool) -> MockDb {
