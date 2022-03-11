@@ -167,7 +167,7 @@ pub fn call_hf(
     method: &str,
     data: &[u8],
     initial_fuel: u64,
-) -> Result<(u64, Vec<u8>)> {
+) -> (u64, Result<Vec<u8>>) {
     match ctx.wm {
         Some(ref mut wm) => wm.call_wm(
             ctx.db,
@@ -183,10 +183,13 @@ pub fn call_hf(
             ctx.events,
             initial_fuel,
         ),
-        None => Err(Error::new_ext(
-            ErrorKind::WasmMachineFault,
-            "nested calls not implemented",
-        )),
+        None => (
+            0,
+            Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "nested calls not implemented",
+            )),
+        ),
     }
 }
 
@@ -255,7 +258,7 @@ mod tests {
              _args,
              _seed,
              _events,
-             _initial_fuel| Ok((0, vec![])),
+             _initial_fuel| (0, Ok(vec![])),
         );
         wm
     }

@@ -60,7 +60,7 @@ pub trait Wm: Send + 'static {
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
-    ) -> Result<(u64, Vec<u8>)>;
+    ) -> (u64, Result<Vec<u8>>);
 }
 
 /// Structure passed from the host to the wasm smart contracts.
