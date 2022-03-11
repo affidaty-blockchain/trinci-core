@@ -32,7 +32,7 @@ merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-fe
 ], optional = true }
 
 # WasmTime
-wasmtime = { version = "0.34.0", default-features = false, features = [
+wasmtime = { version = "0.35.1", default-features = false, features = [
     "parallel-compilation",
     "cranelift",
 ], optional = true }
