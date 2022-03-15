@@ -159,8 +159,7 @@ pub fn get_account_contract(ctx: &CallContext, account_id: &str) -> Option<Hash>
 /// Call a method resident in another account and contract.
 /// The input and output arguments are subject to the packing format rules of
 /// the called smart contract.
-/// // FIXME call
-pub fn call_hf(
+pub fn call(
     ctx: &mut CallContext,
     owner: &str,
     contract: Option<Hash>,
@@ -169,7 +168,7 @@ pub fn call_hf(
     initial_fuel: u64,
 ) -> (u64, Result<Vec<u8>>) {
     match ctx.wm {
-        Some(ref mut wm) => wm.call_wm(
+        Some(ref mut wm) => wm.call(
             ctx.db,
             ctx.depth + 1,
             ctx.network,
@@ -246,7 +245,7 @@ mod tests {
 
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
-        wm.expect_call_wm().returning(
+        wm.expect_call().returning(
             |_db,
              _depth,
              _network,

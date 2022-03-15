@@ -42,7 +42,7 @@ use wasmtime::{
 };
 
 pub type WasmSlice = u64;
-pub const MAX_FUEL: u64 = 1_000_000_000; // Internal wasmtime fuel // FIXME use the fuel_limit
+pub const MAX_FUEL: u64 = 1_000_000_000; // Internal wm fuel units
 
 /// Combine two i32 into one u64
 #[inline]
@@ -377,29 +377,23 @@ mod local_host_func {
         let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
 
         // Invoke portable host function.
-        let (consumed_fuel, buf) = match host_func::call_hf(
-            ctx,
-            &account,
-            Some(contract),
-            &method,
-            args,
-            remaining_fuel,
-        ) {
-            (fuel, Ok(buf)) => (
-                fuel,
-                rmp_serialize(&AppOutput {
-                    success: true,
-                    data: &buf,
-                }),
-            ),
-            (fuel, Err(err)) => (
-                fuel,
-                rmp_serialize(&AppOutput {
-                    success: false,
-                    data: err.to_string_full().as_bytes(),
-                }),
-            ),
-        };
+        let (consumed_fuel, buf) =
+            match host_func::call(ctx, &account, Some(contract), &method, args, remaining_fuel) {
+                (fuel, Ok(buf)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: true,
+                        data: &buf,
+                    }),
+                ),
+                (fuel, Err(err)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: false,
+                        data: err.to_string_full().as_bytes(),
+                    }),
+                ),
+            };
         let buf = buf.unwrap_or_default();
 
         caller.consume_fuel(consumed_fuel)?;
@@ -408,8 +402,7 @@ mod local_host_func {
     }
 
     /// Call contract method.
-    /// /// // FIXME call
-    fn call_extern(
+    fn call(
         mut caller: Caller<'_, CallContext>,
         account_offset: i32,
         account_size: i32,
@@ -434,7 +427,7 @@ mod local_host_func {
 
         // Invoke portable host function.
         let (consumed_fuel, buf) =
-            match host_func::call_hf(ctx, &account, None, &method, args, remaining_fuel) {
+            match host_func::call(ctx, &account, None, &method, args, remaining_fuel) {
                 (fuel, Ok(buf)) => (
                     fuel,
                     rmp_serialize(&AppOutput {
@@ -502,7 +495,7 @@ mod local_host_func {
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
                 "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
-                "hf_call" => Func::wrap(&mut store, call_extern),
+                "hf_call" => Func::wrap(&mut store, call),
                 "hf_s_call" => Func::wrap(&mut store, s_call),
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
@@ -732,7 +725,7 @@ macro_rules! unwrap_or_return {
 }
 impl Wm for WmLocal {
     /// Execute a smart contract.
-    fn call_wm(
+    fn call(
         &mut self,
         db: &mut dyn DbFork,
         depth: u16,
@@ -945,7 +938,7 @@ mod tests {
             events: &mut Vec<SmartContractEvent>,
             seed: Arc<SeedSource>,
         ) -> (u64, Result<Vec<u8>>) {
-            self.call_wm(
+            self.call(
                 db,
                 0,
                 "skynet",

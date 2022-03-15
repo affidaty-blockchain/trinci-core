@@ -34,7 +34,10 @@ use super::{
 };
 use crate::{
     base::{
-        schema::{Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent},
+        schema::{
+            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
+            UnsignedTransaction,
+        },
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
@@ -65,6 +68,12 @@ struct BlockValues {
 struct ConsumeFuelReturns {
     success: bool,
     units: u64,
+}
+
+struct BurnFuelArgs {
+    account: String,
+    fuel_to_burn: u64,
+    fuel_limit: u64,
 }
 
 /// Executor context data.
@@ -102,6 +111,49 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
     }
 }
 
+// DELETE
+fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fuel_consumed: u64) {
+    let (data, data_suffix) = {
+        if data.len() > 250 {
+            (&data[0..250], format!("...{}", data.len()))
+        } else {
+            (data, "".to_string())
+        }
+    };
+
+    error!(
+        "\nTX: {:?}\n\taccount: {}\n\tmethod: {}\n\targs: {}{}\n\tburned_wt_fuel: {}\n",
+        hex::encode(hash),
+        account,
+        method,
+        hex::encode(&data),
+        data_suffix,
+        fuel_consumed
+    );
+}
+
+// DELETE
+fn log_wm_fuel_consumed_st(tx: &SignedTransaction, fuel_consumed: u64) {
+    log_wm_fuel_consumed(
+        &hex::encode(tx.data.primary_hash().as_bytes()),
+        tx.data.get_account(),
+        tx.data.get_method(),
+        tx.data.get_args(),
+        fuel_consumed,
+    )
+}
+
+// DELETE
+fn log_wm_fuel_consumed_bt(tx: &UnsignedTransaction, fuel_consumed: u64) {
+    log_wm_fuel_consumed(
+        &hex::encode(tx.data.primary_hash().as_bytes()),
+        tx.data.get_account(),
+        tx.data.get_method(),
+        tx.data.get_args(),
+        fuel_consumed,
+    )
+}
+
 impl<D: Db, W: Wm> Executor<D, W> {
     /// Constructs a new executor.
     pub fn new(
@@ -130,10 +182,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     // Calculates the fuel consumed by the transaction execution
-    fn calculate_burned_fuel(&self, wasmtime_fuel: u64) -> u64 {
-        // TODO find a f(_wasmtime_fuel) to calculate the fuel in TRINCI
-        warn!("calculate_burned_fuel::{}", wasmtime_fuel);
-        wasmtime_fuel
+    fn calculate_burned_fuel(&self, wm_fuel: u64) -> u64 {
+        // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
+        warn!("calculate_burned_fuel::{}", wm_fuel);
+        // wm_fuel
+        1000
     }
 
     fn calculate_fuel_limit(&self, _fuel_limit: u64) -> u64 {
@@ -161,7 +214,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
-        self.wm.lock().call_wm(
+        self.wm.lock().call(
             fork,
             0,
             SERVICE_ACCOUNT_ID,
@@ -182,30 +235,42 @@ impl<D: Db, W: Wm> Executor<D, W> {
         &self,
         fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
-        origin: &str,
-        mut fuel: u64,
-        max_fuel: u64,
+        burn_fuel_args_array: Vec<BurnFuelArgs>,
     ) -> (bool, u64) {
-        let mut max_fuel_result = true;
+        let mut global_result: bool = true;
+        let mut global_burned_fuel = 0;
 
-        if burn_fuel_method.is_empty() {
-            return (true, 0);
-        }
+        for burn_fuel_args in burn_fuel_args_array {
+            let mut max_fuel_result = true;
 
-        if fuel > max_fuel {
-            fuel = max_fuel;
-            max_fuel_result = false;
-        }
+            if burn_fuel_method.is_empty() {
+                return (true, 0);
+            }
 
-        // Call to consume fuel
-        let (_, result) = self.call_burn_fuel(fork, burn_fuel_method, origin, fuel);
-        match result {
-            Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
-                Ok(res) => (res.success & max_fuel_result, res.units),
-                Err(_) => (false, 0),
-            },
-            Err(_) => (false, 0),
+            let fuel = if burn_fuel_args.fuel_to_burn > burn_fuel_args.fuel_limit {
+                max_fuel_result = false;
+                burn_fuel_args.fuel_limit
+            } else {
+                burn_fuel_args.fuel_to_burn
+            };
+
+            // Call to consume fuel
+            let (_, result) =
+                self.call_burn_fuel(fork, burn_fuel_method, &burn_fuel_args.account, fuel);
+            match result {
+                Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
+                    Ok(res) => {
+                        global_result &= res.success & max_fuel_result;
+                        global_burned_fuel += res.units;
+                    }
+                    Err(_) => {
+                        global_result = false;
+                    }
+                },
+                Err(_) => global_result = false,
+            }
         }
+        (global_result, global_burned_fuel)
     }
 
     fn handle_unit_transaction(
@@ -215,10 +280,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
-    ) -> Receipt {
+    ) -> (Vec<BurnFuelArgs>, Receipt) {
         let initial_fuel = self.calculate_fuel_limit(tx.data.get_fuel_limit());
 
-        let (fuel_consumed, result) = self.wm.lock().call_wm(
+        let (fuel_consumed, result) = self.wm.lock().call(
             fork,
             0,
             tx.data.get_network(),
@@ -271,19 +336,28 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
+        // FIXME LOG REAL CONSUMPTION
+        log_wm_fuel_consumed_st(tx, fuel_consumed);
+
+        // Total fuel burned
         let burned_fuel = self.calculate_burned_fuel(fuel_consumed);
 
-        Receipt {
-            height,
-            burned_fuel,
-            index: index as u32,
-            success,
-            returns,
-            events,
-        }
+        (
+            vec![BurnFuelArgs {
+                account: tx.data.get_caller().to_account_id(),
+                fuel_to_burn: burned_fuel,
+                fuel_limit: tx.data.get_fuel_limit(),
+            }],
+            Receipt {
+                height,
+                burned_fuel,
+                index: index as u32,
+                success,
+                returns,
+                events,
+            },
+        )
     }
-
-    // FIXME IMPLEMENT THE FUEL CONSUMPTION
 
     fn handle_bulk_transaction(
         &mut self,
@@ -292,10 +366,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
-    ) -> Receipt {
+    ) -> (Vec<BurnFuelArgs>, Receipt) {
         let mut results = HashMap::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
+
+        let mut burn_fuel_args = Vec::<BurnFuelArgs>::new();
+
         let (events, results) = match &tx.data {
             crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
                 let root_tx = &bulk_tx.txs.root;
@@ -304,7 +381,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                 let initial_fuel = self.calculate_fuel_limit(root_tx.data.get_fuel_limit());
 
-                let (fuel_consumed, result) = self.wm.lock().call_wm(
+                let (fuel_consumed, result) = self.wm.lock().call(
                     fork,
                     0,
                     root_tx.data.get_network(),
@@ -318,6 +395,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     &mut bulk_events,
                     initial_fuel,
                 );
+
+                burn_fuel_args.push(BurnFuelArgs {
+                    account: root_tx.data.get_caller().to_account_id(),
+                    fuel_to_burn: fuel_consumed,
+                    fuel_limit: root_tx.data.get_fuel_limit(),
+                });
+
+                // FIXME LOG REAL CONSUMPTION
+                log_wm_fuel_consumed_bt(root_tx, fuel_consumed);
+
+                // Convert wm fuel in TRINCI
+                let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
 
                 burned_fuel += fuel_consumed;
 
@@ -368,7 +457,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             let initial_fuel =
                                 self.calculate_fuel_limit(node.data.get_fuel_limit());
 
-                            let (fuel_consumed, result) = self.wm.lock().call_wm(
+                            let (fuel_consumed, result) = self.wm.lock().call(
                                 fork,
                                 0,
                                 node.data.get_network(),
@@ -382,6 +471,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 &mut bulk_events,
                                 initial_fuel,
                             );
+                            burn_fuel_args.push(BurnFuelArgs {
+                                account: node.data.get_caller().to_account_id(),
+                                fuel_to_burn: fuel_consumed,
+                                fuel_limit: node.data.get_fuel_limit(),
+                            });
+                            // FIXME LOG REAL CONSUMPTION
+                            log_wm_fuel_consumed_st(node, fuel_consumed);
+
+                            // Convert wm fuel in TRINCI
+                            let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
+
                             burned_fuel += fuel_consumed;
 
                             match result {
@@ -449,14 +549,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
         };
         let burned_fuel = self.calculate_burned_fuel(burned_fuel);
 
-        Receipt {
-            height,
-            index,
-            burned_fuel,
-            success: !execution_fail,
-            returns: results.unwrap_or_default(),
-            events,
-        }
+        (
+            burn_fuel_args,
+            Receipt {
+                height,
+                index,
+                burned_fuel,
+                success: !execution_fail,
+                returns: results.unwrap_or_default(),
+                events,
+            },
+        )
     }
 
     fn exec_transaction(
@@ -469,11 +572,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
     ) -> Receipt {
         fork.flush();
 
-        let fuel_willing_to_spend = tx.get_fuel_limit();
-
         let events: Vec<SmartContractEvent> = vec![];
 
-        let mut receipt = match tx {
+        let (fuel_to_burn, mut receipt) = match tx {
             Transaction::UnitTransaction(tx) => {
                 self.handle_unit_transaction(tx, fork, height, index, events)
             }
@@ -483,13 +584,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         };
 
         // Try to burn fuel from the caller account
-        let (res_burning, mut burned) = self.try_burn_fuel(
-            fork,
-            burn_fuel_method,
-            &tx.get_caller().to_account_id(),
-            receipt.burned_fuel,
-            fuel_willing_to_spend,
-        );
+        let (res_burning, mut burned) = self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn);
         if res_burning {
             receipt.burned_fuel = burned;
             receipt
@@ -663,12 +758,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
         }
+
         if is_validator {
-            // FIXME
             let node_account_id = self.keypair.public_key().to_account_id();
             let valid = (*is_validator_closure)(node_account_id).unwrap_or_default();
             self.is_validator = Arc::new(valid);
-            error!("validator_b: {:?}", self.is_validator);
         }
 
         Ok(block_hash)
@@ -899,8 +993,8 @@ mod tests {
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call_wm().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call()
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
@@ -922,16 +1016,15 @@ mod tests {
                         )),
                     ),
                 }
-            },
-        );
+            });
         wm
     }
 
     fn create_wm_mock_bulk() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call_wm().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call()
+            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
@@ -953,8 +1046,7 @@ mod tests {
                         )),
                     ),
                 }
-            },
-        );
+            });
         wm
     }
 

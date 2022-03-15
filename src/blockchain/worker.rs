@@ -257,7 +257,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         // FIXME This call must be only read/mode
         self.is_validator =
             Arc::new((*is_validator_closure)(account_id.to_string()).unwrap_or_default());
-        error!("validator_a: {:?}", self.is_validator);
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             // if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
