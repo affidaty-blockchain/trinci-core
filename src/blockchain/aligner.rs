@@ -15,157 +15,306 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use async_std::{future, task};
-use futures::{FutureExt, StreamExt};
+use async_std::future;
+use futures::StreamExt;
+use rand::prelude::SliceRandom;
 
 use crate::{
-    base::{serialize::rmp_deserialize, Mutex},
+    base::{Mutex, RwLock},
+    blockchain::pool::BlockInfo,
     channel::confirmed_channel,
     crypto::{HashAlgorithm, Hashable},
+    db::Db,
     Block,
 };
 
 use super::{
-    message::{Message, MultiMessage},
-    pubsub::PubSub,
-    BlockRequestReceiver, BlockRequestSender, Event,
+    message::Message, pool::Pool, pubsub::PubSub, BlockRequestReceiver, BlockRequestSender, Event,
 };
-use core::hash::Hash;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-const MAX_SYNC_REQUESTS: usize = 512;
-
 /// Synchronization context data.
-pub(crate) struct Aligner {
-    /// Trusted peers (peer, last block hash)
+pub(crate) struct Aligner<D: Db> {
+    /// Trusted peers (peer, last block hash).
     trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
-    /// Missing blocks
-    missing_blocks: Vec<Block>,
-    /// Rx channel
+    /// Missing blocks.
+    missing_blocks: Arc<Mutex<Vec<Message>>>,
+    /// Rx channel.
     rx_chan: Arc<Mutex<BlockRequestReceiver>>,
-    /// Tx channel
-    pub tx_chan: BlockRequestSender,
-    /// Pubsub channel
+    /// Tx channel.
+    tx_chan: Arc<Mutex<BlockRequestSender>>,
+    /// Pubsub channel.
     pubsub: Arc<Mutex<PubSub>>,
-    /// Align status. false => not aligned
+    /// Align status. false => not aligned.
     pub status: Arc<AtomicBool>,
+    /// Hash of local last block.
+    db: Arc<RwLock<D>>,
+    /// Outstanding blocks and transactions.
+    pool: Arc<RwLock<Pool>>,
 }
 
-impl Aligner {
-    pub fn new(pubsub: Arc<Mutex<PubSub>>) -> Self {
+impl<D: Db> Aligner<D> {
+    pub fn new(pubsub: Arc<Mutex<PubSub>>, db: Arc<RwLock<D>>, pool: Arc<RwLock<Pool>>) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
         Aligner {
             trusted_peers: Arc::new(Mutex::new(vec![])),
-            missing_blocks: vec![],
+            missing_blocks: Arc::new(Mutex::new(vec![])),
             rx_chan: Arc::new(Mutex::new(rx_chan)),
-            tx_chan,
+            tx_chan: Arc::new(Mutex::new(tx_chan)),
             pubsub,
             status: Arc::new(AtomicBool::new(true)),
+            db,
+            pool,
         }
     }
 
     async fn run_async(&self) {
-        debug!("###Aligner up###");
-        // first task to complete is to recieve candidates to trusted peers
-        let msg = Message::GetBlockRequest {
-            height: u64::MAX,
-            txs: false,
-            destination: None,
-        };
-        self.pubsub.lock().publish(Event::GOSSIP_REQUEST, msg);
+        debug!("[aligner] service up");
+        loop {
+            debug!("[aligner] new align instance initialised");
+            let trusted_peers = self.trusted_peers.clone();
+            let rx_chan = self.rx_chan.clone();
+            let pubsub = self.pubsub.clone();
 
-        let mut collect_candidate_time_window = Box::pin(task::sleep(Duration::from_secs(10)));
+            // Collect trusted peers.
+            let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+                loop {
+                    if !self.status.load(Ordering::Relaxed) {
+                        // Send a `GetBlockRequest` in broadcast to retrieve
+                        // as many peers as possible in a predetermined time window.
+                        let msg = Message::GetBlockRequest {
+                            height: u64::MAX,
+                            txs: false,
+                            destination: None,
+                        };
+                        pubsub.lock().publish(Event::GOSSIP_REQUEST, msg);
 
-        let trusted_peers = self.trusted_peers.clone();
-        let rx_chan = self.rx_chan.clone();
+                        let collection_time = Duration::from_secs(10);
+                        let start = Instant::now();
 
-        let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            // collect trusted peers
-            loop {
-                if !self.status.load(Ordering::AcqRel) {
-                    while !collect_candidate_time_window.poll_unpin(cx).is_ready() {
-                        match rx_chan.lock().poll_next_unpin(cx) {
-                            Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
-                            Poll::Ready(Some((req, res_chan))) => {
-                                // the nessages recieved are in packed format,
-                                // need to be deserialize
-                                match req {
-                                    Message::Packed { buf } => match rmp_deserialize(&buf) {
-                                        Ok(MultiMessage::Simple(req)) => match req {
-                                            Message::GetBlockResponse {
+                        debug!("[aligner] collecting peers to find most common last block");
+                        // TODO: check if other poll needed or not.
+                        while collection_time.checked_sub(start.elapsed()).is_some() {
+                            match rx_chan.lock().poll_next_unpin(cx) {
+                                Poll::Ready(Some((req, _res_chan))) => {
+                                    // The messages recieved from the p2p nw (unicast layer)
+                                    // are in packed format, need to be deserialized
+                                    // and the only messages expected are `GetBlockResponse`.
+                                    match req {
+                                        Message::GetBlockResponse {
+                                            block,
+                                            txs: _,
+                                            origin,
+                                        } => {
+                                            debug!(
+                                                "[alinger] last block proposal recieved by {}",
+                                                origin.clone().unwrap()
+                                            );
+                                            let hash = block.hash(HashAlgorithm::Sha256);
+                                            let hash = hex::encode(hash.as_bytes());
+                                            trusted_peers.lock().push((
+                                                origin.unwrap().to_string(),
+                                                hash,
                                                 block,
-                                                txs: _,
-                                                origin,
-                                            } => {
-                                                let hash = block.hash(HashAlgorithm::Sha256);
-                                                let hash = hex::encode(hash.as_bytes());
-                                                trusted_peers.lock().push((
-                                                    origin.unwrap().to_string(),
-                                                    hash,
-                                                    block,
-                                                ));
-                                            }
-                                            _ => (),
-                                        },
+                                            ));
+                                        }
                                         _ => (),
-                                    },
-                                    _ => (),
+                                    }
+                                }
+                                //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                                //Poll::Ready(None) => return Poll::Ready(()),
+                                //Poll::Pending => break,
+                                _ => (),
+                            }
+                        }
+                        debug!("[aligner] peer collection ended");
+                        break std::task::Poll::Ready(());
+                    }
+                }
+            });
+
+            future.await;
+
+            // Once the collection task ended, to find the trusted peers,
+            // the peers with the most common last block are chosen.
+            let mut hashmap = HashMap::<String, i64>::new();
+            for entry in self.trusted_peers.lock().iter() {
+                let counter = hashmap.entry(entry.1.clone()).or_default();
+                *counter += 1;
+            }
+
+            let mut most_common_block = String::from("");
+            let max_occurences: i64 = 0;
+            for (block_hash, occurence) in hashmap.iter() {
+                if max_occurences < *occurence {
+                    most_common_block = block_hash.clone();
+                }
+            }
+
+            let mut j: usize = 0;
+            for entry in self.trusted_peers.lock().iter() {
+                if entry.1 != most_common_block {
+                    self.trusted_peers.lock().remove(j);
+                }
+                j += 1;
+            }
+
+            debug!("[aligner] trusted peers:");
+            for peer in self.trusted_peers.lock().iter() {
+                debug!("\t\t{}", peer.0);
+            }
+            debug!("==========");
+
+            // Send unicast request to a random trusted peer for every block in `missing_blocks`.
+            let rx_chan = self.rx_chan.clone();
+            let pubsub = self.pubsub.clone();
+            let trusted_peers = self.trusted_peers.clone();
+            let local_last = self.db.read().load_block(u64::MAX).unwrap();
+            let local_last_hash = local_last.hash(HashAlgorithm::Sha256);
+
+            debug!("[alinger] requesting last block to random trusted peer");
+            match trusted_peers.lock().choose(&mut rand::thread_rng()) {
+                Some((peer, ..)) => {
+                    // Send first request.
+                    let msg = Message::GetBlockRequest {
+                        height: u64::MAX,
+                        txs: true,
+                        destination: Some(peer.to_string()),
+                    };
+                    pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+
+                    // Until "local_last.next" retrieved ask for "remote_last.previous".
+                    let mut over = false;
+                    let trusted_peers = self.trusted_peers.clone();
+                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+                        while !over {
+                            // TODO: check if other poll needed or not.
+                            match rx_chan.lock().poll_next_unpin(cx) {
+                                Poll::Ready(Some((req, _res_chan))) => {
+                                    debug!("[aligner] new message recieved");
+                                    match req {
+                                        // Check if the recieved message is
+                                        // from previous peer collection task,
+                                        // in that case discard the message.
+                                        Message::GetBlockResponse {
+                                            ref block,
+                                            txs: Some(ref _txs_hashes),
+                                            ref origin,
+                                        } => {
+                                            debug!(
+                                                "[aligner] align bock recieved by {}",
+                                                origin.clone().unwrap()
+                                            );
+
+                                            self.missing_blocks.lock().push(req.clone());
+
+                                            // Check alignment status.
+                                            if !block.data.prev_hash.eq(&local_last_hash)
+                                                && block.data.height > local_last.data.height + 1
+                                            {
+                                                let peer = &trusted_peers
+                                                    .lock()
+                                                    .choose(&mut rand::thread_rng())
+                                                    .unwrap()
+                                                    .0
+                                                    .clone();
+                                                let msg = Message::GetBlockRequest {
+                                                    height: block.data.height - 1,
+                                                    txs: true,
+                                                    destination: Some(peer.to_string()),
+                                                };
+                                                pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+                                            } else {
+                                                // Alignment block gathering completed.
+                                                debug!(
+                                                    "[aligner] alignment block gathering completed"
+                                                );
+                                                over = true;
+                                            }
+                                        }
+                                        _ => (),
+                                    }
+                                }
+                                //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                                //Poll::Ready(None) => return Poll::Ready(()),
+                                //Poll::Pending => break,
+                                _ => (),
+                            }
+                        }
+
+                        std::task::Poll::Ready(())
+                    });
+
+                    future.await;
+
+                    // Update DB with the retrieved blocks.
+                    // Note: in the `missing_block` array blocks are collected
+                    //       from the most recent (first array element),
+                    //       to the least recenf (last array element).
+                    for msg in self.missing_blocks.lock().iter().rev() {
+                        if let Message::GetBlockResponse {
+                            block,
+                            txs,
+                            origin: _,
+                        } = msg
+                        {
+                            let mut pool = self.pool.write();
+                            if let Some(ref hashes) = txs {
+                                for hash in hashes {
+                                    if pool.unconfirmed.contains(hash) {
+                                        pool.unconfirmed.remove(hash);
+                                    }
+                                    if !pool.txs.contains_key(hash) {
+                                        pool.txs.insert(*hash, None);
+                                    }
                                 }
                             }
-                            Poll::Ready(None) => return Poll::Ready(()),
-                            Poll::Pending => break,
+                            let blk_info = BlockInfo {
+                                hash: Some(block.data.primary_hash()),
+                                validator: block.data.validator.to_owned(),
+                                signature: Some(block.signature.clone()),
+                                txs_hashes: txs.to_owned(),
+                            };
+                            pool.confirmed.insert(block.data.height, blk_info);
                         }
                     }
                 }
-            }
-            Poll::Pending
-        });
+                None => (), // If no trusted peers, complete alignment task.
+            };
 
-        future.await;
+            // Reinitialise aligner structures.
+            let mut trusted_peers = self.trusted_peers.lock();
+            let empty: Vec<(String, String, Block)> = vec![];
+            *trusted_peers = empty;
 
-        // once the time window is timed out pick the peers with most common block
-        let mut hashmap = HashMap::<String, i64>::new();
-        for entry in self.trusted_peers.lock().iter() {
-            let counter = hashmap.entry(entry.1.clone()).or_default();
-            *counter += 1;
+            let mut missing_blocks = self.missing_blocks.lock();
+            let empty: Vec<Message> = vec![];
+            *missing_blocks = empty;
+
+            self.status.store(true, Ordering::Relaxed);
+
+            // It should be 0.
+            debug!(
+                "[aligner] trusted_peers {}",
+                self.trusted_peers.lock().len()
+            );
+            // It should be 0.
+            debug!(
+                "[aligner] missing_blocks {}",
+                self.missing_blocks.lock().len()
+            );
+
+            debug!("[aligner] alignment task completed");
         }
-
-        let mut most_common_block = String::from("");
-        let max_occurences: i64 = 0;
-        for (block_hash, occurence) in hashmap.iter() {
-            if max_occurences < *occurence {
-                most_common_block = block_hash.clone();
-            }
-        }
-
-        let mut j: usize = 0;
-        for entry in self.trusted_peers.lock().iter() {
-            if entry.1 != most_common_block {
-                self.trusted_peers.lock().remove(j);
-            }
-            j += 1;
-        }
-
-        // DEBUG
-        debug!("###TRUSTED PEERS###");
-        for peer in self.trusted_peers.lock().iter() {
-            debug!("\t\t{}", peer.0);
-        }
-        debug!("###################");
-
-        // send unicast request for every block in missing_blocks
-        // should it wait that a block has been executed to send another req?
-
-        // stop aligner
     }
 
     pub fn run(&mut self) {
@@ -174,7 +323,7 @@ impl Aligner {
     }
 
     /// Get a clone of block-service input channel.
-    pub fn request_channel(&self) -> BlockRequestSender {
+    pub fn request_channel(&self) -> Arc<Mutex<BlockRequestSender>> {
         self.tx_chan.clone()
     }
 }

@@ -21,7 +21,7 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::{rmp_deserialize, rmp_serialize},
+    base::serialize::rmp_deserialize,
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
@@ -33,8 +33,8 @@ use libp2p::{
         ProtocolName, PublicKey,
     },
     gossipsub::{
-        error::PublishError, Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic,
-        MessageAuthenticity, ValidationMode,
+        Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic, MessageAuthenticity,
+        ValidationMode,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     kad::{
@@ -401,8 +401,8 @@ impl Behavior {
                                     }
                                     _ => (),
                                 },
-                                _ => (),
                                 Err(_) => warn!("blockchain service seems down"),
+                                _ => (),
                             }
                         }
                     }
@@ -515,15 +515,10 @@ impl Behavior {
                             // select a group of trusted peers
                             // submit block to blockchain service
                             // from now on if it has to ask for blocks and block it asks to the trusted peers
-                            match self.bc_chan.send_sync(msg) {
-                                Ok(res_chan) => match res_chan.recv_sync() {
-                                    Ok(_) => debug!(
-                                        "[req-res](req) block submited to blockchain service"
-                                    ),
-                                    Err(error) => {
-                                        debug!("[req-res](req) error in submitig block: {}", error)
-                                    }
-                                },
+                            match self.bc_chan.send_sync(req) {
+                                Ok(_) => {
+                                    debug!("[req-res](req) block submited to blockchain service")
+                                }
                                 Err(_err) => {
                                     warn!("blockchain service seems down");
                                 }
@@ -551,22 +546,42 @@ impl Behavior {
                     peer.to_string()
                 );
 
-                let msg = Message::Packed { buf };
-                // sending response message into th blockchain service
-                match self.bc_chan.send_sync(msg) {
-                    Ok(res_chan) => {
-                        match res_chan.recv_sync() {
-                            Ok(_) => {
-                                debug!("[req-res](res) recieved response submitted to blockchain service")
-                            }
-                            Err(error) => {
-                                debug!("[req-res](res) error in submitig response: {}", error)
+                match rmp_deserialize(&buf) {
+                    Ok(MultiMessage::Simple(req)) => match req {
+                        Message::GetTransactionResponse { .. } => {
+                            match self.bc_chan.send_sync(req) {
+                                Ok(res_chan) => match res_chan.recv_sync() {
+                                    Ok(_) => {
+                                        debug!("[req-res](res) recieved GetTransactionResponse, submitted to blockchain service")
+                                    }
+                                    Err(error) => {
+                                        debug!(
+                                            "[req-res](res) error in submitig response: {}",
+                                            error
+                                        )
+                                    }
+                                },
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
                             }
                         }
-                    }
-                    Err(_err) => {
-                        warn!("blockchain service seems down");
-                    }
+                        Message::GetBlockResponse { .. } => match self.bc_chan.send_sync(req) {
+                            Ok(res_chan) => match res_chan.recv_sync() {
+                                Ok(_) => {
+                                    debug!("[req-res](res) recieved GetBlockResponse, submitted to blockchain service")
+                                }
+                                Err(error) => {
+                                    debug!("[req-res](res) error in submitig response: {}", error)
+                                }
+                            },
+                            Err(_err) => {
+                                warn!("blockchain service seems down");
+                            }
+                        },
+                        _ => (),
+                    },
+                    _ => {}
                 }
             }
             RequestResponseEvent::OutboundFailure {

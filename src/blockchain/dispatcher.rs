@@ -31,7 +31,6 @@
 //!   normally do not send out a response. This is to avoid starvation of
 //!   submitters that are not commonly aware of the actual content of the packed payload.
 //!   In case of messages that are not supposed to send out a real response
-use parking_lot::lock_api::RawMutex;
 
 use crate::{
     base::{
@@ -49,15 +48,10 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    thread,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
-
-use super::aligner::Aligner;
 
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
@@ -74,7 +68,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: (BlockRequestSender, Arc<AtomicBool>),
+    aligner: (Arc<Mutex<BlockRequestSender>>, Arc<AtomicBool>),
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -100,7 +94,7 @@ impl<D: Db> Dispatcher<D> {
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
         p2p_id: String,
-        aligner: (BlockRequestSender, Arc<AtomicBool>),
+        aligner: (Arc<Mutex<BlockRequestSender>>, Arc<AtomicBool>),
     ) -> Self {
         Dispatcher {
             config,
@@ -201,6 +195,7 @@ impl<D: Db> Dispatcher<D> {
 
     fn get_block_handler(&self, height: u64, txs: bool) -> Message {
         let opt = self.db.read().load_block(height);
+        debug!("GETBLOCKREQ\theight: {}\ttxs: {}", height, txs);
         match opt {
             Some(block) => {
                 let blk_txs = if txs {
@@ -208,6 +203,7 @@ impl<D: Db> Dispatcher<D> {
                 } else {
                     None
                 };
+                debug!("GETBLOCKREQ response send\ttxs: {}", blk_txs.is_some());
                 Message::GetBlockResponse {
                     block,
                     txs: blk_txs,
@@ -242,56 +238,14 @@ impl<D: Db> Dispatcher<D> {
         let _ = self.put_transaction_internal(transaction);
     }
 
-    fn old_get_block_res_handler(&self, block: Block, txs_hashes: Option<Vec<Hash>>) {
-        // get local last blocl
-        let opt = self.db.read().load_block(u64::MAX);
-
-        // collect missing blocks by heights
-        let mut missing_headers = match opt {
-            Some(last) => last.data.height + 1..block.data.height,
-            None => 0..block.data.height,
-        };
-        if txs_hashes.is_none() {
-            missing_headers.end += 1;
-        }
-
-        // check if wether or not there are missing blocks
-        if missing_headers.start <= block.data.height {
-            // if recieved block contains txs
-            //  . remove those from unconfirmed pool
-            //  . add txs to pool.txs if not present
-            // push new block into pool.confirmed
-            let mut pool = self.pool.write();
-            if let Some(ref hashes) = txs_hashes {
-                for hash in hashes {
-                    if pool.unconfirmed.contains(hash) {
-                        pool.unconfirmed.remove(hash);
-                    }
-                    if !pool.txs.contains_key(hash) {
-                        pool.txs.insert(*hash, None);
-                    }
-                }
-            }
-            let blk_info = BlockInfo {
-                hash: Some(block.data.primary_hash()),
-                validator: block.data.validator,
-                signature: Some(block.signature),
-                txs_hashes,
-            };
-            pool.confirmed.insert(block.data.height, blk_info);
-        }
-    }
-
     fn get_block_res_handler(
         &mut self,
         block: &Block,
         txs_hashes: &Option<Vec<Hash>>,
         origin: &Option<String>,
-        req: Message,
+        _req: Message,
     ) {
-        debug!("GetBlockRes {} recieved", block.data.height.clone());
-
-        debug!("Aligner: {:?}", self.aligner.1);
+        //debug!("Aligner: {:?}", self.aligner.1);
 
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
@@ -305,12 +259,12 @@ impl<D: Db> Dispatcher<D> {
             missing_headers.end += 1;
         }
 
-        // check if wether or not there are missing blocks
-        // in case is the "next block", it means the behaviour
+        // Check if wether or not there are missing blocks.
+        // In case the recieved block is the "next block", it means the behaviour
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
-        // "alignment" status, shown by the status of the aligner
-        if missing_headers.end == block.data.height && self.aligner.1.load(Ordering::AcqRel) {
+        // "alignment" status, shown by the status of the aligner (false -> alignment)
+        if missing_headers.end == block.data.height && self.aligner.1.load(Ordering::Relaxed) {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
@@ -334,19 +288,28 @@ impl<D: Db> Dispatcher<D> {
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start < block.data.height {
-            debug!("Node is misaligned");
             // in this case the node miss some block
-            // it needes to be re-align
+            // it needes to be re-aligned
 
             // start aligner if not already running
-            if self.aligner.1.load(Ordering::AcqRel) {
-                debug!("Launching aligner service");
+            if self.aligner.1.load(Ordering::Relaxed) {
+                debug!("[dispatcher] node is misaligned, launching aligner service");
 
-                self.aligner.1.store(false, Ordering::AcqRel);
+                self.aligner.1.store(false, Ordering::Relaxed);
+            } else {
+                // send block message to aligner
+                debug!(
+                    "[dispatcher] sending GetBlockResponse to the aligner (height: {}) (txs: {})",
+                    block.clone().data.height,
+                    txs_hashes.is_some(),
+                );
+                let req = Message::GetBlockResponse {
+                    block: block.to_owned(),
+                    txs: txs_hashes.to_owned(),
+                    origin: origin.to_owned(),
+                };
+                self.aligner.0.lock().send_sync(req).unwrap();
             }
-
-            // send block message
-            self.aligner.0.send_sync(req);
         }
     }
 
@@ -497,6 +460,7 @@ impl<D: Db> Dispatcher<D> {
                 ref txs,
                 ref origin,
             } => {
+                debug!("GETBLOCKRES\ttxs: {}", txs.clone().is_some());
                 self.get_block_res_handler(block, txs, origin, req.clone());
                 None
             }
@@ -555,10 +519,29 @@ mod tests {
             Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
                 .unwrap();
 
-        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = SeedSource::new(
+            nw_name,
+            nonce,
+            prev_hash.clone(),
+            txs_hash.clone(),
+            rxs_hash.clone(),
+        );
         let seed = Arc::new(seed);
 
-        let aligner = Aligner::new(pubsub.clone());
+        let block = Block {
+            data: crate::base::schema::BlockData {
+                validator: None,
+                height: 1,
+                size: 1,
+                prev_hash,
+                txs_hash,
+                rxs_hash,
+                state_hash: rxs_hash,
+            },
+            signature: vec![],
+        };
+
+        let aligner = Aligner::new(pubsub.clone(), block);
 
         Dispatcher::new(
             config,

@@ -39,7 +39,7 @@ use std::{
 };
 
 use super::aligner::Aligner;
-use super::synchronizer::Synchronizer;
+//use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
 pub trait IsValidator: Fn(String) -> Result<bool> + Send + Sync + 'static {}
@@ -61,8 +61,8 @@ pub struct BlockWorker<D: Db, W: Wm> {
     builder: Builder<D>,
     /// Executor subsystem, in charge of executing block transactions.
     executor: Executor<D, W>,
-    ///
-    synchronizer: Synchronizer<D>,
+    //
+    //synchronizer: Synchronizer<D>,
     /// Builder running flag.
     building: Arc<AtomicBool>,
     /// Executor running flag.
@@ -90,8 +90,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
-        // launch aligner thread
-        let mut aligner = Aligner::new(pubsub.clone());
+        let mut aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
 
         let dispatcher = Dispatcher::new(
             config.clone(),
@@ -100,7 +99,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             seed.clone(),
             p2p_id.clone(),
-            (aligner.tx_chan.clone(), aligner.status.clone()),
+            (aligner.request_channel(), aligner.status.clone()),
         );
 
         thread::spawn(move || aligner.run());
@@ -115,7 +114,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             seed,
             p2p_id,
         );
-        let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
+        //let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));
         let executing = Arc::new(AtomicBool::new(false));
@@ -129,7 +128,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             dispatcher,
             builder,
             executor,
-            synchronizer,
+            //synchronizer,
             building,
             executing,
             synchronizing,
