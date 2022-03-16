@@ -48,10 +48,7 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
@@ -68,7 +65,10 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: (Arc<Mutex<BlockRequestSender>>, Arc<AtomicBool>),
+    aligner: (
+        Arc<Mutex<BlockRequestSender>>,
+        Arc<(StdMutex<bool>, Condvar)>,
+    ),
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -94,7 +94,10 @@ impl<D: Db> Dispatcher<D> {
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
         p2p_id: String,
-        aligner: (Arc<Mutex<BlockRequestSender>>, Arc<AtomicBool>),
+        aligner: (
+            Arc<Mutex<BlockRequestSender>>,
+            Arc<(StdMutex<bool>, Condvar)>,
+        ),
     ) -> Self {
         Dispatcher {
             config,
@@ -199,7 +202,7 @@ impl<D: Db> Dispatcher<D> {
         match opt {
             Some(block) => {
                 let blk_txs = if txs {
-                    self.db.read().load_transactions_hashes(height)
+                    self.db.read().load_transactions_hashes(block.data.height)
                 } else {
                     None
                 };
@@ -264,7 +267,8 @@ impl<D: Db> Dispatcher<D> {
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)
-        if missing_headers.end == block.data.height && self.aligner.1.load(Ordering::Relaxed) {
+        let aligner_status = self.aligner.1.clone();
+        if missing_headers.end == block.data.height && *aligner_status.0.lock().unwrap() {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
@@ -287,15 +291,17 @@ impl<D: Db> Dispatcher<D> {
                 txs_hashes: txs_hashes.to_owned(),
             };
             pool.confirmed.insert(block.data.height, blk_info);
-        } else if missing_headers.start < block.data.height {
+        } else if missing_headers.start <= block.data.height {
+            debug!("{}", aligner_status.0.lock().unwrap());
             // in this case the node miss some block
             // it needes to be re-aligned
 
             // start aligner if not already running
-            if self.aligner.1.load(Ordering::Relaxed) {
+            if *aligner_status.0.lock().unwrap() {
                 debug!("[dispatcher] node is misaligned, launching aligner service");
 
-                self.aligner.1.store(false, Ordering::Relaxed);
+                *aligner_status.0.lock().unwrap() = false;
+                aligner_status.1.notify_one();
             } else {
                 // send block message to aligner
                 debug!(
@@ -460,7 +466,11 @@ impl<D: Db> Dispatcher<D> {
                 ref txs,
                 ref origin,
             } => {
-                debug!("GETBLOCKRES\ttxs: {}", txs.clone().is_some());
+                debug!(
+                    "GETBLOCKRES\theight: {}\ttxs: {}",
+                    block.data.height,
+                    txs.clone().is_some()
+                );
                 self.get_block_res_handler(block, txs, origin, req.clone());
                 None
             }
