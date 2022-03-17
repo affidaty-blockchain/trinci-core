@@ -52,3 +52,12 @@ macro_rules! named_unit_variant {
         }
     };
 }
+
+macro_rules! unwrap_or_return {
+    ( $e:expr ) => {
+        match $e {
+            Ok(x) => x,
+            Err(e) => return (0, Err(e)),
+        }
+    };
+}

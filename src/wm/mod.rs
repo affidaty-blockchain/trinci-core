@@ -53,13 +53,41 @@ pub trait Wm: Send + 'static {
         origin: &str,
         owner: &str,
         caller: &str,
-        contract: Option<Hash>,
+        contract: Hash,
         method: &str,
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
     ) -> (u64, Result<Vec<u8>>);
+
+    fn app_hash_check<'a>(
+        &mut self,
+        db: &mut dyn DbFork,
+        app_hash: Option<Hash>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> Result<Hash>;
+
+    fn contract_updatable<'a>(
+        &mut self,
+        fork: &mut dyn DbFork,
+        hash_args: CheckHashArgs<'a>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> bool;
+}
+
+pub struct CheckHashArgs<'a> {
+    account: &'a str,
+    current_hash: Option<Hash>,
+    new_hash: Option<Hash>,
+}
+
+pub struct CtxArgs<'a> {
+    pub origin: &'a str,
+    pub owner: &'a str,
+    pub caller: &'a str,
 }
 
 /// Structure passed from the host to the wasm smart contracts.

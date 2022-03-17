@@ -30,6 +30,8 @@ use crate::{
 };
 use ring::digest;
 
+use super::CtxArgs;
+
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
     /// Wasm machine reference (None if implementation do not support nested calls).
@@ -168,22 +170,31 @@ pub fn call(
     initial_fuel: u64,
 ) -> (u64, Result<Vec<u8>>) {
     match ctx.wm {
-        Some(ref mut wm) => wm.call(
-            ctx.db,
-            ctx.depth + 1,
-            ctx.network,
-            ctx.origin,
-            owner,
-            ctx.owner,
-            contract,
-            method,
-            data,
-            ctx.seed.clone(),
-            ctx.events,
-            initial_fuel,
-        ),
+        Some(ref mut wm) => {
+            let ctx_args = CtxArgs {
+                origin: ctx.origin,
+                owner,
+                caller: ctx.owner,
+            };
+            let app_hash =
+                unwrap_or_return!(wm.app_hash_check(ctx.db, contract, ctx_args, ctx.seed.clone()));
+            wm.call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                owner,
+                ctx.owner,
+                app_hash,
+                method,
+                data,
+                ctx.seed.clone(),
+                ctx.events,
+                initial_fuel,
+            )
+        }
         None => (
-            0,
+            0, // FIXME should pay for this?
             Err(Error::new_ext(
                 ErrorKind::WasmMachineFault,
                 "nested calls not implemented",

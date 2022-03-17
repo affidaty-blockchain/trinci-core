@@ -39,6 +39,7 @@ pub enum ErrorKind {
     WasmMachineFault,
     SmartContractFault,
     ResourceNotFound,
+    InvalidContract,
     NotImplemented,
     Tpm2Error,
     WrongTxType,
@@ -65,6 +66,7 @@ pub(super) mod error_kind_str {
     pub const BROKEN_INTEGRITY: &str = "the integrity of the node is invalid";
     pub const FUEL_ERROR: &str = "burning fuel error";
     pub const OTHER: &str = "other";
+    pub const INVALID_CONTRACT: &str = "invalid contract hash";
 }
 
 impl Display for ErrorKind {
@@ -86,6 +88,7 @@ impl Display for ErrorKind {
             BrokenIntegrity => error_kind_str::BROKEN_INTEGRITY,
             FuelError => error_kind_str::FUEL_ERROR,
             Other => error_kind_str::OTHER,
+            InvalidContract => error_kind_str::INVALID_CONTRACT,
             TooLargeTx => error_kind_str::TOO_LARGE_TX,
         };
         write!(f, "{}", kind_str)

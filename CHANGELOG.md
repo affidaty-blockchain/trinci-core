@@ -29,8 +29,10 @@ Additional labels for pre-release metadata:
 0.2.7 - unreleased
 ------------------
 Changed
-* BlockchainSettings struct
+* BlockchainSettings structure
 * Test/Production flag
+* Call to Service `contract_updatable`
+* NFA Non-Fungible Account
 * Added size limit on transaction that can be executed
 
 Added
@@ -39,7 +41,7 @@ Added
 0.2.6 - 08-02-2022
 ------------------
 Changed
-* removed wasm loader from closure
+* Removed wasm loader from closure
 
 0.2.5 - 02-02-2022
 ------------------
@@ -48,7 +50,7 @@ Added
 * Drand implementation
 * get_account_contract host function
 * is_callable host function
-* test mode to p2p module (prevent it from start)
+* Offline mode for p2p module (prevent it from start)
 
 0.2.4 - release skipped
 ------------------

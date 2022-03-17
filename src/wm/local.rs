@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use super::AppInput;
+use super::{AppInput, CheckHashArgs, CtxArgs};
 use crate::{
     base::{
         schema::SmartContractEvent,
@@ -524,6 +524,16 @@ struct CachedModule {
     last_used: u64,
 }
 
+/// Arguments for the Service contract_updatable method
+#[derive(Serialize, Deserialize)]
+struct ContracUpdatableArgs {
+    account: String,
+    #[serde(with = "serde_bytes")]
+    current_contract: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    new_contract: Vec<u8>,
+}
+
 /// WebAssembly machine using wasmtime as the engine.
 pub struct WmLocal {
     /// Global wasmtime context for compilation and management of wasm modules.
@@ -532,8 +542,6 @@ pub struct WmLocal {
     cache: HashMap<Hash, CachedModule>,
     /// Maximum cache size.
     cache_max: usize,
-    /// Node execution mode
-    is_production: bool,
 }
 
 impl WmLocal {
@@ -559,7 +567,6 @@ impl WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
-            is_production: true,
         }
     }
 
@@ -624,10 +631,6 @@ impl WmLocal {
             .as_secs();
         Ok(&entry.module)
     }
-
-    pub fn set_mode(&mut self, is_production: bool) {
-        self.is_production = is_production;
-    }
 }
 
 /// Allocate memory in the wasm and return a pointer to the module linear array memory
@@ -663,66 +666,6 @@ fn write_mem(
     Ok(offset)
 }
 
-fn app_hash_check(
-    db: &mut dyn DbFork,
-    id: &str,
-    mut app_hash: Option<Hash>,
-    is_production: bool,
-) -> Result<Hash> {
-    let mut updated = false;
-    let account = match db.load_account(id) {
-        Some(mut account) if account.contract != app_hash => {
-            // TODO Replace this if/else statement with a call to TRINCI account method
-
-            if account.contract.is_none() {
-                // if the account isn't associated with a smart contract
-                // the `contract` is initialized by `app_hash` that is Some()
-                account.contract = app_hash;
-                updated = true;
-            } else if app_hash.is_none() {
-                // if otherwise app_hash is empty, we initialize
-                // app_hash to the account's smart contract that is Some()
-                app_hash = account.contract;
-            } else if is_production {
-                // if `app_hash` and `account.contract` are both Some()
-                // but different in production_env is an error
-                debug!("Invalid contract");
-                return Err(Error::new_ext(
-                    ErrorKind::ResourceNotFound,
-                    "incompatible contract app",
-                ));
-            } else {
-                // if `app_hash` and `account.contract` are both Some()
-                // but different in test_env the contract hash will
-                // be overwritten
-                account.contract = app_hash;
-                updated = true;
-            }
-            account
-        }
-        Some(account) => account,
-        None => {
-            updated = true;
-            Account::new(id, app_hash)
-        }
-    };
-    let app_hash = app_hash.ok_or_else(|| {
-        Error::new_ext(ErrorKind::ResourceNotFound, "smart contract not specified")
-    })?;
-    if updated {
-        db.store_account(account);
-    }
-    Ok(app_hash)
-}
-
-macro_rules! unwrap_or_return {
-    ( $e:expr ) => {
-        match $e {
-            Ok(x) => x,
-            Err(e) => return (0, Err(e)),
-        }
-    };
-}
 impl Wm for WmLocal {
     /// Execute a smart contract.
     fn call(
@@ -733,15 +676,13 @@ impl Wm for WmLocal {
         origin: &str,
         owner: &str,
         caller: &str,
-        contract: Option<Hash>,
+        app_hash: Hash,
         method: &str,
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
     ) -> (u64, Result<Vec<u8>>) {
-        let app_hash = unwrap_or_return!(app_hash_check(db, owner, contract, self.is_production));
-
         let engine1 = self.engine.clone(); // FIXME
         let engine2 = self.engine.clone();
         let module = unwrap_or_return!(self.get_module(&engine1, db, &app_hash));
@@ -882,6 +823,127 @@ impl Wm for WmLocal {
             ),
         }
     }
+
+    fn contract_updatable<'a>(
+        &mut self,
+        fork: &mut dyn DbFork,
+        hash_args: CheckHashArgs<'a>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> bool {
+        let current_contract = match hash_args.current_hash {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+        let new_contract = match hash_args.new_hash {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+
+        let args = ContracUpdatableArgs {
+            account: hash_args.account.to_string(),
+            current_contract,
+            new_contract,
+        };
+
+        let args = match rmp_serialize(&args) {
+            Ok(value) => value,
+            Err(_) => {
+                // Note: this should not happen
+                panic!("This should not happen");
+            }
+        };
+        let account = match fork.load_account(SERVICE_ACCOUNT_ID) {
+            Some(acc) => acc,
+            None => return false,
+        };
+        let contract = match account.contract {
+            Some(contract) => contract,
+            None => return false,
+        };
+
+        let (_, res) = self.call(
+            fork,
+            0,
+            "",
+            ctx_args.origin,
+            SERVICE_ACCOUNT_ID,
+            ctx_args.caller,
+            contract,
+            "contract_updatable",
+            &args,
+            seed,
+            &mut vec![],
+            MAX_FUEL,
+        );
+
+        match res {
+            Ok(val) => rmp_deserialize::<bool>(&val).unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
+    fn app_hash_check<'a>(
+        &mut self,
+        db: &mut dyn DbFork,
+        mut app_hash: Option<Hash>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> Result<Hash> {
+        let mut updated = false;
+
+        let mut account = match db.load_account(ctx_args.owner) {
+            Some(acc) => acc,
+            None => Account::new(ctx_args.owner, None),
+        };
+
+        let app_hash = if account.contract != app_hash {
+            // This prevent to call `contract_updatable` with an empty new hash
+            if let Some(contract) = account.contract {
+                if app_hash.is_none() {
+                    app_hash = Some(contract);
+                }
+            }
+
+            if account.contract == app_hash
+                || self.contract_updatable(
+                    db,
+                    CheckHashArgs {
+                        account: ctx_args.owner,
+                        current_hash: account.contract,
+                        new_hash: app_hash,
+                    },
+                    ctx_args,
+                    seed,
+                )
+            {
+                account.contract = app_hash;
+                updated = true;
+                match app_hash {
+                    Some(hash) => Ok(hash),
+                    None => Ok(Hash::default()),
+                }
+            } else {
+                Err(Error::new_ext(
+                    ErrorKind::InvalidContract,
+                    "cannot bind the contract to the account",
+                ))
+            }
+        } else if let Some(hash) = app_hash {
+            Ok(hash)
+        } else {
+            Err(Error::new_ext(
+                ErrorKind::ResourceNotFound,
+                "smart contract not specified",
+            ))
+        };
+
+        if updated {
+            db.store_account(account);
+        }
+
+        app_hash
+    }
 }
 
 #[cfg(test)]
@@ -945,7 +1007,7 @@ mod tests {
                 data.get_caller().to_account_id().as_str(),
                 data.get_account(),
                 data.get_caller().to_account_id().as_str(),
-                *data.get_contract(),
+                data.get_contract().unwrap(),
                 data.get_method(),
                 data.get_args(),
                 seed,
@@ -970,12 +1032,12 @@ mod tests {
         db.expect_store_account().returning(move |_id| ());
         db.expect_state_hash().returning(|_| Hash::default());
         db.expect_load_account_data().returning(|_, key| {
-            if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
-            {
-                return None;
-            }
-            Some(TEST_WASM.to_vec())
-        });
+                if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
+                {
+                    return None;
+                }
+                Some(TEST_WASM.to_vec())
+            });
         db
     }
 
@@ -1330,5 +1392,5 @@ mod tests {
         assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
     }
 
-    // // TODO: add drand test
+    // TODO: add drand test
 }
