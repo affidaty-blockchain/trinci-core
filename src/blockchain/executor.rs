@@ -544,14 +544,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 owner: node.data.get_account(),
                                 caller: &node.data.get_caller().to_account_id(),
                             };
-                            match self.wm.lock().app_hash_check(
+
+                            let mut t_wm = self.wm.lock();
+
+                            match t_wm.app_hash_check(
                                 fork,
                                 *node.data.get_contract(),
                                 ctx_args,
                                 self.seed.clone(),
                             ) {
                                 Ok(app_hash) => {
-                                    let (fuel_consumed, result) = self.wm.lock().call(
+                                    let (fuel_consumed, result) = t_wm.call(
                                         fork,
                                         0,
                                         node.data.get_network(),
