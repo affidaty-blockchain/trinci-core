@@ -43,7 +43,7 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    wm::{local::MAX_FUEL, CtxArgs, Wm},
+    wm::{CtxArgs, Wm, MAX_FUEL},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};

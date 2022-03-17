@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use super::{AppInput, CheckHashArgs, CtxArgs};
+use super::{AppInput, CheckHashArgs, CtxArgs, MAX_FUEL};
 use crate::{
     base::{
         schema::SmartContractEvent,
@@ -42,7 +42,6 @@ use wasmtime::{
 };
 
 pub type WasmSlice = u64;
-pub const MAX_FUEL: u64 = 1_000_000_000; // Internal wm fuel units
 
 /// Combine two i32 into one u64
 #[inline]

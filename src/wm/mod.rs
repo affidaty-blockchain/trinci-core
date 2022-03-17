@@ -79,9 +79,9 @@ pub trait Wm: Send + 'static {
 }
 
 pub struct CheckHashArgs<'a> {
-    account: &'a str,
-    current_hash: Option<Hash>,
-    new_hash: Option<Hash>,
+    pub account: &'a str,
+    pub current_hash: Option<Hash>,
+    pub new_hash: Option<Hash>,
 }
 
 pub struct CtxArgs<'a> {
@@ -89,6 +89,8 @@ pub struct CtxArgs<'a> {
     pub owner: &'a str,
     pub caller: &'a str,
 }
+
+pub const MAX_FUEL: u64 = 1_000_000_000; // Internal wm fuel units
 
 /// Structure passed from the host to the wasm smart contracts.
 /// WARNING: ANY MODIFICATION CAN BREAK COMPATIBILITY WITH THE CORE
