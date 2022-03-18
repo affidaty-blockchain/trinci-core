@@ -123,7 +123,7 @@ fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fu
 
     error!(
         "\nTX: {:?}\n\taccount: {}\n\tmethod: {}\n\targs: {}{}\n\tburned_wt_fuel: {}\n",
-        hex::encode(hash),
+        hash,
         account,
         method,
         hex::encode(&data),

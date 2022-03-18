@@ -786,7 +786,6 @@ impl Wm for WmLocal {
                 }));
 
         let consumed_fuel = store.fuel_consumed().unwrap_or_default();
-        error!("`{}` consumed fuel = {}", method, consumed_fuel);
 
         let ctx = store.data_mut();
 
