@@ -163,6 +163,31 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             }
                         }
                     }
+                    Message::GetTransactionRequest {
+                        ref hash,
+                        ref destination,
+                    } => {
+                        match destination {
+                            Some(destination) => {
+                                // send to peer in unicast
+                                let behavior = swarm.behaviour_mut();
+                                let peer = PeerId::from_str(&destination).unwrap();
+                                let buf = rmp_serialize(&msg).unwrap();
+                                let request = ReqUnicastMessage(buf);
+                                behavior.reqres.send_request(&peer, request);
+                            }
+                            None => {
+                                // send in broadcast (gossip)
+                                let behavior = swarm.behaviour_mut();
+                                let buf = rmp_serialize(&msg).unwrap();
+                                if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
+                                    if !matches!(err, PublishError::InsufficientPeers) {
+                                        error!("publish error: {:?}", err);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => warn!("unexpected message from blockchain: {:?}", msg),
                 },
                 Poll::Ready(None) => {

@@ -539,6 +539,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         is_validator: bool,
         is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
+        debug!("EXEC BLOCK: {}", height);
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
 
@@ -655,9 +656,19 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 signature: _,
                 validator: _,
                 txs_hashes: Some(hashes),
-            }) => hashes
-                .iter()
-                .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))),
+            }) => {
+                debug!("\tcan run height: {}", height);
+                debug!(
+                    "\t\t{:?}",
+                    hashes
+                        .iter()
+                        .all(|hash| matches!(pool.txs.get(hash), Some(Some(_))))
+                );
+                debug!("\t\t{:?}", hashes.iter());
+                hashes
+                    .iter()
+                    .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))) // it might not put tcx in pool
+            }
             _ => false,
         }
     }
@@ -667,6 +678,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Some(block) => (block.data.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
+
+        debug!("EXECUTOR:  last height: {}", height);
 
         // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]

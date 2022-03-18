@@ -78,10 +78,18 @@ pub enum Message {
     GetTransactionRequest {
         /// `Transaction::data` hash.
         hash: Hash,
+        /// Destination of the `Transactioin`. `None` if local operations,
+        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        destination: Option<String>,
     },
     /// Get transaction response.
     #[serde(rename = "6")]
-    GetTransactionResponse { tx: Transaction },
+    GetTransactionResponse {
+        tx: Transaction,
+        /// Origin of the `Transaction`. `None` if local operations,
+        /// and no chance to propagate outside the response.
+        origin: Option<String>,
+    },
     /// Get receipt request.
     #[serde(rename = "7")]
     GetReceiptRequest {
@@ -263,12 +271,14 @@ mod tests {
     fn get_transaction_req_msg() -> Message {
         Message::GetTransactionRequest {
             hash: Hash::from_hex(HASH_HEX).unwrap(),
+            destination: None,
         }
     }
 
     fn get_transaction_res_msg() -> Message {
         Message::GetTransactionResponse {
             tx: create_test_unit_tx(FUEL_LIMIT),
+            origin: None,
         }
     }
 

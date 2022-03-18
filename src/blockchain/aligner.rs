@@ -23,7 +23,7 @@ use crate::{
     base::{Mutex, RwLock},
     blockchain::pool::BlockInfo,
     channel::confirmed_channel,
-    crypto::{HashAlgorithm, Hashable},
+    crypto::{Hash, HashAlgorithm, Hashable},
     db::Db,
     Block,
 };
@@ -44,6 +44,8 @@ pub(crate) struct Aligner<D: Db> {
     trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
     /// Missing blocks.
     missing_blocks: Arc<Mutex<Vec<Message>>>,
+    /// Missing transactions.
+    missing_txs: Arc<Mutex<Vec<Hash>>>,
     /// Rx channel.
     rx_chan: Arc<Mutex<BlockRequestReceiver>>,
     /// Tx channel.
@@ -71,6 +73,7 @@ impl<D: Db> Aligner<D> {
             status: Arc::new((StdMutex::new(true), Condvar::new())),
             db,
             pool,
+            missing_txs: Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -196,6 +199,9 @@ impl<D: Db> Aligner<D> {
                     pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
 
                     // Until "local_last.next" retrieved ask for "remote_last.previous".
+                    // TODO: add a TO, in case a block response isn't recieved, then
+                    //       wait a certain time, retry with another peer
+                    //       try it K times, if fails stop alignment
                     let mut over = false;
                     let trusted_peers = self.trusted_peers.clone();
                     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
@@ -209,7 +215,7 @@ impl<D: Db> Aligner<D> {
                                         // in that case discard the message.
                                         Message::GetBlockResponse {
                                             ref block,
-                                            txs: Some(ref _txs_hashes),
+                                            txs: Some(ref txs_hashes),
                                             ref origin,
                                         } => {
                                             debug!(
@@ -219,11 +225,21 @@ impl<D: Db> Aligner<D> {
                                             );
 
                                             self.missing_blocks.lock().push(req.clone());
-                                            // TO REMOVE
+                                            for tx in txs_hashes {
+                                                debug!("[aligner] affing tx");
+                                                self.missing_txs.lock().push(tx.clone().into());
+                                            }
+
+                                            // TO REMOVE ---
                                             debug!(
                                                 "missing block dim: {}",
                                                 self.missing_blocks.lock().len()
                                             );
+                                            debug!(
+                                                "missing txs dim: {}",
+                                                self.missing_txs.lock().len()
+                                            );
+                                            // ---
 
                                             // Check alignment status.
                                             //if !block.data.prev_hash.eq(&local_last_hash)
@@ -264,11 +280,92 @@ impl<D: Db> Aligner<D> {
 
                     future.await;
 
-                    // Update DB with the retrieved blocks.
+                    // Send unicast request to a random trusted peer for every transaction in `missing_txs`.
+                    let rx_chan = self.rx_chan.clone();
+                    let pubsub = self.pubsub.clone();
+                    let trusted_peers = self.trusted_peers.clone();
+
+                    debug!(
+                        "[aligner] requesting transactions from missing blocks to trusted peers"
+                    );
+                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
+                        let missing_txs = self.missing_txs.lock().clone();
+                        let mut missing_txs = missing_txs.iter();
+                        let mut requested_tx = missing_txs.next();
+                        let mut over = requested_tx.is_none();
+
+                        debug!("[aligner] first requested tx: {:?}", requested_tx.unwrap());
+
+                        if !over {
+                            let msg = Message::GetTransactionRequest {
+                                hash: *requested_tx.unwrap(),
+                                destination: Some(peer.to_string()),
+                            };
+                            pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+
+                            while !over {
+                                match rx_chan.lock().poll_next_unpin(cx) {
+                                    Poll::Ready(Some((req, _res_chan))) => {
+                                        debug!("[aligner] new message recieved");
+                                        match req {
+                                            Message::GetTransactionResponse { tx, origin } => {
+                                                debug!(
+                                                    "ININNININ\n\t{:?}\n\t{:?}",
+                                                    requested_tx.unwrap(),
+                                                    tx.get_primary_hash()
+                                                );
+
+                                                if tx.get_primary_hash().eq(requested_tx.unwrap()) {
+                                                    debug!(
+                                                        "[aligner] align tx {:?} recieved by {}",
+                                                        tx.get_primary_hash(),
+                                                        origin.unwrap()
+                                                    );
+
+                                                    // Once the expected TX is recieved, ask for the next one.
+                                                    // Note: submission to pool and DB is handled by dispatcher.
+                                                    requested_tx = missing_txs.next();
+
+                                                    if requested_tx.is_some() {
+                                                        // Ask to a random trusted peer the transaction.
+                                                        let peers = trusted_peers.lock().clone();
+                                                        let peer = &peers
+                                                            .choose(&mut rand::thread_rng())
+                                                            .unwrap()
+                                                            .0;
+                                                        let msg = Message::GetTransactionRequest {
+                                                            hash: *requested_tx.unwrap(),
+                                                            destination: Some(peer.to_string()),
+                                                        };
+                                                        pubsub
+                                                            .lock()
+                                                            .publish(Event::UNICAST_REQUEST, msg);
+                                                    } else {
+                                                        over = true;
+                                                    }
+                                                }
+                                            }
+                                            _ => debug!("[alinger] unexpected message"),
+                                        }
+                                    }
+                                    //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                                    //Poll::Ready(None) => return Poll::Ready(()),
+                                    //Poll::Pending => break,
+                                    _ => (),
+                                }
+                            }
+                        }
+
+                        std::task::Poll::Ready(())
+                    });
+
+                    future.await;
+
+                    // Update pools with the retrieved blocks.
                     // Note: in the `missing_block` array blocks are collected
                     //       from the most recent (first array element),
                     //       to the least recenf (last array element).
-                    debug!("[aligner] alignment blocks execution");
+                    debug!("[aligner] alignment blocks submitted to pool service");
                     let missing_blocks = self.missing_blocks.lock().clone();
                     for msg in missing_blocks.iter().rev() {
                         if let Message::GetBlockResponse {
@@ -313,16 +410,12 @@ impl<D: Db> Aligner<D> {
                 let mut trusted_peers = self.trusted_peers.lock();
                 let empty: Vec<(String, String, Block)> = vec![];
                 *trusted_peers = empty;
-            }
 
-            {
                 //debug!("missing blocks: {}", self.missing_blocks.is_locked());
                 let mut missing_blocks = self.missing_blocks.lock();
                 let empty: Vec<Message> = vec![];
                 *missing_blocks = empty;
-            }
 
-            {
                 //debug!("status: {}", self.status.0.is_poisoned());
                 *self.status.0.lock().unwrap() = true;
             }
@@ -338,8 +431,10 @@ impl<D: Db> Aligner<D> {
                     "[aligner] missing_blocks {}",
                     self.missing_blocks.lock().len()
                 );
+                // It should be true
                 debug!("[aligner] status {:?}", self.status.0.lock());
             }
+
             debug!("[aligner] alignment task completed");
         }
     }

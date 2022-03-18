@@ -116,9 +116,12 @@ async fn put_transaction(mut req: Request<BlockRequestSender>) -> tide::Result {
 async fn get_transaction(req: Request<BlockRequestSender>) -> tide::Result {
     let ticket = req.param("0").unwrap_or_default();
     let hash = Hash::from_hex(ticket).unwrap_or_default();
-    let bc_req = Message::GetTransactionRequest { hash };
+    let bc_req = Message::GetTransactionRequest {
+        hash,
+        destination: None,
+    };
     let res = match send_recv(req.state(), bc_req).await? {
-        Message::GetTransactionResponse { tx } => rmp_serialize(&tx),
+        Message::GetTransactionResponse { tx, .. } => rmp_serialize(&tx),
         Message::Exception(err) => Err(err),
         _ => Err(Error::new_ext(
             ErrorKind::Other,
@@ -241,10 +244,11 @@ mod tests {
                     }
                 }
             }
-            Message::GetTransactionRequest { hash } => {
+            Message::GetTransactionRequest { hash, .. } => {
                 match hash == Hash::from_hex(HASH_HEX).unwrap() {
                     true => Message::GetTransactionResponse {
                         tx: create_test_unit_tx(FUEL_LIMIT),
+                        origin: None,
                     },
                     false => Message::Exception(ErrorKind::ResourceNotFound.into()),
                 }
@@ -365,6 +369,7 @@ mod tests {
         let tx = create_test_unit_tx(FUEL_LIMIT);
         let msg = Message::GetTransactionRequest {
             hash: Hash::from_hex(HASH_HEX).unwrap(),
+            destination: None,
         };
         let buf = rmp_serialize(&msg).unwrap();
 
@@ -377,7 +382,7 @@ mod tests {
         assert_eq!(response.content_type(), "application/octet-stream");
         assert_eq!(
             fetch_response_message(response),
-            Message::GetTransactionResponse { tx },
+            Message::GetTransactionResponse { tx, origin: None },
         );
     }
 

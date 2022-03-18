@@ -156,7 +156,13 @@ impl<D: Db> Dispatcher<D> {
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
         if sub.has_subscribers(Event::TRANSACTION) {
-            sub.publish(Event::TRANSACTION, Message::GetTransactionResponse { tx });
+            sub.publish(
+                Event::TRANSACTION,
+                Message::GetTransactionResponse {
+                    tx,
+                    origin: Some(self.p2p_id.clone()),
+                },
+            );
         }
     }
 
@@ -174,7 +180,7 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
-    fn get_transaction_handler(&self, hash: Hash) -> Message {
+    fn get_transaction_handler(&self, hash: Hash, _destination: Option<String>) -> Message {
         let mut opt = self.db.read().load_transaction(&hash);
         if opt.is_none() {
             opt = match self.pool.read().txs.get(&hash) {
@@ -183,7 +189,10 @@ impl<D: Db> Dispatcher<D> {
             }
         }
         match opt {
-            Some(tx) => Message::GetTransactionResponse { tx },
+            Some(tx) => Message::GetTransactionResponse {
+                tx,
+                origin: Some(self.p2p_id.clone()),
+            },
             None => Message::Exception(ErrorKind::ResourceNotFound.into()),
         }
     }
@@ -237,8 +246,19 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
-    fn get_transaction_res_handler(&self, transaction: Transaction) {
-        let _ = self.put_transaction_internal(transaction);
+    fn get_transaction_res_handler(&self, transaction: Transaction, origin: Option<String>) {
+        let _ = self.put_transaction_internal(transaction.clone());
+        // if in alignment just send
+        // an ACK to aligner, so that
+        // it can ask for next TX
+        let aligner_status = self.aligner.1.clone();
+        if !*aligner_status.0.lock().unwrap() {
+            let req = Message::GetTransactionResponse {
+                tx: transaction,
+                origin,
+            };
+            self.aligner.0.lock().send_sync(req).unwrap();
+        }
     }
 
     fn get_block_res_handler(
@@ -292,6 +312,7 @@ impl<D: Db> Dispatcher<D> {
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start <= block.data.height {
+            // TODO: here drop unexpected block
             debug!("{}", aligner_status.0.lock().unwrap());
             // in this case the node miss some block
             // it needes to be re-aligned
@@ -419,8 +440,8 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.put_transaction_handler(tx);
                 confirm.then(|| res)
             }
-            Message::GetTransactionRequest { hash } => {
-                let res = self.get_transaction_handler(hash);
+            Message::GetTransactionRequest { hash, destination } => {
+                let res = self.get_transaction_handler(hash, destination);
                 Some(res)
             }
             Message::GetReceiptRequest { hash } => {
@@ -474,8 +495,8 @@ impl<D: Db> Dispatcher<D> {
                 self.get_block_res_handler(block, txs, origin, req.clone());
                 None
             }
-            Message::GetTransactionResponse { tx } => {
-                self.get_transaction_res_handler(tx);
+            Message::GetTransactionResponse { tx, origin } => {
+                self.get_transaction_res_handler(tx, origin);
                 None
             }
             Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
@@ -743,12 +764,14 @@ mod tests {
         let mut dispatcher = create_dispatcher(false);
         let req = Message::GetTransactionRequest {
             hash: Hash::from_hex(TX_DATA_HASH_HEX).unwrap(),
+            destination: None,
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::GetTransactionResponse {
             tx: create_test_unit_tx(FUEL_LIMIT),
+            origin: None,
         };
         assert_eq!(res, exp_res);
     }

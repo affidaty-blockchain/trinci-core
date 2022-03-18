@@ -201,14 +201,17 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     fn try_exec_block(&self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         if !self.executor.can_run(u64::MAX) {
+            debug!("try_exec.canrun u64::MAX");
             return;
         }
         if self.executing.swap(true, Ordering::Relaxed) {
+            debug!("try_exec.executing");
             return;
         }
 
         let mut executor = self.executor.clone();
         let executing = self.executing.clone();
+        debug!("executor.run");
         task::spawn(async move {
             executor.run(is_validator, is_validator_closure);
             executing.store(false, Ordering::Relaxed);
@@ -275,14 +278,16 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 if validator {
                     self.try_build_block(1);
                 }
+                debug!("TRY EXEC BLOCK");
                 self.try_exec_block(validator, self.is_validator.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
 
-            while sync_sleep.poll_unpin(cx).is_ready() {
-                self.try_synchronization();
-                sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
-            }
+            // TEST
+            //while sync_sleep.poll_unpin(cx).is_ready() {
+            //    self.try_synchronization();
+            //    sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
+            //}
 
             loop {
                 match self.rx_chan.poll_next_unpin(cx) {

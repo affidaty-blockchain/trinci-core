@@ -451,32 +451,33 @@ impl Behavior {
                 // In case of GetBlockResponse => submit last block to local blockchain service.
                 match rmp_deserialize(&buf) {
                     Ok(MultiMessage::Simple(req)) => match req {
-                        Message::GetTransactionRequest { hash: _ } => {
-                            match self.bc_chan.send_sync(msg) {
-                                Ok(res_chan) => {
-                                    if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
-                                        if self
-                                            .reqres
-                                            .send_response(channel, ResUnicastMessage(buf))
-                                            .is_ok()
-                                        {
-                                            debug!(
-                                                "[req-res] message (response) {} containing tx sended",
-                                                request_id.to_string(),
-                                            );
-                                        } else {
-                                            debug!(
+                        Message::GetTransactionRequest {
+                            hash: _,
+                            destination: _,
+                        } => match self.bc_chan.send_sync(msg) {
+                            Ok(res_chan) => {
+                                if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
+                                    if self
+                                        .reqres
+                                        .send_response(channel, ResUnicastMessage(buf))
+                                        .is_ok()
+                                    {
+                                        debug!(
+                                            "[req-res] message (response) {} containing tx sended",
+                                            request_id.to_string(),
+                                        );
+                                    } else {
+                                        debug!(
                                                 "[req-res] message (response) {} error, caused by TO or unreachable peer",
                                                 request_id.to_string(),
                                             );
-                                        }
                                     }
                                 }
-                                Err(_err) => {
-                                    warn!("blockchain service seems down");
-                                }
                             }
-                        }
+                            Err(_err) => {
+                                warn!("blockchain service seems down");
+                            }
+                        },
                         Message::GetBlockRequest {
                             height: _,
                             txs: _,
@@ -524,9 +525,19 @@ impl Behavior {
                                 }
                             }
                         }
+                        Message::GetTransactionResponse { tx: _, origin: _ } => {
+                            match self.bc_chan.send_sync(req) {
+                                Ok(_) => {
+                                    debug!("[req-res](req) block submited to blockchain service")
+                                }
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
+                            }
+                        }
                         _ => error!("[reqres](req) unexpected blockchain message"),
                     },
-                    _ => error!("[reqres](req) unexpected blockchain message"),
+                    _ => error!("[reqres](req) error indeserialization"),
                 };
             }
             RequestResponseEvent::Message {
@@ -540,7 +551,7 @@ impl Behavior {
                 // In this scenario only response from blockchain are expected:
                 //  - GetBlockResponse
                 //  - GetTransactionResponse
-                // this means that it only needed to submit it to blockchain service.
+                // this means that it is only needed to submit it to blockchain service.
                 debug!(
                     "[req-res](res) message  recieved from: {}",
                     peer.to_string()
