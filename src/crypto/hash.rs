@@ -142,7 +142,7 @@ impl Hash {
     }
 
     /// Multihash bytes size.
-    /// Compunted as: algorithm type (1 byte) + wrapped value length (1 byte) + wrapped value bytes.
+    /// Computed as: algorithm type (1 byte) + wrapped value length (1 byte) + wrapped value bytes.
     pub fn size(&self) -> usize {
         2 + self.hash_size()
     }

@@ -194,7 +194,7 @@ pub fn call(
             )
         }
         None => (
-            0, // FIXME should pay for this?
+            1000, // FIXME * should pay for this?
             Err(Error::new_ext(
                 ErrorKind::WasmMachineFault,
                 "nested calls not implemented",

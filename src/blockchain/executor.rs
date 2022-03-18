@@ -189,9 +189,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
         1000
     }
 
-    fn calculate_fuel_limit(&self, _fuel_limit: u64) -> u64 {
+    // Calculated the max fuel allow to spend
+    // from the tx fuel_limit field
+    fn calculate_internal_fuel_limit(&self, _fuel_limit: u64) -> u64 {
         // TODO create a method the get the fuel_limit
         MAX_FUEL
+    }
+
+    // Get the fuel spent when the tx generates an internal error
+    fn get_fuel_consumed_for_error(&self) -> u64 {
+        // TODO create a method the get the fuel_limit
+        1000
     }
 
     fn call_burn_fuel(
@@ -299,7 +307,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
         mut events: Vec<SmartContractEvent>,
     ) -> (Vec<BurnFuelArgs>, Receipt) {
-        let initial_fuel = self.calculate_fuel_limit(tx.data.get_fuel_limit());
+        let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
 
         let ctx_args = CtxArgs {
             origin: &tx.data.get_caller().to_account_id(),
@@ -393,12 +401,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Err(e) => (
                 vec![BurnFuelArgs {
                     account: tx.data.get_caller().to_account_id(),
-                    fuel_to_burn: 0, // FIXME How much should the caller pay for this operation?
+                    fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     fuel_limit: tx.data.get_fuel_limit(),
                 }],
                 Receipt {
                     height,
-                    burned_fuel: 0, // FIXME How much should the caller pay for this operation?
+                    burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     index: index as u32,
                     success: false,
                     returns: e.to_string().as_bytes().to_vec(),
@@ -428,7 +436,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 let hash = root_tx.data.primary_hash();
                 let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
-                let initial_fuel = self.calculate_fuel_limit(root_tx.data.get_fuel_limit());
+                let initial_fuel =
+                    self.calculate_internal_fuel_limit(root_tx.data.get_fuel_limit());
 
                 let ctx_args = CtxArgs {
                     origin: &root_tx.data.get_caller().to_account_id(),
@@ -446,7 +455,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     Err(e) => {
                         let root_fuel = BurnFuelArgs {
                             account: root_tx.data.get_caller().to_account_id(),
-                            fuel_to_burn: 0, // FIXME How much should the caller pay for this operation?
+                            fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                             fuel_limit: root_tx.data.get_fuel_limit(),
                         };
 
@@ -455,9 +464,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             Receipt {
                                 height,
                                 index,
-                                burned_fuel: 0, // FIXME How much should the caller pay for this operation?
+                                burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                 success: false,
-                                returns: e.to_string().as_bytes().to_vec(), //FIXME handle unwrap
+                                returns: e.to_string().as_bytes().to_vec(),
                                 events: None,
                             },
                         );
@@ -485,7 +494,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     fuel_limit: root_tx.data.get_fuel_limit(),
                 });
 
-                // FIXME LOG REAL CONSUMPTION
+                // FIXME * LOG REAL CONSUMPTION
                 log_wm_fuel_consumed_bt(root_tx, fuel_consumed);
 
                 // Convert wm fuel in TRINCI
@@ -538,7 +547,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
                             let initial_fuel =
-                                self.calculate_fuel_limit(node.data.get_fuel_limit());
+                                self.calculate_internal_fuel_limit(node.data.get_fuel_limit());
                             let ctx_args = CtxArgs {
                                 origin: &node.data.get_caller().to_account_id(),
                                 owner: node.data.get_account(),
@@ -573,7 +582,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         fuel_to_burn: fuel_consumed,
                                         fuel_limit: node.data.get_fuel_limit(),
                                     });
-                                    // FIXME LOG REAL CONSUMPTION
+                                    // FIXME * LOG REAL CONSUMPTION
                                     log_wm_fuel_consumed_st(node, fuel_consumed);
 
                                     // Convert wm fuel in TRINCI
@@ -636,7 +645,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         BulkResult {
                                             success: false,
                                             result: e.to_string().as_bytes().to_vec(),
-                                            fuel_consumed: 0, // FIXME How much should the caller pay for this operation?
+                                            fuel_consumed: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                         },
                                     );
                                     execution_fail = true;

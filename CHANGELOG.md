@@ -31,12 +31,13 @@ Additional labels for pre-release metadata:
 Changed
 * BlockchainSettings structure
 * Test/Production flag
-* Call to Service `contract_updatable`
-* NFA Non-Fungible Account
-* Added size limit on transaction that can be executed
 
 Added
 * `secure_call` host function
+* Call to Service `contract_updatable`
+* NFA Non-Fungible Account
+* Added size limit on transaction that can be executed
+* Fuel consumption
 
 0.2.6 - 08-02-2022
 ------------------
