@@ -280,6 +280,10 @@ impl<D: Db> Aligner<D> {
                                     }
                                     _ => (),
                                 }
+                            } else {
+                                attempt += 1;
+
+                                if attempt < MAX_ATTEMPT {}
                             }
                         }
 
