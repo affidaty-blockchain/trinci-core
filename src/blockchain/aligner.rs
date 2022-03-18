@@ -38,6 +38,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
+const TIME_OUT: u64 = 5;
+const MAX_ATTEMPT: i32 = 3;
+
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
     /// Trusted peers (peer, last block hash).
@@ -89,6 +93,7 @@ impl<D: Db> Aligner<D> {
             }
 
             debug!("[aligner] new align instance initialised");
+            let mut stop = false;
             let trusted_peers = self.trusted_peers.clone();
             let rx_chan = self.rx_chan.clone();
             let pubsub = self.pubsub.clone();
@@ -104,11 +109,10 @@ impl<D: Db> Aligner<D> {
                 };
                 pubsub.lock().publish(Event::GOSSIP_REQUEST, msg);
 
-                let collection_time = Duration::from_secs(10);
+                let collection_time = Duration::from_secs(PEER_COLLECTION_TIME_WINDOW);
                 let start = Instant::now();
 
                 debug!("[aligner] collecting peers to find most common last block");
-                // TODO: check if other poll needed or not.
                 while collection_time.checked_sub(start.elapsed()).is_some() {
                     match rx_chan.lock().poll_next_unpin(cx) {
                         Poll::Ready(Some((req, _res_chan))) => {
@@ -138,9 +142,6 @@ impl<D: Db> Aligner<D> {
                                 _ => (),
                             }
                         }
-                        //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
-                        //Poll::Ready(None) => return Poll::Ready(()),
-                        //Poll::Pending => break,
                         _ => (),
                     }
                 }
@@ -202,76 +203,83 @@ impl<D: Db> Aligner<D> {
                     // TODO: add a TO, in case a block response isn't recieved, then
                     //       wait a certain time, retry with another peer
                     //       try it K times, if fails stop alignment
+                    let mut timeout = Duration::from_secs(TIME_OUT);
+                    let mut start = Instant::now();
+                    let mut attempt = 0;
                     let mut over = false;
+
+                    //collection_time.checked_sub(start.elapsed()).is_some() {
                     let trusted_peers = self.trusted_peers.clone();
                     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-                        while !over {
-                            match rx_chan.lock().poll_next_unpin(cx) {
-                                Poll::Ready(Some((req, _res_chan))) => {
-                                    debug!("[aligner] new message recieved");
-                                    match req {
-                                        // Check if the recieved message is
-                                        // from previous peer collection task,
-                                        // in that case discard the message.
-                                        Message::GetBlockResponse {
-                                            ref block,
-                                            txs: Some(ref txs_hashes),
-                                            ref origin,
-                                        } => {
-                                            debug!(
-                                                "[aligner] align bock {} recieved by {}",
-                                                block.data.height,
-                                                origin.clone().unwrap()
-                                            );
-
-                                            self.missing_blocks.lock().push(req.clone());
-                                            for tx in txs_hashes {
-                                                debug!("[aligner] affing tx");
-                                                self.missing_txs.lock().push(tx.clone().into());
-                                            }
-
-                                            // TO REMOVE ---
-                                            debug!(
-                                                "missing block dim: {}",
-                                                self.missing_blocks.lock().len()
-                                            );
-                                            debug!(
-                                                "missing txs dim: {}",
-                                                self.missing_txs.lock().len()
-                                            );
-                                            // ---
-
-                                            // Check alignment status.
-                                            //if !block.data.prev_hash.eq(&local_last_hash)
-                                            if block.data.height > (local_last.data.height + 1) {
-                                                // Get previous block.
-                                                let peers = trusted_peers.lock().clone();
-                                                let peer = &peers
-                                                    .choose(&mut rand::thread_rng())
-                                                    .unwrap()
-                                                    .0;
-
-                                                let msg = Message::GetBlockRequest {
-                                                    height: block.data.height - 1,
-                                                    txs: true,
-                                                    destination: Some(peer.to_string()),
-                                                };
-                                                pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
-                                            } else {
-                                                // Alignment block gathering completed.
+                        while !over && attempt < MAX_ATTEMPT {
+                            if timeout.checked_sub(start.elapsed()).is_some() {
+                                match rx_chan.lock().poll_next_unpin(cx) {
+                                    Poll::Ready(Some((req, _res_chan))) => {
+                                        debug!("[aligner] new message recieved");
+                                        match req {
+                                            // Check if the recieved message is
+                                            // from previous peer collection task,
+                                            // in that case discard the message.
+                                            Message::GetBlockResponse {
+                                                ref block,
+                                                txs: Some(ref txs_hashes),
+                                                ref origin,
+                                            } => {
                                                 debug!(
+                                                    "[aligner] align bock {} recieved by {}",
+                                                    block.data.height,
+                                                    origin.clone().unwrap()
+                                                );
+
+                                                self.missing_blocks.lock().push(req.clone());
+                                                for tx in txs_hashes {
+                                                    debug!("[aligner] affing tx");
+                                                    self.missing_txs.lock().push(tx.clone().into());
+                                                }
+
+                                                // TO REMOVE ---
+                                                debug!(
+                                                    "missing block dim: {}",
+                                                    self.missing_blocks.lock().len()
+                                                );
+                                                debug!(
+                                                    "missing txs dim: {}",
+                                                    self.missing_txs.lock().len()
+                                                );
+                                                // ---
+
+                                                // Check alignment status.
+                                                //if !block.data.prev_hash.eq(&local_last_hash)
+                                                if block.data.height > (local_last.data.height + 1)
+                                                {
+                                                    // Get previous block.
+                                                    let peers = trusted_peers.lock().clone();
+                                                    let peer = &peers
+                                                        .choose(&mut rand::thread_rng())
+                                                        .unwrap()
+                                                        .0;
+
+                                                    let msg = Message::GetBlockRequest {
+                                                        height: block.data.height - 1,
+                                                        txs: true,
+                                                        destination: Some(peer.to_string()),
+                                                    };
+                                                    pubsub
+                                                        .lock()
+                                                        .publish(Event::UNICAST_REQUEST, msg);
+                                                } else {
+                                                    // Alignment block gathering completed.
+                                                    debug!(
                                                     "[aligner] alignment blocks gathering completed"
                                                 );
-                                                over = true;
+                                                    over = true;
+                                                }
                                             }
+                                            _ => (),
                                         }
-                                        _ => (),
                                     }
+                                    _ => (),
                                 }
-                                //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
-                                //Poll::Ready(None) => return Poll::Ready(()),
-                                //Poll::Pending => break,
-                                _ => (),
                             }
                         }
 
