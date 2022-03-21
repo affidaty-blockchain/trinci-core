@@ -39,8 +39,8 @@ use std::{
 };
 
 const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
-const TIME_OUT: u64 = 5;
-const MAX_ATTEMPT: i32 = 3;
+const TIME_OUT_SEC: u64 = 5;
+const MAX_ATTEMPTS: i32 = 3;
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
@@ -48,6 +48,9 @@ pub(crate) struct Aligner<D: Db> {
     trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
     /// Missing blocks.
     missing_blocks: Arc<Mutex<Vec<Message>>>,
+    /// Unexpected blocks.
+    /// Height grather than most common last block.
+    unexpected_blocks: Arc<Mutex<Vec<Message>>>,
     /// Missing transactions.
     missing_txs: Arc<Mutex<Vec<Hash>>>,
     /// Rx channel.
@@ -71,6 +74,7 @@ impl<D: Db> Aligner<D> {
         Aligner {
             trusted_peers: Arc::new(Mutex::new(vec![])),
             missing_blocks: Arc::new(Mutex::new(vec![])),
+            unexpected_blocks: Arc::new(Mutex::new(vec![])),
             rx_chan: Arc::new(Mutex::new(rx_chan)),
             tx_chan: Arc::new(Mutex::new(tx_chan)),
             pubsub,
@@ -93,7 +97,6 @@ impl<D: Db> Aligner<D> {
             }
 
             debug!("[aligner] new align instance initialised");
-            let mut stop = false;
             let trusted_peers = self.trusted_peers.clone();
             let rx_chan = self.rx_chan.clone();
             let pubsub = self.pubsub.clone();
@@ -181,6 +184,9 @@ impl<D: Db> Aligner<D> {
             }
             debug!("==========");
 
+            // Get last block height
+            let max_block_height = self.trusted_peers.lock()[0].2.data.height;
+
             // Send unicast request to a random trusted peer for every block in `missing_blocks`.
             let rx_chan = self.rx_chan.clone();
             let pubsub = self.pubsub.clone();
@@ -192,26 +198,26 @@ impl<D: Db> Aligner<D> {
             match peer {
                 Some((peer, ..)) => {
                     // Send first request.
-                    let msg = Message::GetBlockRequest {
+                    let mut msg = Message::GetBlockRequest {
                         height: u64::MAX,
                         txs: true,
                         destination: Some(peer.to_string()),
                     };
-                    pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+                    pubsub.lock().publish(Event::UNICAST_REQUEST, msg.clone());
 
                     // Until "local_last.next" retrieved ask for "remote_last.previous".
                     // TODO: add a TO, in case a block response isn't recieved, then
                     //       wait a certain time, retry with another peer
                     //       try it K times, if fails stop alignment
-                    let mut timeout = Duration::from_secs(TIME_OUT);
+                    let mut timeout = Duration::from_secs(TIME_OUT_SEC);
                     let mut start = Instant::now();
                     let mut attempt = 0;
                     let mut over = false;
 
                     //collection_time.checked_sub(start.elapsed()).is_some() {
                     let trusted_peers = self.trusted_peers.clone();
-                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-                        while !over && attempt < MAX_ATTEMPT {
+                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
+                        while !over && attempt < MAX_ATTEMPTS {
                             if timeout.checked_sub(start.elapsed()).is_some() {
                                 match rx_chan.lock().poll_next_unpin(cx) {
                                     Poll::Ready(Some((req, _res_chan))) => {
@@ -225,54 +231,73 @@ impl<D: Db> Aligner<D> {
                                                 txs: Some(ref txs_hashes),
                                                 ref origin,
                                             } => {
-                                                debug!(
-                                                    "[aligner] align bock {} recieved by {}",
-                                                    block.data.height,
-                                                    origin.clone().unwrap()
-                                                );
-
-                                                self.missing_blocks.lock().push(req.clone());
-                                                for tx in txs_hashes {
-                                                    debug!("[aligner] affing tx");
-                                                    self.missing_txs.lock().push(tx.clone().into());
-                                                }
-
-                                                // TO REMOVE ---
-                                                debug!(
-                                                    "missing block dim: {}",
-                                                    self.missing_blocks.lock().len()
-                                                );
-                                                debug!(
-                                                    "missing txs dim: {}",
-                                                    self.missing_txs.lock().len()
-                                                );
-                                                // ---
-
-                                                // Check alignment status.
-                                                //if !block.data.prev_hash.eq(&local_last_hash)
-                                                if block.data.height > (local_last.data.height + 1)
-                                                {
-                                                    // Get previous block.
-                                                    let peers = trusted_peers.lock().clone();
-                                                    let peer = &peers
-                                                        .choose(&mut rand::thread_rng())
-                                                        .unwrap()
-                                                        .0;
-
-                                                    let msg = Message::GetBlockRequest {
-                                                        height: block.data.height - 1,
-                                                        txs: true,
-                                                        destination: Some(peer.to_string()),
-                                                    };
-                                                    pubsub
-                                                        .lock()
-                                                        .publish(Event::UNICAST_REQUEST, msg);
-                                                } else {
-                                                    // Alignment block gathering completed.
+                                                // Check if the block was expected or not
+                                                if block.data.height > max_block_height {
                                                     debug!(
+                                                        "[aligner] block with height grather than 
+                                                            alignment height limit recieved, 
+                                                            collecting for possible pool insertion"
+                                                    );
+                                                    self.unexpected_blocks.lock().push(req);
+                                                } else {
+                                                    // reset timeout and attempts
+                                                    timeout = Duration::from_secs(TIME_OUT_SEC);
+                                                    start = Instant::now();
+                                                    attempt = 0;
+
+                                                    debug!(
+                                                        "[aligner] align bock {} recieved by {}",
+                                                        block.data.height,
+                                                        origin.clone().unwrap()
+                                                    );
+
+                                                    self.missing_blocks.lock().push(req.clone());
+                                                    for tx in txs_hashes {
+                                                        debug!("[aligner] affing tx");
+                                                        self.missing_txs
+                                                            .lock()
+                                                            .push(tx.clone().into());
+                                                    }
+
+                                                    // TO REMOVE ---
+                                                    debug!(
+                                                        "missing block dim: {}",
+                                                        self.missing_blocks.lock().len()
+                                                    );
+                                                    debug!(
+                                                        "missing txs dim: {}",
+                                                        self.missing_txs.lock().len()
+                                                    );
+                                                    // ---
+
+                                                    // Check alignment status.
+                                                    //if !block.data.prev_hash.eq(&local_last_hash)
+                                                    if block.data.height
+                                                        > (local_last.data.height + 1)
+                                                    {
+                                                        // Get previous block.
+                                                        let peers = trusted_peers.lock().clone();
+                                                        let peer = &peers
+                                                            .choose(&mut rand::thread_rng())
+                                                            .unwrap()
+                                                            .0;
+
+                                                        msg = Message::GetBlockRequest {
+                                                            height: block.data.height - 1,
+                                                            txs: true,
+                                                            destination: Some(peer.to_string()),
+                                                        };
+                                                        pubsub.lock().publish(
+                                                            Event::UNICAST_REQUEST,
+                                                            msg.clone(),
+                                                        );
+                                                    } else {
+                                                        // Alignment block gathering completed.
+                                                        debug!(
                                                     "[aligner] alignment blocks gathering completed"
                                                 );
-                                                    over = true;
+                                                        over = true;
+                                                    }
                                                 }
                                             }
                                             _ => (),
@@ -281,133 +306,303 @@ impl<D: Db> Aligner<D> {
                                     _ => (),
                                 }
                             } else {
+                                debug!(
+                                    "[aligner] alignment block request timed out (attempt: {})",
+                                    attempt
+                                );
                                 attempt += 1;
 
-                                if attempt < MAX_ATTEMPT {}
+                                // Send message again (to another peer) and reset TO count.
+                                if attempt < MAX_ATTEMPTS {
+                                    let peers = trusted_peers.lock().clone();
+                                    let peer = &peers.choose(&mut rand::thread_rng()).unwrap().0;
+                                    match msg {
+                                        Message::GetBlockRequest {
+                                            height,
+                                            txs,
+                                            destination: _,
+                                        } => {
+                                            msg = Message::GetBlockRequest {
+                                                height,
+                                                txs,
+                                                destination: Some(peer.to_string()),
+                                            };
+
+                                            pubsub
+                                                .lock()
+                                                .publish(Event::UNICAST_REQUEST, msg.clone());
+                                            timeout = Duration::from_secs(TIME_OUT_SEC);
+                                            start = Instant::now();
+                                        }
+                                        _ => (),
+                                    };
+                                }
                             }
                         }
 
-                        std::task::Poll::Ready(())
+                        if attempt >= MAX_ATTEMPTS {
+                            std::task::Poll::Ready(false)
+                        } else {
+                            std::task::Poll::Ready(true)
+                        }
                     });
 
-                    future.await;
+                    let outcome = future.await;
 
-                    // Send unicast request to a random trusted peer for every transaction in `missing_txs`.
-                    let rx_chan = self.rx_chan.clone();
-                    let pubsub = self.pubsub.clone();
-                    let trusted_peers = self.trusted_peers.clone();
+                    // Only progress the procedure if the block
+                    // and transaction's hash collection ended succesfully
+                    if outcome {
+                        // Send unicast request to a random trusted peer for every transaction in `missing_txs`.
+                        let rx_chan = self.rx_chan.clone();
+                        let pubsub = self.pubsub.clone();
+                        let trusted_peers = self.trusted_peers.clone();
 
-                    debug!(
-                        "[aligner] requesting transactions from missing blocks to trusted peers"
-                    );
-                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-                        let missing_txs = self.missing_txs.lock().clone();
-                        let mut missing_txs = missing_txs.iter();
-                        let mut requested_tx = missing_txs.next();
-                        let mut over = requested_tx.is_none();
+                        let mut timeout = Duration::from_secs(TIME_OUT_SEC);
+                        let mut start = Instant::now();
+                        let mut attempt = 0;
 
-                        debug!("[aligner] first requested tx: {:?}", requested_tx.unwrap());
+                        debug!(
+                        "[aligner] requesting transactions from missing blocks to trusted peers");
+                        let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
+                            let missing_txs = self.missing_txs.lock().clone();
+                            let mut missing_txs = missing_txs.iter();
+                            let mut requested_tx = missing_txs.next();
+                            let mut over = requested_tx.is_none();
 
-                        if !over {
-                            let msg = Message::GetTransactionRequest {
-                                hash: *requested_tx.unwrap(),
-                                destination: Some(peer.to_string()),
-                            };
-                            pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+                            debug!("[aligner] first requested tx: {:?}", requested_tx.unwrap());
 
-                            while !over {
-                                match rx_chan.lock().poll_next_unpin(cx) {
-                                    Poll::Ready(Some((req, _res_chan))) => {
-                                        debug!("[aligner] new message recieved");
-                                        match req {
-                                            Message::GetTransactionResponse { tx, origin } => {
-                                                debug!(
-                                                    "ININNININ\n\t{:?}\n\t{:?}",
-                                                    requested_tx.unwrap(),
-                                                    tx.get_primary_hash()
-                                                );
+                            if !over {
+                                let mut msg = Message::GetTransactionRequest {
+                                    hash: *requested_tx.unwrap(),
+                                    destination: Some(peer.to_string()),
+                                };
+                                pubsub.lock().publish(Event::UNICAST_REQUEST, msg.clone());
 
-                                                if tx.get_primary_hash().eq(requested_tx.unwrap()) {
-                                                    debug!(
-                                                        "[aligner] align tx {:?} recieved by {}",
-                                                        tx.get_primary_hash(),
-                                                        origin.unwrap()
+                                while !over && attempt < MAX_ATTEMPTS {
+                                    if timeout.checked_sub(start.elapsed()).is_some() {
+                                        match rx_chan.lock().poll_next_unpin(cx) {
+                                            Poll::Ready(Some((req, _res_chan))) => {
+                                                debug!("[aligner] new message recieved");
+                                                match req {
+                                                    Message::GetTransactionResponse {
+                                                        tx,
+                                                        origin,
+                                                    } => {
+                                                        // TO REMOVE ---
+                                                        debug!(
+                                                            "ININNININ\n\t{:?}\n\t{:?}",
+                                                            requested_tx.unwrap(),
+                                                            tx.get_primary_hash()
+                                                        );
+                                                        // ---
+
+                                                        if tx
+                                                            .get_primary_hash()
+                                                            .eq(requested_tx.unwrap())
+                                                        {
+                                                            // reset timet and attempts
+                                                            timeout =
+                                                                Duration::from_secs(TIME_OUT_SEC);
+                                                            start = Instant::now();
+                                                            attempt = 0;
+
+                                                            debug!(
+                                                                "[aligner] align tx {:?} recieved by {}",
+                                                                tx.get_primary_hash(),
+                                                                origin.unwrap()
+                                                            );
+
+                                                            // Once the expected TX is recieved, ask for the next one.
+                                                            // Note: submission to pool and DB is handled by dispatcher.
+                                                            requested_tx = missing_txs.next();
+
+                                                            if requested_tx.is_some() {
+                                                                // Ask to a random trusted peer the transaction.
+                                                                let peers =
+                                                                    trusted_peers.lock().clone();
+                                                                let peer = &peers
+                                                                    .choose(&mut rand::thread_rng())
+                                                                    .unwrap()
+                                                                    .0;
+                                                                msg =
+                                                                Message::GetTransactionRequest {
+                                                                    hash: *requested_tx.unwrap(),
+                                                                    destination: Some(
+                                                                        peer.to_string(),
+                                                                    ),
+                                                                };
+                                                                pubsub.lock().publish(
+                                                                    Event::UNICAST_REQUEST,
+                                                                    msg.clone(),
+                                                                );
+                                                            } else {
+                                                                over = true;
+                                                            }
+                                                        }
+                                                    }
+                                                    Message::GetBlockResponse {
+                                                        ref block,
+                                                        txs: Some(ref _txs_hashes),
+                                                        origin: _,
+                                                    } => {
+                                                        // Check if the block was expected or not
+                                                        if block.data.height > max_block_height {
+                                                            debug!(
+                                                        "[aligner] block with height grather than 
+                                                            alignment height limit recieved, 
+                                                            collecting for possible pool insertion"
                                                     );
+                                                            self.unexpected_blocks
+                                                                .lock()
+                                                                .push(req.clone());
+                                                        }
+                                                    }
+                                                    _ => debug!("[alinger] unexpected message"),
+                                                }
+                                            }
+                                            //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
+                                            //Poll::Ready(None) => return Poll::Ready(()),
+                                            //Poll::Pending => break,
+                                            _ => (),
+                                        }
+                                    } else {
+                                        debug!(
+                                            "[aligner] alignment transaction request timed out (attempt: {})",
+                                            attempt
+                                        );
+                                        attempt += 1;
 
-                                                    // Once the expected TX is recieved, ask for the next one.
-                                                    // Note: submission to pool and DB is handled by dispatcher.
-                                                    requested_tx = missing_txs.next();
+                                        // Send message again and reset TO count.
+                                        if attempt < MAX_ATTEMPTS {
+                                            let peers = trusted_peers.lock().clone();
+                                            let peer =
+                                                &peers.choose(&mut rand::thread_rng()).unwrap().0;
+                                            match msg {
+                                                Message::GetTransactionRequest {
+                                                    hash,
+                                                    destination: _,
+                                                } => {
+                                                    msg = Message::GetTransactionRequest {
+                                                        hash,
+                                                        destination: Some(peer.to_string()),
+                                                    };
 
-                                                    if requested_tx.is_some() {
-                                                        // Ask to a random trusted peer the transaction.
-                                                        let peers = trusted_peers.lock().clone();
-                                                        let peer = &peers
-                                                            .choose(&mut rand::thread_rng())
-                                                            .unwrap()
-                                                            .0;
-                                                        let msg = Message::GetTransactionRequest {
-                                                            hash: *requested_tx.unwrap(),
-                                                            destination: Some(peer.to_string()),
-                                                        };
-                                                        pubsub
-                                                            .lock()
-                                                            .publish(Event::UNICAST_REQUEST, msg);
-                                                    } else {
-                                                        over = true;
+                                                    pubsub.lock().publish(
+                                                        Event::UNICAST_REQUEST,
+                                                        msg.clone(),
+                                                    );
+                                                    timeout = Duration::from_secs(TIME_OUT_SEC);
+                                                    start = Instant::now();
+                                                }
+                                                _ => (),
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                            if attempt >= MAX_ATTEMPTS {
+                                std::task::Poll::Ready(false)
+                            } else {
+                                std::task::Poll::Ready(true)
+                            }
+                        });
+
+                        let outcome = future.await;
+
+                        // Only progress if previous tastks were succesfully completed.
+                        if outcome {
+                            // Update pools with the retrieved blocks.
+                            // Note: in the `missing_block` array blocks are collected
+                            //       from the most recent (first array element),
+                            //       to the least recenf (last array element).
+                            debug!("[aligner] alignment blocks submitted to pool service");
+                            let missing_blocks = self.missing_blocks.lock().clone();
+                            for msg in missing_blocks.iter().rev() {
+                                if let Message::GetBlockResponse {
+                                    block,
+                                    txs,
+                                    origin: _,
+                                } = msg
+                                {
+                                    let mut pool = self.pool.write();
+                                    if let Some(ref hashes) = txs {
+                                        for hash in hashes {
+                                            if pool.unconfirmed.contains(hash) {
+                                                pool.unconfirmed.remove(hash);
+                                            }
+                                            if !pool.txs.contains_key(hash) {
+                                                pool.txs.insert(*hash, None);
+                                            }
+                                        }
+                                    }
+                                    let blk_info = BlockInfo {
+                                        hash: Some(block.data.primary_hash()),
+                                        validator: block.data.validator.to_owned(),
+                                        signature: Some(block.signature.clone()),
+                                        txs_hashes: txs.to_owned(),
+                                    };
+                                    //debug!("{:?}", blk_info.hash);
+                                    pool.confirmed.insert(block.data.height, blk_info);
+                                    debug!(
+                                        "[aligner] block {} inserted in confirmed pool",
+                                        block.data.height
+                                    );
+                                }
+                            }
+
+                            // Update pools with unexpected blocks
+                            let mut last_block = self.trusted_peers.lock()[0].2.data.height + 1;
+
+                            //self.unexpected_blocks.lock().sort_by(|msg_0, msg_1| {
+                            //
+                            //    //if let Message::GetBlockResponse { block: blk_0, .. } = msg_0 {
+                            //    //    if let Message::GetBlockResponse { block: blk_1, .. } = msg_1 {
+                            //    //        blk_0.data.height.cmp(&blk_1.data.height)
+                            //    //    }
+                            //    //}
+                            //});
+                            let unexpected_blocks = self.unexpected_blocks.lock().clone();
+                            while unexpected_blocks
+                                .iter()
+                                .find_map(|msg| match msg {
+                                    Message::GetBlockResponse { block, txs, .. } => {
+                                        if block.data.height == last_block {
+                                            let mut pool = self.pool.write();
+                                            if let Some(ref hashes) = txs {
+                                                for hash in hashes {
+                                                    if pool.unconfirmed.contains(hash) {
+                                                        pool.unconfirmed.remove(hash);
+                                                    }
+                                                    if !pool.txs.contains_key(hash) {
+                                                        pool.txs.insert(*hash, None);
                                                     }
                                                 }
                                             }
-                                            _ => debug!("[alinger] unexpected message"),
+                                            let blk_info = BlockInfo {
+                                                hash: Some(block.data.primary_hash()),
+                                                validator: block.data.validator.to_owned(),
+                                                signature: Some(block.signature.clone()),
+                                                txs_hashes: txs.to_owned(),
+                                            };
+                                            pool.confirmed.insert(block.data.height, blk_info);
+                                            debug!(
+                                                "[aligner] unexpected block {} inserted in confirmed pool",
+                                                block.data.height
+                                            );
+                                            Some(())
+                                        } else {
+                                            None
                                         }
                                     }
-                                    //Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
-                                    //Poll::Ready(None) => return Poll::Ready(()),
-                                    //Poll::Pending => break,
-                                    _ => (),
-                                }
+                                    _ => None,
+                                })
+                                .is_some()
+                            {
+                                last_block += 1;
                             }
-                        }
-
-                        std::task::Poll::Ready(())
-                    });
-
-                    future.await;
-
-                    // Update pools with the retrieved blocks.
-                    // Note: in the `missing_block` array blocks are collected
-                    //       from the most recent (first array element),
-                    //       to the least recenf (last array element).
-                    debug!("[aligner] alignment blocks submitted to pool service");
-                    let missing_blocks = self.missing_blocks.lock().clone();
-                    for msg in missing_blocks.iter().rev() {
-                        if let Message::GetBlockResponse {
-                            block,
-                            txs,
-                            origin: _,
-                        } = msg
-                        {
-                            let mut pool = self.pool.write();
-                            if let Some(ref hashes) = txs {
-                                for hash in hashes {
-                                    if pool.unconfirmed.contains(hash) {
-                                        pool.unconfirmed.remove(hash);
-                                    }
-                                    if !pool.txs.contains_key(hash) {
-                                        pool.txs.insert(*hash, None);
-                                    }
-                                }
-                            }
-                            let blk_info = BlockInfo {
-                                hash: Some(block.data.primary_hash()),
-                                validator: block.data.validator.to_owned(),
-                                signature: Some(block.signature.clone()),
-                                txs_hashes: txs.to_owned(),
-                            };
-                            //debug!("{:?}", blk_info.hash);
-                            pool.confirmed.insert(block.data.height, blk_info);
+                        } else {
                             debug!(
-                                "[aligner] block {} inserted in confirmed pool",
-                                block.data.height
+                                "[aligner] unable to retrieve missing blocks and txs, aborting alignment"
                             );
                         }
                     }
@@ -444,7 +639,7 @@ impl<D: Db> Aligner<D> {
                     self.missing_blocks.lock().len()
                 );
                 // It should be true
-                debug!("[aligner] status {:?}", self.status.0.lock());
+                debug!("[aligner] status {:?}", self.status.0.lock().unwrap());
             }
 
             debug!("[aligner] alignment task completed");
