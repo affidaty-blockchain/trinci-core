@@ -17,7 +17,7 @@
 
 use super::{behaviour::Behavior, service::PeerConfig};
 use crate::{
-    base::serialize::rmp_serialize,
+    base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{pubsub::Event, BlockRequestSender, Message},
     p2p::behaviour::ReqUnicastMessage,
 };
@@ -134,64 +134,70 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                         for peer in behavior.gossip.all_mesh_peers() {
                             trace!("MESH-PEER: {:?}", peer);
                         }
-                        if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                            if !matches!(err, PublishError::InsufficientPeers) {
-                                error!("publish error: {:?}", err);
-                            }
-                        }
-                    }
-                    Message::GetBlockRequest {
-                        height: _,
-                        txs: _,
-                        ref destination,
-                    } => {
-                        match destination {
-                            Some(destination) => {
-                                // send to peer in unicast
-                                let behavior = swarm.behaviour_mut();
-                                let peer = PeerId::from_str(&destination).unwrap();
-                                let buf = rmp_serialize(&msg).unwrap();
-                                let request = ReqUnicastMessage(buf);
-                                behavior.reqres.send_request(&peer, request);
-                            }
-                            None => {
-                                // send in broadcast (gossip)
-                                let behavior = swarm.behaviour_mut();
-                                let buf = rmp_serialize(&msg).unwrap();
-                                if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                    if !matches!(err, PublishError::InsufficientPeers) {
-                                        error!("publish error: {:?}", err);
+
+                        let msg: Message = rmp_deserialize(&buf).unwrap();
+
+                        match msg {
+                            Message::GetBlockRequest {
+                                height: _,
+                                txs: _,
+                                ref destination,
+                            } => {
+                                match destination {
+                                    Some(destination) => {
+                                        // send to peer in unicast
+                                        let behavior = swarm.behaviour_mut();
+                                        let peer = PeerId::from_str(&destination.clone()).unwrap();
+                                        let buf = rmp_serialize(&msg).unwrap();
+                                        let request = ReqUnicastMessage(buf);
+                                        debug!("[p2p] recieved an internal pubsub request, sended in unicast to {}", destination);
+                                        behavior.reqres.send_request(&peer, request);
+                                    }
+                                    None => {
+                                        // send in broadcast (gossip)
+                                        let behavior = swarm.behaviour_mut();
+                                        let buf = rmp_serialize(&msg).unwrap();
+                                        if let Err(err) =
+                                            behavior.gossip.publish(topic.clone(), buf)
+                                        {
+                                            if !matches!(err, PublishError::InsufficientPeers) {
+                                                error!("publish error: {:?}", err);
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                    Message::GetTransactionRequest {
-                        ref hash,
-                        ref destination,
-                    } => {
-                        match destination {
-                            Some(destination) => {
-                                // send to peer in unicast
-                                let behavior = swarm.behaviour_mut();
-                                let peer = PeerId::from_str(&destination).unwrap();
-                                let buf = rmp_serialize(&msg).unwrap();
-                                let request = ReqUnicastMessage(buf);
-                                behavior.reqres.send_request(&peer, request);
-                            }
-                            None => {
-                                // send in broadcast (gossip)
-                                let behavior = swarm.behaviour_mut();
-                                let buf = rmp_serialize(&msg).unwrap();
-                                if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                    if !matches!(err, PublishError::InsufficientPeers) {
-                                        error!("publish error: {:?}", err);
+                            Message::GetTransactionRequest {
+                                ref hash,
+                                ref destination,
+                            } => {
+                                match destination {
+                                    Some(destination) => {
+                                        // send to peer in unicast
+                                        let behavior = swarm.behaviour_mut();
+                                        let peer = PeerId::from_str(&destination).unwrap();
+                                        let buf = rmp_serialize(&msg).unwrap();
+                                        let request = ReqUnicastMessage(buf);
+                                        behavior.reqres.send_request(&peer, request);
+                                    }
+                                    None => {
+                                        // send in broadcast (gossip)
+                                        let behavior = swarm.behaviour_mut();
+                                        let buf = rmp_serialize(&msg).unwrap();
+                                        if let Err(err) =
+                                            behavior.gossip.publish(topic.clone(), buf)
+                                        {
+                                            if !matches!(err, PublishError::InsufficientPeers) {
+                                                error!("publish error: {:?}", err);
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            _ => warn!("unexpected message from blockchain: {:?}", msg),
                         }
                     }
-                    _ => warn!("unexpected message from blockchain: {:?}", msg),
+                    _ => warn!("unexpected message from blockchain"),
                 },
                 Poll::Ready(None) => {
                     warn!("blockchain channel has been closed, exiting");

@@ -21,7 +21,7 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::rmp_deserialize,
+    base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
@@ -483,33 +483,44 @@ impl Behavior {
                             }
                         },
                         Message::GetBlockRequest {
-                            height: _,
-                            txs: _,
-                            destination: _,
-                        } => match self.bc_chan.send_sync(msg) {
-                            Ok(res_chan) => {
-                                if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
-                                    if self
-                                        .reqres
-                                        .send_response(channel, ResUnicastMessage(buf))
-                                        .is_ok()
+                            height,
+                            txs,
+                            destination,
+                        } => {
+                            let msg = Message::GetBlockRequest {
+                                height,
+                                txs,
+                                destination,
+                            };
+                            match self.bc_chan.send_sync(msg) {
+                                Ok(res_chan) => {
+                                    if let Ok(Message::GetBlockResponse { block, txs, origin }) =
+                                        res_chan.recv_sync()
                                     {
-                                        debug!(
+                                        let msg = Message::GetBlockResponse { block, txs, origin };
+                                        let buf = rmp_serialize(&msg).unwrap();
+                                        if self
+                                            .reqres
+                                            .send_response(channel, ResUnicastMessage(buf))
+                                            .is_ok()
+                                        {
+                                            debug!(
                                                 "[req-res] message (response) {} containing block sended",
                                                 request_id.to_string(),
                                             );
-                                    } else {
-                                        debug!(
+                                        } else {
+                                            debug!(
                                                 "[req-res] message (response) {} error, caused by TO or unreachable peer",
                                                 request_id.to_string(),
                                             );
+                                        }
                                     }
                                 }
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
                             }
-                            Err(_err) => {
-                                warn!("blockchain service seems down");
-                            }
-                        },
+                        }
                         Message::GetBlockResponse {
                             block: _,
                             txs: _,
