@@ -819,13 +819,8 @@ impl Wm for WmLocal {
                 Error::new_ext(ErrorKind::WasmMachineFault, "out of bounds memory access")
             }));
 
-        error!("RETURN: {:?}", buf); // DELETEME
-
         match rmp_deserialize::<AppOutput>(buf) {
-            Ok(res) if res.success => (consumed_fuel, {
-                error!("data: {:?}", res.data); // DELETEME
-                Ok(res.data.to_owned())
-            }),
+            Ok(res) if res.success => (consumed_fuel, { Ok(res.data.to_owned()) }),
             Ok(res) => (
                 consumed_fuel,
                 Err(Error::new_ext(
