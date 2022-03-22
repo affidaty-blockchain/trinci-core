@@ -185,7 +185,11 @@ impl<D: Db> Aligner<D> {
             debug!("==========");
 
             // Get last block height
-            let max_block_height = self.trusted_peers.lock()[0].2.data.height;
+            let max_block_height = if self.trusted_peers.lock().len() > 0 {
+                self.trusted_peers.lock()[0].2.data.height
+            } else {
+                0
+            };
 
             // Send unicast request to a random trusted peer for every block in `missing_blocks`.
             let rx_chan = self.rx_chan.clone();

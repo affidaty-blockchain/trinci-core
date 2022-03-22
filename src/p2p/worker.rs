@@ -94,14 +94,17 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
         }
     };
 
-    let topic: String = config.network.lock().clone() + "-" + NODE_TOPIC;
+    let topic: String = NODE_TOPIC.to_string();
     let topic = IdentTopic::new(topic);
+
+    let nw_name: String = config.network.lock().clone();
 
     let transport = build_transport(&keypair);
     let behaviour = Behavior::new(
         peer_id,
         public_key,
         topic.clone(),
+        nw_name.clone(),
         config.bootstrap_addr.clone(),
         block_tx,
     )

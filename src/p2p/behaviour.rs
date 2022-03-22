@@ -48,7 +48,7 @@ use libp2p::{
     },
     Multiaddr, NetworkBehaviour, PeerId,
 };
-use std::{io, iter, str::FromStr};
+use std::{io, iter, str::FromStr, time::Duration};
 use tide::utils::async_trait;
 
 const MAX_TRANSMIT_SIZE: usize = 524288;
@@ -197,9 +197,10 @@ impl From<RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>> for Compos
 }
 
 impl Behavior {
-    fn identify_new(public_key: PublicKey) -> Result<Identify> {
+    fn identify_new(public_key: PublicKey, nw_name: String) -> Result<Identify> {
         debug!("[p2p] identify start");
-        let mut config = IdentifyConfig::new("trinci/1.0.0".to_owned(), public_key);
+        let mut config =
+            IdentifyConfig::new(format!("trinci/{}/1.0.0", nw_name).to_owned(), public_key);
         config.push_listen_addr_updates = true;
         let identify = Identify::new(config);
 
@@ -208,7 +209,9 @@ impl Behavior {
 
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
-        let fut = Mdns::new(MdnsConfig::default());
+        let mut config = MdnsConfig::default();
+        config.ttl = Duration::from_secs_f64((60 * 15) as f64);
+        let fut = Mdns::new(config);
         let mdns = task::block_on(fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         Ok(mdns)
@@ -282,10 +285,11 @@ impl Behavior {
         peer_id: PeerId,
         public_key: PublicKey,
         topic: IdentTopic,
+        nw_name: String,
         bootaddr: Option<String>,
         bc_chan: BlockRequestSender,
     ) -> Result<Self> {
-        let identify = Self::identify_new(public_key)?;
+        let identify = Self::identify_new(public_key, nw_name.clone())?;
         let gossip = Self::gossip_new(peer_id, topic)?;
         let mdns = Self::mdns_new()?;
         let kad = Self::kad_new(peer_id, bootaddr)?;
@@ -298,7 +302,7 @@ impl Behavior {
             kad,
             bc_chan,
             reqres,
-            network_name: "trinci/1.0.0".to_string(),
+            network_name: format!("trinci/{}/1.0.0", nw_name),
         })
     }
 
