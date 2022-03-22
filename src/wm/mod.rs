@@ -61,6 +61,24 @@ pub trait Wm: Send + 'static {
         initial_fuel: u64,
     ) -> (u64, Result<Vec<u8>>);
 
+    /// Execute the smart contract `is_callable` method
+    /// It is required to pass the database to contextualize the operations.
+    #[allow(clippy::too_many_arguments)]
+    fn is_callable_call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        contract: Hash,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        initial_fuel: u64,
+    ) -> (u64, Result<i32>);
+
     fn app_hash_check<'a>(
         &mut self,
         db: &mut dyn DbFork,

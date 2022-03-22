@@ -31,6 +31,7 @@ Additional labels for pre-release metadata:
 Changed
 * BlockchainSettings structure
 * Test/Production flag
+* improved `is_callable` host_function
 
 Added
 * `secure_call` host function
@@ -38,6 +39,7 @@ Added
 * NFA Non-Fungible Account
 * Added size limit on transaction that can be executed
 * Fuel consumption
+* is_callable direct wasm call
 
 0.2.6 - 08-02-2022
 ------------------

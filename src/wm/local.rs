@@ -241,10 +241,22 @@ mod local_host_func {
         let account = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+
         // Invoke portable host function.
-        Ok(host_func::is_callable(ctx, account, method))
+        let (consumed_fuel, result) = host_func::is_callable(ctx, account, method, remaining_fuel);
+
+        caller.consume_fuel(consumed_fuel)?;
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(_) => Ok(0),
+        }
     }
 
     /// Store asset
@@ -806,8 +818,14 @@ impl Wm for WmLocal {
             .ok_or_else(|| {
                 Error::new_ext(ErrorKind::WasmMachineFault, "out of bounds memory access")
             }));
+
+        error!("RETURN: {:?}", buf); // DELETEME
+
         match rmp_deserialize::<AppOutput>(buf) {
-            Ok(res) if res.success => (consumed_fuel, Ok(res.data.to_owned())),
+            Ok(res) if res.success => (consumed_fuel, {
+                error!("data: {:?}", res.data); // DELETEME
+                Ok(res.data.to_owned())
+            }),
             Ok(res) => (
                 consumed_fuel,
                 Err(Error::new_ext(
@@ -942,6 +960,140 @@ impl Wm for WmLocal {
 
         app_hash
     }
+
+    fn is_callable_call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        app_hash: Hash,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        initial_fuel: u64,
+    ) -> (u64, Result<i32>) {
+        // TODO put common code with call in a separated method
+        let engine1 = self.engine.clone(); // FIXME
+        let engine2 = self.engine.clone();
+        let module = unwrap_or_return!(self.get_module(&engine1, db, &app_hash));
+
+        // Prepare and set execution context for host functions.
+        let ctx = CallContext {
+            wm: None,
+            db,
+            owner,
+            data_updated: false,
+            depth,
+            network,
+            origin,
+            events,
+            seed,
+            initial_fuel,
+        };
+
+        // Allocate execution context (aka Store).
+        let mut store: Store<CallContext> = Store::new(&engine2, ctx);
+
+        store.add_fuel(initial_fuel).unwrap_or_default();
+
+        // Get imported host functions list.
+        let imports =
+            unwrap_or_return!(local_host_func::host_functions_register(&mut store, module));
+
+        // Instantiate the wasm module.
+        let instance = unwrap_or_return!(Instance::new(&mut store, module, &imports)
+            .map_err(|err| Error::new_ext(ErrorKind::WasmMachineFault, err)));
+
+        // Only at this point we can borrow `self` as mutable to set it as the
+        // store data `ctx.wm` reference (replacing the dummy one).
+        store.data_mut().wm = Some(self);
+
+        // Get wasm allocator reference (this component is able to reserve
+        // memory that lives within the wasm module).
+        let alloc_func = unwrap_or_return!(instance
+            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
+            .map_err(|_err| {
+                error!("Function 'alloc' not found");
+                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
+            }));
+
+        // Exporting the instance memory
+        let mem = unwrap_or_return!(instance.get_memory(&mut store, "memory").ok_or_else(|| {
+            error!("Expected 'memory' not found");
+            Error::new_ext(ErrorKind::ResourceNotFound, "wasm `memory` not found")
+        }));
+
+        // Write method arguments into wasm memory.
+        let args_addr = unwrap_or_return!(write_mem(
+            &mut store.as_context_mut(),
+            &alloc_func,
+            &mem,
+            args
+        ));
+
+        // Context information available to the wasm methods.
+        let input = AppInput {
+            owner,
+            caller,
+            method: "is_callable",
+            depth,
+            network,
+            origin,
+        };
+        let input_buf = unwrap_or_return!(rmp_serialize(&input));
+        let input_addr = unwrap_or_return!(write_mem(
+            &mut store.as_context_mut(),
+            &alloc_func,
+            &mem,
+            input_buf.as_ref(),
+        ));
+
+        // Get function reference.
+        let is_callable_func = unwrap_or_return!(instance
+            .get_typed_func::<(i32, i32, i32, i32), i32, StoreContextMut<CallContext>>(
+                store.as_context_mut(),
+                "is_callable", // NOTE this could be passed as argument
+            )
+            .map_err(|_err| {
+                error!("Function `is_callable` not found!");
+                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `is_callable` not found")
+            }));
+
+        // Wasm "run" function input parameters list.
+        let params = (
+            input_addr,
+            input_buf.len() as i32,
+            args_addr,
+            args.len() as i32,
+        );
+
+        // Call smart contract method
+        let result = unwrap_or_return!(is_callable_func
+            .call(store.as_context_mut(), params)
+            .map_err(|err| {
+                // Here the error shall be serious and a probable crash of the wasm sandbox.
+                Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
+            }));
+
+        let consumed_fuel = store.fuel_consumed().unwrap_or_default();
+
+        let ctx = store.data_mut();
+
+        if ctx.data_updated {
+            // Account data has been altered, update the `data_hash`.
+            let mut account = unwrap_or_return!(ctx
+                .db
+                .load_account(ctx.owner)
+                .ok_or_else(|| Error::new_ext(ErrorKind::WasmMachineFault, "inconsistent state")));
+            account.data_hash = Some(ctx.db.state_hash(&account.id));
+            ctx.db.store_account(account);
+        }
+
+        (consumed_fuel, Ok(result))
+    }
 }
 
 #[cfg(test)]
@@ -1010,6 +1162,27 @@ mod tests {
                 data.get_args(),
                 seed,
                 events,
+                MAX_FUEL,
+            )
+        }
+
+        fn exec_is_callable<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            method: &str,
+            app_hash: Hash,
+        ) -> (u64, Result<i32>) {
+            self.is_callable_call(
+                db,
+                0,
+                "skynet",
+                "origin",
+                "owner",
+                "caller",
+                app_hash,
+                method.as_bytes(),
+                create_arc_seed(),
+                &mut Vec::new(),
                 MAX_FUEL,
             )
         }
@@ -1091,6 +1264,34 @@ mod tests {
     }
 
     #[test]
+    fn test_exec_is_callable() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let hash = test_contract_hash();
+        let mut db = create_test_db();
+
+        let result = vm
+            .exec_is_callable(&mut db, "test_hf_drand", hash)
+            .1
+            .unwrap();
+
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_exec_not_callable_method() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let hash = test_contract_hash();
+        let mut db = create_test_db();
+
+        let result = vm
+            .exec_is_callable(&mut db, "not_existent_method", hash)
+            .1
+            .unwrap();
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
     fn exec_transfer() {
         let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data_transfer();
@@ -1138,7 +1339,7 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::SmartContractFault);
         assert_eq!(
             err.to_string_full(),
-            "smart contract fault: method `inexistent` not found"
+            "smart contract fault: method not found"
         );
     }
 
