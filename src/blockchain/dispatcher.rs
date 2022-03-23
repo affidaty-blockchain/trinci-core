@@ -158,10 +158,7 @@ impl<D: Db> Dispatcher<D> {
         if sub.has_subscribers(Event::TRANSACTION) {
             sub.publish(
                 Event::TRANSACTION,
-                Message::GetTransactionResponse {
-                    tx,
-                    origin: Some(self.p2p_id.clone()),
-                },
+                Message::GetTransactionResponse { tx, origin: None },
             );
         }
     }

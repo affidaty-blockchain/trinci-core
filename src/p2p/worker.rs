@@ -194,6 +194,28 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                     }
                                 }
                             }
+                            Message::GetTransactionResponse { ref origin, .. } => {
+                                if origin.is_none() {
+                                    let buf = rmp_serialize(&msg).unwrap();
+                                    if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
+                                        if !matches!(err, PublishError::InsufficientPeers) {
+                                            error!("publish error: {:?}", err);
+                                        }
+                                    }
+                                }
+                            }
+                            Message::GetBlockResponse { ref origin, .. } => {
+                                // check if is a message to propagate in gossip
+                                if origin.is_none() {
+                                    let buf = rmp_serialize(&msg).unwrap();
+                                    if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
+                                        if !matches!(err, PublishError::InsufficientPeers) {
+                                            error!("publish error: {:?}", err);
+                                        }
+                                    }
+                                }
+                            }
+                            Message::GetContractEvent { .. } => {}
                             _ => warn!("unexpected message from blockchain: {:?}", msg),
                         }
                     }

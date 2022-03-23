@@ -629,7 +629,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             let msg = Message::GetBlockResponse {
                 block,
                 txs: Some(txs_hashes.to_owned()),
-                origin: Some(self.p2p_id.clone()),
+                origin: None, // send it in gossip
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
         }
