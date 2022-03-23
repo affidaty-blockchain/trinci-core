@@ -44,9 +44,7 @@ impl SeedSource {
     pub fn get_seed(&self) -> u64 {
         // generate a Vec<u8> for each attribute of length
         // of the biggest between them
-        let size_vec: Vec<usize>;
-
-        size_vec = vec![
+        let size_vec: Vec<usize> = vec![
             self.nw_name.len(),
             self.nonce.lock().len(),
             self.prev_hash.lock().to_bytes().len(),
