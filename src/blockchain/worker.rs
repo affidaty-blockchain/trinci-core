@@ -234,9 +234,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let threshold = self.config.lock().threshold;
 
         let exec_timeout = self.config.lock().timeout as u64;
-
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
-        
         let is_validator = self.is_validator.clone();
         let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
         let mut is_validator_fut = Box::pin(is_validator);
