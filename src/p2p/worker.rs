@@ -168,7 +168,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 }
                             }
                             Message::GetTransactionRequest {
-                                ref hash,
+                                hash: _,
                                 ref destination,
                             } => {
                                 match destination {

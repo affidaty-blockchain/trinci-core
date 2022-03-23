@@ -61,14 +61,10 @@ pub struct BlockWorker<D: Db, W: Wm> {
     builder: Builder<D>,
     /// Executor subsystem, in charge of executing block transactions.
     executor: Executor<D, W>,
-    //
-    //synchronizer: Synchronizer<D>,
     /// Builder running flag.
     building: Arc<AtomicBool>,
     /// Executor running flag.
     executing: Arc<AtomicBool>,
-    ///
-    synchronizing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
     is_validator: Arc<dyn IsValidator>,
 }
@@ -118,7 +114,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let building = Arc::new(AtomicBool::new(false));
         let executing = Arc::new(AtomicBool::new(false));
-        let synchronizing = Arc::new(AtomicBool::new(false));
 
         Self {
             config,
@@ -128,10 +123,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             dispatcher,
             builder,
             executor,
-            //synchronizer,
             building,
             executing,
-            synchronizing,
             is_validator: Arc::new(is_validator),
         }
     }
@@ -218,20 +211,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         });
     }
 
-    fn try_synchronization(&self) {
-        if self.synchronizing.swap(true, Ordering::Relaxed) {
-            return;
-        }
-
-        // TEST
-        //let synchronizer = self.synchronizer.clone();
-        //let synchronizing = self.synchronizing.clone();
-        //task::spawn(async move {
-        //    synchronizer.run();
-        //    synchronizing.store(false, Ordering::Relaxed);
-        //});
-    }
-
     fn handle_message(&self, req: Message, res_chan: BlockResponseSender) {
         let mut dispatcher = self.dispatcher.clone();
         task::spawn(async move {
@@ -255,11 +234,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let threshold = self.config.lock().threshold;
 
         let exec_timeout = self.config.lock().timeout as u64;
-        let sync_timeout = 3 * self.config.lock().timeout as u64;
 
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
-        let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
-
+        
         let is_validator = self.is_validator.clone();
         let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
         let mut is_validator_fut = Box::pin(is_validator);
