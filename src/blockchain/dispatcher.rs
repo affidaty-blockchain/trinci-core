@@ -155,7 +155,7 @@ impl<D: Db> Dispatcher<D> {
     #[inline]
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
-        debug!("### TX BROADCAST ATTEMPT ###");
+        debug!("### NEW TX -> BROADCAST ATTEMPT ###");
         if sub.has_subscribers(Event::TRANSACTION) {
             sub.publish(
                 Event::TRANSACTION,
@@ -245,7 +245,8 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn get_transaction_res_handler(&self, transaction: Transaction, origin: Option<String>) {
-        let _ = self.put_transaction_internal(transaction.clone());
+        let res = self.put_transaction_internal(transaction.clone());
+        debug!("PUT TX INTERNAL: {}", res.is_ok());
         // if in alignment just send
         // an ACK to aligner, so that
         // it can ask for next TX

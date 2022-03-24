@@ -444,7 +444,7 @@ impl Behavior {
                         channel,
                     },
             } => {
-                debug!("[req-res](req) message recieved from: {}", peer.to_string());
+                debug!("[req-res](req) {} message recieved from: {}", request_id.to_string(), peer.to_string());
                 // the message recieved is incapsulated in Message::Packed
                 let msg = Message::Packed { buf: buf.clone() };
                 // chech wether is:
@@ -467,12 +467,12 @@ impl Behavior {
                                         .is_ok()
                                     {
                                         debug!(
-                                            "[req-res] message (response) {} containing tx sended",
+                                            "[req-res] message (res) {} containing tx sended",
                                             request_id.to_string(),
                                         );
                                     } else {
                                         debug!(
-                                                "[req-res] message (response) {} error, caused by TO or unreachable peer",
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
                                                 request_id.to_string(),
                                             );
                                     }
@@ -505,12 +505,12 @@ impl Behavior {
                                             .is_ok()
                                         {
                                             debug!(
-                                                "[req-res] message (response) {} containing block sended",
+                                                "[req-res] message (res) {} containing block sended",
                                                 request_id.to_string(),
                                             );
                                         } else {
                                             debug!(
-                                                "[req-res] message (response) {} error, caused by TO or unreachable peer",
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
                                                 request_id.to_string(),
                                             );
                                         }
@@ -543,7 +543,7 @@ impl Behavior {
                         Message::GetTransactionResponse { tx: _, origin: _ } => {
                             match self.bc_chan.send_sync(req) {
                                 Ok(_) => {
-                                    debug!("[req-res](req) block submited to blockchain service")
+                                    debug!("[req-res](req) tx submited to blockchain service")
                                 }
                                 Err(_err) => {
                                     warn!("blockchain service seems down");
@@ -568,7 +568,7 @@ impl Behavior {
                 //  - GetTransactionResponse
                 // this means that it is only needed to submit it to blockchain service.
                 debug!(
-                    "[req-res](res) message  recieved from: {}",
+                    "[req-res](res) message recieved from: {}",
                     peer.to_string()
                 );
 
@@ -582,7 +582,7 @@ impl Behavior {
                                     }
                                     Err(error) => {
                                         debug!(
-                                            "[req-res](res) error in submitig response: {}",
+                                            "[req-res](res) error in submitig tx response in bc_chan: {}",
                                             error
                                         )
                                     }
@@ -598,7 +598,7 @@ impl Behavior {
                                     debug!("[req-res](res) recieved GetBlockResponse, submitted to blockchain service")
                                 }
                                 Err(error) => {
-                                    debug!("[req-res](res) error in submitig response: {}", error)
+                                    debug!("[req-res](res) error in submitig block response in bc_chan: {}", error)
                                 }
                             },
                             Err(_err) => {

@@ -210,9 +210,6 @@ impl<D: Db> Aligner<D> {
                     pubsub.lock().publish(Event::UNICAST_REQUEST, msg.clone());
 
                     // Until "local_last.next" retrieved ask for "remote_last.previous".
-                    // TODO: add a TO, in case a block response isn't recieved, then
-                    //       wait a certain time, retry with another peer
-                    //       try it K times, if fails stop alignment
                     let mut timeout = Duration::from_secs(TIME_OUT_SEC);
                     let mut start = Instant::now();
                     let mut attempt = 0;
@@ -392,14 +389,6 @@ impl<D: Db> Aligner<D> {
                                                         tx,
                                                         origin,
                                                     } => {
-                                                        // TO REMOVE ---
-                                                        debug!(
-                                                            "ININNININ\n\t{:?}\n\t{:?}",
-                                                            requested_tx.unwrap(),
-                                                            tx.get_primary_hash()
-                                                        );
-                                                        // ---
-
                                                         if tx
                                                             .get_primary_hash()
                                                             .eq(requested_tx.unwrap())
