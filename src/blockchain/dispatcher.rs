@@ -46,7 +46,7 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, HashAlgorithm, Hashable},
     db::Db,
-    Error, ErrorKind, Result, Transaction,
+    Error, ErrorKind, Result, Transaction,    
 };
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
@@ -155,6 +155,7 @@ impl<D: Db> Dispatcher<D> {
     #[inline]
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
+        debug!("### TX BROADCAST ATTEMPT ###");
         if sub.has_subscribers(Event::TRANSACTION) {
             sub.publish(
                 Event::TRANSACTION,
@@ -514,6 +515,7 @@ mod tests {
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
+        blockchain::aligner::Aligner
     };
 
     const ACCOUNT_ID: &str = "AccountId";
@@ -556,20 +558,7 @@ mod tests {
         );
         let seed = Arc::new(seed);
 
-        let block = Block {
-            data: crate::base::schema::BlockData {
-                validator: None,
-                height: 1,
-                size: 1,
-                prev_hash,
-                txs_hash,
-                rxs_hash,
-                state_hash: rxs_hash,
-            },
-            signature: vec![],
-        };
-
-        let aligner = Aligner::new(pubsub.clone(), block);
+        let aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
 
         Dispatcher::new(
             config,
@@ -578,7 +567,7 @@ mod tests {
             pubsub,
             seed,
             "TEST".to_string(),
-            (aligner.tx_chan.clone(), aligner.status.clone()),
+            (aligner.request_channel(), aligner.status.clone()),
         )
     }
 

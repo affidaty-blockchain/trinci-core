@@ -258,12 +258,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
 
-            // TEST
-            //while sync_sleep.poll_unpin(cx).is_ready() {
-            //    self.try_synchronization();
-            //    sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
-            //}
-
             loop {
                 match self.rx_chan.poll_next_unpin(cx) {
                     Poll::Ready(Some((Message::Stop, _))) => return Poll::Ready(()),
