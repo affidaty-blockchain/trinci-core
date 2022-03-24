@@ -46,7 +46,7 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, HashAlgorithm, Hashable},
     db::Db,
-    Error, ErrorKind, Result, Transaction,    
+    Error, ErrorKind, Result, Transaction,
 };
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
@@ -130,7 +130,7 @@ impl<D: Db> Dispatcher<D> {
             debug!("[PTI] NW ko");
             return Err(ErrorKind::BadNetwork.into());
         }
-        
+
         debug!("[PTI] NW ok");
 
         // Check if already present in db.
@@ -138,7 +138,7 @@ impl<D: Db> Dispatcher<D> {
             debug!("[PTI] Present in DB (KO)");
             return Err(ErrorKind::DuplicatedConfirmedTx.into());
         }
-        
+
         debug!("[PTI] Not present in DB (OK)");
 
         let mut pool = self.pool.write();
@@ -300,6 +300,16 @@ impl<D: Db> Dispatcher<D> {
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)
         let aligner_status = self.aligner.1.clone();
+        debug!(
+            "[dispatcher]:\tlocal last: {}\n\treciebed:\t{}status\t{}",
+            missing_headers.end,
+            block.data.height,
+            *aligner_status.0.lock().unwrap()
+        );
+        debug!(
+            "[dispatcher]: missing_headers.start: {}",
+            missing_headers.start
+        );
         if missing_headers.end == block.data.height && *aligner_status.0.lock().unwrap() {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
@@ -524,10 +534,10 @@ mod tests {
             create_test_account, create_test_block, create_test_bulk_tx, create_test_bulk_tx_alt,
             create_test_unit_tx, FUEL_LIMIT,
         },
+        blockchain::aligner::Aligner,
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
-        blockchain::aligner::Aligner
     };
 
     const ACCOUNT_ID: &str = "AccountId";
