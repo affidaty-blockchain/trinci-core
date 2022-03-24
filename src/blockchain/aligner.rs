@@ -254,22 +254,11 @@ impl<D: Db> Aligner<D> {
 
                                                     self.missing_blocks.lock().push(req.clone());
                                                     for tx in txs_hashes {
-                                                        debug!("[aligner] affing tx");
+                                                        debug!("[aligner] adding tx");
                                                         self.missing_txs
                                                             .lock()
                                                             .push(tx.clone().into());
                                                     }
-
-                                                    // TO REMOVE ---
-                                                    debug!(
-                                                        "missing block dim: {}",
-                                                        self.missing_blocks.lock().len()
-                                                    );
-                                                    debug!(
-                                                        "missing txs dim: {}",
-                                                        self.missing_txs.lock().len()
-                                                    );
-                                                    // ---
 
                                                     // Check alignment status.
                                                     //if !block.data.prev_hash.eq(&local_last_hash)
