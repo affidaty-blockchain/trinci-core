@@ -120,31 +120,41 @@ impl<D: Db> Dispatcher<D> {
         tx.check_integrity()?;
         let hash = tx.get_primary_hash();
 
-        debug!("Received transaction: {}", hex::encode(hash));
+        debug!("[PTI] Received transaction: {}", hex::encode(hash));
 
         // Check the network.
         if self.config.lock().network != tx.get_network() {
+            debug!("[PTI] NW ko");
             return Err(ErrorKind::BadNetwork.into());
         }
+        
+        debug!("[PTI] NW ok");
 
         // Check if already present in db.
         if self.db.read().contains_transaction(&hash) {
+            debug!("[PTI] Present in DB (KO)");
             return Err(ErrorKind::DuplicatedConfirmedTx.into());
         }
+        
+        debug!("[PTI] Not present in DB (OK)");
 
         let mut pool = self.pool.write();
         match pool.txs.get_mut(&hash) {
             None => {
+                debug!("[PTI] TX added to pools");
                 pool.txs.insert(hash, Some(tx));
                 pool.unconfirmed.push(hash);
             }
             Some(tx_ref @ None) => {
+                debug!("[PTI] ???");
                 *tx_ref = Some(tx);
             }
             Some(Some(_)) => {
                 return if pool.unconfirmed.contains(&hash) {
+                    debug!("[PTI] Present in DB unconf (KO)");
                     Err(ErrorKind::DuplicatedUnconfirmedTx.into())
                 } else {
+                    debug!("[PTI] Present in DB conf (KO)");
                     Err(ErrorKind::DuplicatedConfirmedTx.into())
                 };
             }
