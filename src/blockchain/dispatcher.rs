@@ -301,7 +301,7 @@ impl<D: Db> Dispatcher<D> {
         // "alignment" status, shown by the status of the aligner (false -> alignment)
         let aligner_status = self.aligner.1.clone();
         debug!(
-            "[dispatcher]:\tlocal last: {}\n\treciebed:\t{}status\t{}",
+            "[dispatcher]:\tlocal last: {}\n\trecieved:\t{}\nstatus\t{}",
             missing_headers.end,
             block.data.height,
             *aligner_status.0.lock().unwrap()
@@ -310,7 +310,7 @@ impl<D: Db> Dispatcher<D> {
             "[dispatcher]: missing_headers.start: {}",
             missing_headers.start
         );
-        if missing_headers.end == block.data.height && *aligner_status.0.lock().unwrap() {
+        if missing_headers.start + 1 == block.data.height && *aligner_status.0.lock().unwrap() {
             // if recieved block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
