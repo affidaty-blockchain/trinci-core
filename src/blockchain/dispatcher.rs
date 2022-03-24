@@ -123,6 +123,9 @@ impl<D: Db> Dispatcher<D> {
         debug!("[PTI] Received transaction: {}", hex::encode(hash));
 
         // Check the network.
+        debug!("LOCAL: {}", self.config.lock().network);
+        debug!("TX: {}", tx.get_network());
+
         if self.config.lock().network != tx.get_network() {
             debug!("[PTI] NW ko");
             return Err(ErrorKind::BadNetwork.into());
