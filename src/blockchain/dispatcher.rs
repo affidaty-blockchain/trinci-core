@@ -311,8 +311,6 @@ impl<D: Db> Dispatcher<D> {
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start <= block.data.height {
-            // TODO: here drop unexpected block
-            debug!("{}", aligner_status.0.lock().unwrap());
             // in this case the node miss some block
             // it needes to be re-aligned
 
