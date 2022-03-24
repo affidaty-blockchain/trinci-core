@@ -531,7 +531,7 @@ impl Behavior {
                             // select a group of trusted peers
                             // submit block to blockchain service
                             // from now on if it has to ask for blocks and block it asks to the trusted peers
-                            match self.bc_chan.send_sync(req) {
+                            match self.bc_chan.send_sync(msg) {
                                 Ok(_) => {
                                     debug!("[req-res](req) block submited to blockchain service")
                                 }
@@ -540,16 +540,16 @@ impl Behavior {
                                 }
                             }
                         }
-                        Message::GetTransactionResponse { tx: _, origin: _ } => {
-                            match self.bc_chan.send_sync(req) {
-                                Ok(_) => {
-                                    debug!("[req-res](req) tx submited to blockchain service")
-                                }
-                                Err(_err) => {
-                                    warn!("blockchain service seems down");
-                                }
-                            }
-                        }
+                        //Message::GetTransactionResponse { tx: _, origin: _ } => {
+                        //    match self.bc_chan.send_sync(req) {
+                        //        Ok(_) => {
+                        //            debug!("[req-res](req) tx submited to blockchain service")
+                        //        }
+                        //        Err(_err) => {
+                        //            warn!("blockchain service seems down");
+                        //        }
+                        //    }
+                        //}
                         _ => error!("[reqres](req) unexpected blockchain message"),
                     },
                     _ => error!("[reqres](req) error indeserialization"),
@@ -571,11 +571,14 @@ impl Behavior {
                     "[req-res](res) message recieved from: {}",
                     peer.to_string()
                 );
+                
+                let msg = Message::Packed { buf: buf.clone() };
 
                 match rmp_deserialize(&buf) {
                     Ok(MultiMessage::Simple(req)) => match req {
                         Message::GetTransactionResponse { .. } => {
-                            match self.bc_chan.send_sync(req) {
+                            
+                            match self.bc_chan.send_sync(msg) {
                                 Ok(res_chan) => match res_chan.recv_sync() {
                                     Ok(_) => {
                                         debug!("[req-res](res) recieved GetTransactionResponse, submitted to blockchain service")
@@ -592,7 +595,7 @@ impl Behavior {
                                 }
                             }
                         }
-                        Message::GetBlockResponse { .. } => match self.bc_chan.send_sync(req) {
+                        Message::GetBlockResponse { .. } => match self.bc_chan.send_sync(msg) {
                             Ok(res_chan) => match res_chan.recv_sync() {
                                 Ok(_) => {
                                     debug!("[req-res](res) recieved GetBlockResponse, submitted to blockchain service")
