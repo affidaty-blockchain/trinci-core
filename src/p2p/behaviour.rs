@@ -334,6 +334,10 @@ impl Behavior {
                                         let last_block_message =
                                             ReqUnicastMessage(rmp_serialize(&message).unwrap());
                                         self.reqres.send_request(&peer_id, last_block_message);
+                                        debug!(
+                                            "[ident] sending to new peer {} last local block",
+                                            peer_id.to_string()
+                                        );
                                     }
                                     _ => (),
                                 },
