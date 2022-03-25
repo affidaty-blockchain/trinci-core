@@ -39,6 +39,7 @@ use std::{
 };
 
 const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
+const SLEEP_TIME: u64 = 3;
 const TIME_OUT_SEC: u64 = 5;
 const MAX_ATTEMPTS: i32 = 3;
 
@@ -100,6 +101,11 @@ impl<D: Db> Aligner<D> {
             let trusted_peers = self.trusted_peers.clone();
             let rx_chan = self.rx_chan.clone();
             let pubsub = self.pubsub.clone();
+
+            // Wait some time before collecting new peers in case of a flood of "new added peer" messages
+            let collection_time = Duration::from_secs(SLEEP_TIME);
+            let start = Instant::now();
+            while collection_time.checked_sub(start.elapsed()).is_some() {}
 
             // Collect trusted peers.
             let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {

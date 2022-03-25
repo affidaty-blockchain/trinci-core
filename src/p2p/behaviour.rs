@@ -319,6 +319,28 @@ impl Behavior {
                             peer_id, addr
                         );
                         self.reqres.add_address(&peer_id, addr);
+
+                        // Send last block to the new known peer.
+                        let last_block_req_msg = Message::GetBlockRequest {
+                            height: u64::MAX,
+                            txs: false,
+                            destination: Some(peer_id.clone().to_string()),
+                        };
+
+                        match self.bc_chan.send_sync(last_block_req_msg) {
+                            Ok(res_chan) => match res_chan.recv_sync() {
+                                Ok(message) => match message {
+                                    Message::GetBlockResponse { .. } => {
+                                        let last_block_message =
+                                            ReqUnicastMessage(rmp_serialize(&message).unwrap());
+                                        self.reqres.send_request(&peer_id, last_block_message);
+                                    }
+                                    _ => (),
+                                },
+                                Err(_) => warn!("blockchain service seems down"),
+                            },
+                            Err(_) => warn!("blockchain service seems down"),
+                        }
                     }
                 }
             }
@@ -444,7 +466,11 @@ impl Behavior {
                         channel,
                     },
             } => {
-                debug!("[req-res](req) {} message recieved from: {}", request_id.to_string(), peer.to_string());
+                debug!(
+                    "[req-res](req) {} message recieved from: {}",
+                    request_id.to_string(),
+                    peer.to_string()
+                );
                 // the message recieved is incapsulated in Message::Packed
                 let msg = Message::Packed { buf: buf.clone() };
                 // chech wether is:
@@ -567,17 +593,13 @@ impl Behavior {
                 //  - GetBlockResponse
                 //  - GetTransactionResponse
                 // this means that it is only needed to submit it to blockchain service.
-                debug!(
-                    "[req-res](res) message recieved from: {}",
-                    peer.to_string()
-                );
-                
+                debug!("[req-res](res) message recieved from: {}", peer.to_string());
+
                 let msg = Message::Packed { buf: buf.clone() };
 
                 match rmp_deserialize(&buf) {
                     Ok(MultiMessage::Simple(req)) => match req {
                         Message::GetTransactionResponse { .. } => {
-                            
                             match self.bc_chan.send_sync(msg) {
                                 Ok(res_chan) => match res_chan.recv_sync() {
                                     Ok(_) => {
