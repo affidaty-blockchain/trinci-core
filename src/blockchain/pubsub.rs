@@ -45,7 +45,7 @@ bitflags::bitflags! {
     }
 }
 
-const EVENTS_NUM: usize = 4;
+const EVENTS_NUM: usize = 5;
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -237,6 +237,7 @@ mod tests {
 
         assert!(pubsub.has_subscribers(Event::BLOCK));
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
+        println!("{:?}", pubsub.has_subscribers(Event::CONTRACT_EVENTS));
         assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
     }
 

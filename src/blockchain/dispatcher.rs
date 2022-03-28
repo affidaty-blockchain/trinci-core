@@ -779,7 +779,7 @@ mod tests {
 
         let exp_res = Message::GetTransactionResponse {
             tx: create_test_unit_tx(FUEL_LIMIT),
-            origin: None,
+            origin: Some("TEST".to_string()),
         };
         assert_eq!(res, exp_res);
     }
@@ -798,7 +798,7 @@ mod tests {
         let exp_res = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
-            origin: None,
+            origin: Some("TEST".to_string()),
         };
         assert_eq!(res, exp_res);
     }
