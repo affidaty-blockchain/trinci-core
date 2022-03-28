@@ -174,7 +174,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                     Some(destination) => {
                                         // send to peer in unicast
                                         let behavior = swarm.behaviour_mut();
-                                        let peer = PeerId::from_str(&destination).unwrap();
+                                        let peer = PeerId::from_str(destination).unwrap();
                                         let buf = rmp_serialize(&msg).unwrap();
                                         let request = ReqUnicastMessage(buf);
                                         behavior.reqres.send_request(&peer, request);
@@ -234,8 +234,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
             match swarm.poll_next_unpin(cx) {
                 Poll::Ready(Some(event)) => {
                     trace!("[p2p] event: {:?}", event);
-                    match event {
-                        libp2p::swarm::SwarmEvent::Behaviour(event) => match event {
+                    if let libp2p::swarm::SwarmEvent::Behaviour(event) = event {
+                        match event {
                             crate::p2p::behaviour::ComposedEvent::Identify(event) => {
                                 swarm.behaviour_mut().identify_event_handler(event)
                             }
@@ -251,8 +251,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             crate::p2p::behaviour::ComposedEvent::ReqRes(event) => {
                                 swarm.behaviour_mut().reqres_event_handler(event)
                             }
-                        },
-                        _ => (),
+                        }
                     }
                 }
                 Poll::Ready(None) => {

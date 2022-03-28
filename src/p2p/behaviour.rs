@@ -48,7 +48,7 @@ use libp2p::{
     },
     Multiaddr, NetworkBehaviour, PeerId,
 };
-use std::{io, iter, str::FromStr, time::Duration};
+use std::{io, iter, str::FromStr};
 use tide::utils::async_trait;
 
 const MAX_TRANSMIT_SIZE: usize = 524288;
@@ -199,8 +199,7 @@ impl From<RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>> for Compos
 impl Behavior {
     fn identify_new(public_key: PublicKey, nw_name: String) -> Result<Identify> {
         debug!("[p2p] identify start");
-        let mut config =
-            IdentifyConfig::new(format!("trinci/{}/1.0.0", nw_name).to_owned(), public_key);
+        let mut config = IdentifyConfig::new(format!("trinci/{}/1.0.0", nw_name), public_key);
         config.push_listen_addr_updates = true;
         let identify = Identify::new(config);
 
@@ -209,8 +208,8 @@ impl Behavior {
 
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
-        let mut config = MdnsConfig::default();
-        config.ttl = Duration::from_secs_f64((60 * 15) as f64);
+        let config = MdnsConfig::default();
+        //config.ttl = Duration::from_secs_f64((60 * 15) as f64);
         let fut = Mdns::new(config);
         let mdns = task::block_on(fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
@@ -329,8 +328,8 @@ impl Behavior {
 
                         match self.bc_chan.send_sync(last_block_req_msg) {
                             Ok(res_chan) => match res_chan.recv_sync() {
-                                Ok(message) => match message {
-                                    Message::GetBlockResponse { .. } => {
+                                Ok(message) => {
+                                    if let Message::GetBlockResponse { .. } = message {
                                         let last_block_message =
                                             ReqUnicastMessage(rmp_serialize(&message).unwrap());
                                         self.reqres.send_request(&peer_id, last_block_message);
@@ -339,8 +338,7 @@ impl Behavior {
                                             peer_id.to_string()
                                         );
                                     }
-                                    _ => (),
-                                },
+                                }
                                 Err(_) => warn!("blockchain service seems down"),
                             },
                             Err(_) => warn!("blockchain service seems down"),
@@ -601,8 +599,8 @@ impl Behavior {
 
                 let msg = Message::Packed { buf: buf.clone() };
 
-                match rmp_deserialize(&buf) {
-                    Ok(MultiMessage::Simple(req)) => match req {
+                if let Ok(MultiMessage::Simple(req)) = rmp_deserialize(&buf) {
+                    match req {
                         Message::GetTransactionResponse { .. } => {
                             match self.bc_chan.send_sync(msg) {
                                 Ok(res_chan) => match res_chan.recv_sync() {
@@ -635,8 +633,7 @@ impl Behavior {
                             }
                         },
                         _ => (),
-                    },
-                    _ => {}
+                    }
                 }
             }
             RequestResponseEvent::OutboundFailure {

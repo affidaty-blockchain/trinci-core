@@ -50,6 +50,11 @@ use crate::{
 };
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
+pub(crate) struct AlignerInterface(
+    pub Arc<Mutex<BlockRequestSender>>,
+    pub Arc<(StdMutex<bool>, Condvar)>,
+);
+
 /// Dispatcher context data.
 pub(crate) struct Dispatcher<D: Db> {
     /// Blockchain configuration.
@@ -65,10 +70,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: (
-        Arc<Mutex<BlockRequestSender>>,
-        Arc<(StdMutex<bool>, Condvar)>,
-    ),
+    aligner: AlignerInterface,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -80,7 +82,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
-            aligner: (self.aligner.0.clone(), self.aligner.1.clone()),
+            aligner: AlignerInterface(self.aligner.0.clone(), self.aligner.1.clone()),
         }
     }
 }
@@ -94,10 +96,7 @@ impl<D: Db> Dispatcher<D> {
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
         p2p_id: String,
-        aligner: (
-            Arc<Mutex<BlockRequestSender>>,
-            Arc<(StdMutex<bool>, Condvar)>,
-        ),
+        aligner: AlignerInterface,
     ) -> Self {
         Dispatcher {
             config,
@@ -257,6 +256,7 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
+    #[allow(clippy::mutex_atomic)]
     fn get_transaction_res_handler(&self, transaction: Transaction, origin: Option<String>) {
         let res = self.put_transaction_internal(transaction.clone());
         debug!("PUT TX INTERNAL: {}", res.is_ok());
@@ -273,6 +273,7 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
+    #[allow(clippy::mutex_atomic)]
     fn get_block_res_handler(
         &mut self,
         block: &Block,

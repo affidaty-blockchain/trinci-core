@@ -39,6 +39,7 @@ use std::{
 };
 
 use super::aligner::Aligner;
+use super::dispatcher::AlignerInterface;
 //use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
@@ -95,17 +96,17 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             seed.clone(),
             p2p_id.clone(),
-            (aligner.request_channel(), aligner.status.clone()),
+            AlignerInterface(aligner.request_channel(), aligner.status.clone()),
         );
 
         thread::spawn(move || aligner.run());
 
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
-            pool.clone(),
+            pool,
             db.clone(),
             wm.clone(),
-            pubsub.clone(),
+            pubsub,
             config.lock().keypair.clone(),
             seed,
             p2p_id,

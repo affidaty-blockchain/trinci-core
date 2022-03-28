@@ -515,7 +515,7 @@ impl WmLocal {
     /// error string.
     pub fn new(cache_max: usize) -> Self {
         assert!(
-            !(cache_max == 0),
+            (cache_max != 0),
             "Fatal: Wm cache size shall be greater than 0"
         );
 
