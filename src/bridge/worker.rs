@@ -42,22 +42,36 @@ impl BridgeWorker {
         sender: BlockRequestSender,
         stream: &mut TcpStream,
     ) -> Result<Message> {
+        let is_subscribe = match &request {
+            Message::Subscribe { .. } => true,
+            Message::Packed { buf } => {
+                match crate::base::serialize::rmp_deserialize::<Message>(buf) {
+                    Ok(x) => matches!(&x, Message::Subscribe { .. }),
+                    Err(_) => false,
+                }
+            }
+            _ => false,
+        };
+
         let receiver = sender
             .send(request)
             .await
-            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down"))?;
+            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down 1"))?;
 
-        let response = receiver
-            .recv()
-            .await
-            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down"))?;
+        let response = if !is_subscribe {
+            receiver
+                .recv()
+                .await
+                .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down 1"))
+        } else {
+            Ok(Message::Packed { buf: vec![0] })
+        };
 
         if !receiver.is_closed() {
             // Possible subscription
             async_std::task::spawn(Self::subscription_handler(receiver, stream.clone()));
         }
-
-        Ok(response)
+        response
     }
 
     async fn subscription_handler(chan: BlockResponseReceiver, mut stream: TcpStream) {
@@ -131,7 +145,6 @@ impl BridgeWorker {
                     if let Ok(stream) = stream {
                         debug!("New bridge connection");
                         let _ = Self::connection_handler(stream, bc_chan.clone()).await;
-                        debug!("Dropping bridge connection");
                     } else {
                         debug!("Spurious bridge connection");
                     }
