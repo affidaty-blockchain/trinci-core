@@ -400,7 +400,7 @@ impl<D: Db> Dispatcher<D> {
                 self.pubsub
                     .lock()
                     .subscribe(id, events, pack_level, res_chan.clone());
-                None
+                Some(Message::Packed { buf: vec![0] })
             }
             Message::Unsubscribe { id, events } => {
                 self.pubsub.lock().unsubscribe(id, events);
