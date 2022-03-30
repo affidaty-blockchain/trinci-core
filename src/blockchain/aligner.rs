@@ -32,7 +32,7 @@ use super::{
     message::Message, pool::Pool, pubsub::PubSub, BlockRequestReceiver, BlockRequestSender, Event,
 };
 use std::{
-    collections::HashMap,
+    collections::{hash_map, HashMap},
     sync::{Arc, Condvar, Mutex as StdMutex},
     task::{Context, Poll},
     time::{Duration, Instant},
@@ -42,6 +42,7 @@ const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
 const SLEEP_TIME: u64 = 3;
 const TIME_OUT_SEC: u64 = 5;
 const MAX_ATTEMPTS: i32 = 3;
+const LATEST_WINDOW: usize = 3;
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
@@ -52,6 +53,8 @@ pub(crate) struct Aligner<D: Db> {
     /// Unexpected blocks.
     /// Height grather than most common last block.
     unexpected_blocks: Arc<Mutex<Vec<Message>>>,
+    /// Black-listed blocks Hashes.
+    blacklist_blocks: Arc<Mutex<Vec<Hash>>>,
     /// Missing transactions.
     missing_txs: Arc<Mutex<Vec<Hash>>>,
     /// Rx channel.
@@ -76,6 +79,7 @@ impl<D: Db> Aligner<D> {
         Aligner {
             trusted_peers: Arc::new(Mutex::new(vec![])),
             missing_blocks: Arc::new(Mutex::new(vec![])),
+            blacklist_blocks: Arc::new(Mutex::new(vec![])),
             unexpected_blocks: Arc::new(Mutex::new(vec![])),
             rx_chan: Arc::new(Mutex::new(rx_chan)),
             tx_chan: Arc::new(Mutex::new(tx_chan)),
@@ -161,19 +165,29 @@ impl<D: Db> Aligner<D> {
             if result {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
-                let mut hashmap = HashMap::<String, i64>::new();
+                // (occurencies, height)
+                let mut hashmap = HashMap::<String, (i64, u64)>::new();
                 for entry in self.trusted_peers.lock().iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
-                    *counter += 1;
+                    counter.0 += 1;
+                    counter.1 = entry.2.data.height;
                 }
 
-                let mut most_common_block = String::from("");
-                let max_occurences: i64 = 0;
-                for (block_hash, occurence) in hashmap.iter() {
-                    if max_occurences < *occurence {
-                        most_common_block = block_hash.clone();
+                let sorted_blocks_candidates: Vec<_> = hashmap.iter().collect();
+                let mut sorted_blocks: Vec<(&String, &(i64, u64))> = vec![];
+
+                // remove black listed blocks
+                for block in sorted_blocks_candidates {
+                    let hash: Hash = Hash::from_hex(block.0).unwrap();
+                    if !self.blacklist_blocks.lock().contains(&hash) {
+                        sorted_blocks.push(block.clone());
                     }
                 }
+
+                sorted_blocks.sort_by_key(|block| (block.1).0); // sort by occurencies (ascendent)
+                let sorted_blocks = &mut sorted_blocks[..LATEST_WINDOW];
+                sorted_blocks.sort_by_key(|block| (block.1).1); // sort by height (ascendent)
+                let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 for (j, entry) in self.trusted_peers.lock().iter().enumerate() {
                     if entry.1 != most_common_block {
@@ -198,6 +212,7 @@ impl<D: Db> Aligner<D> {
                 let rx_chan = self.rx_chan.clone();
                 let pubsub = self.pubsub.clone();
                 let local_last = self.db.read().load_block(u64::MAX).unwrap();
+                let hash_local_last = local_last.hash(HashAlgorithm::Sha256);
 
                 debug!("[alinger] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
@@ -326,10 +341,27 @@ impl<D: Db> Aligner<D> {
                                 }
                             }
 
-                            if attempt >= MAX_ATTEMPTS {
-                                std::task::Poll::Ready(false)
+                            if let Some(Message::GetBlockResponse { block, .. }) =
+                                self.missing_blocks.lock().last()
+                            {
+                                if attempt >= MAX_ATTEMPTS {
+                                    // If last block recieved doesn't point to local last block,
+                                    // then the most common remote block is compromised.
+                                    if hash_local_last.ne(&block.data.prev_hash) {
+                                        if let Some(Message::GetBlockResponse { block, .. }) =
+                                            self.missing_blocks.lock().first()
+                                        {
+                                            self.blacklist_blocks
+                                                .lock()
+                                                .push(block.hash(HashAlgorithm::Sha256));
+                                        }
+                                    }
+                                    std::task::Poll::Ready(false)
+                                } else {
+                                    std::task::Poll::Ready(true)
+                                }
                             } else {
-                                std::task::Poll::Ready(true)
+                                std::task::Poll::Ready(false)
                             }
                         });
 
@@ -527,7 +559,6 @@ impl<D: Db> Aligner<D> {
                                             signature: Some(block.signature.clone()),
                                             txs_hashes: txs.to_owned(),
                                         };
-                                        //debug!("{:?}", blk_info.hash);
                                         pool.confirmed.insert(block.data.height, blk_info);
                                         debug!(
                                             "[aligner] block {} inserted in confirmed pool",
@@ -539,14 +570,6 @@ impl<D: Db> Aligner<D> {
                                 // Update pools with unexpected blocks
                                 let mut last_block = self.trusted_peers.lock()[0].2.data.height + 1;
 
-                                //self.unexpected_blocks.lock().sort_by(|msg_0, msg_1| {
-                                //
-                                //    //if let Message::GetBlockResponse { block: blk_0, .. } = msg_0 {
-                                //    //    if let Message::GetBlockResponse { block: blk_1, .. } = msg_1 {
-                                //    //        blk_0.data.height.cmp(&blk_1.data.height)
-                                //    //    }
-                                //    //}
-                                //});
                                 let unexpected_blocks = self.unexpected_blocks.lock().clone();
                                 while unexpected_blocks
                                 .iter()

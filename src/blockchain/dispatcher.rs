@@ -167,7 +167,6 @@ impl<D: Db> Dispatcher<D> {
     #[inline]
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
-        debug!("### NEW TX -> BROADCAST ATTEMPT ###");
         if sub.has_subscribers(Event::TRANSACTION) {
             sub.publish(
                 Event::TRANSACTION,
