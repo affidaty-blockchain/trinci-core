@@ -193,8 +193,11 @@ impl<D: Db> Aligner<D> {
                 );
 
                 sorted_blocks.sort_by_key(|block| (block.1).0); // sort by occurencies (ascendent)
+                debug!("[alinger] 0");
                 let sorted_blocks = &mut sorted_blocks[..LATEST_WINDOW];
+                debug!("[alinger] 1");
                 sorted_blocks.sort_by_key(|block| (block.1).1); // sort by height (ascendent)
+                debug!("[alinger] 2");
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 debug!("[alinger] removing not trusted peers");
