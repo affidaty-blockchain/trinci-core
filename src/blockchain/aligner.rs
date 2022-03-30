@@ -180,7 +180,7 @@ impl<D: Db> Aligner<D> {
                 for block in sorted_blocks_candidates {
                     let hash: Hash = Hash::from_hex(block.0).unwrap();
                     if !self.blacklist_blocks.lock().contains(&hash) {
-                        sorted_blocks.push(block.clone());
+                        sorted_blocks.push(block);
                     }
                 }
 
