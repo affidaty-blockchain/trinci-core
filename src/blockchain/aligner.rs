@@ -32,7 +32,7 @@ use super::{
     message::Message, pool::Pool, pubsub::PubSub, BlockRequestReceiver, BlockRequestSender, Event,
 };
 use std::{
-    collections::{hash_map, HashMap},
+    collections::HashMap,
     sync::{Arc, Condvar, Mutex as StdMutex},
     task::{Context, Poll},
     time::{Duration, Instant},
