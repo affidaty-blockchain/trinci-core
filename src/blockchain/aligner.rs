@@ -171,6 +171,7 @@ impl<D: Db> Aligner<D> {
                 for entry in self.trusted_peers.lock().iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
+                    debug!("[aligner] height: {}", entry.2.data.height);
                     counter.1 = entry.2.data.height;
                 }
 
@@ -181,6 +182,7 @@ impl<D: Db> Aligner<D> {
                 for block in sorted_blocks_candidates {
                     let hash: Hash = Hash::from_hex(block.0).unwrap();
                     if !self.blacklist_blocks.lock().contains(&hash) {
+                        debug!("[aligner] added block to sorted");
                         sorted_blocks.push(block);
                     }
                 }
