@@ -171,8 +171,8 @@ impl<D: Db> Aligner<D> {
                 for entry in self.trusted_peers.lock().iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
-                    debug!("[aligner] height: {}", entry.2.data.height);
-                    counter.1 = entry.2.data.height;
+                    debug!("[aligner] height: {}", entry.2.data.height.clone());
+                    counter.1 = entry.2.data.height.clone();
                 }
 
                 let sorted_blocks_candidates: Vec<_> = hashmap.iter().collect();
@@ -186,6 +186,11 @@ impl<D: Db> Aligner<D> {
                         sorted_blocks.push(block);
                     }
                 }
+
+                debug!(
+                    "[aligner] trusted peers lock {}",
+                    self.trusted_peers.is_locked()
+                );
 
                 sorted_blocks.sort_by_key(|block| (block.1).0); // sort by occurencies (ascendent)
                 let sorted_blocks = &mut sorted_blocks[..LATEST_WINDOW];
