@@ -166,6 +166,7 @@ impl<D: Db> Aligner<D> {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
                 // (occurencies, height)
+                debug!("[aligner] removing black list blocks");
                 let mut hashmap = HashMap::<String, (i64, u64)>::new();
                 for entry in self.trusted_peers.lock().iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
