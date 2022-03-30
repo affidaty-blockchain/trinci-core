@@ -194,7 +194,9 @@ impl<D: Db> Aligner<D> {
 
                 sorted_blocks.sort_by_key(|block| (block.1).0); // sort by occurencies (ascendent)
                 debug!("[alinger] 0");
-                let sorted_blocks = &mut sorted_blocks[..LATEST_WINDOW];
+                if sorted_blocks.len() > LATEST_WINDOW {
+                    sorted_blocks = (&mut sorted_blocks[..LATEST_WINDOW]).to_vec();
+                }
                 debug!("[alinger] 1");
                 sorted_blocks.sort_by_key(|block| (block.1).1); // sort by height (ascendent)
                 debug!("[alinger] 2");
