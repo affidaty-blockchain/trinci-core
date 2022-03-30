@@ -197,6 +197,7 @@ impl<D: Db> Aligner<D> {
                 sorted_blocks.sort_by_key(|block| (block.1).1); // sort by height (ascendent)
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
+                debug!("[alinger] removing not trusted peers");
                 for (j, entry) in self.trusted_peers.lock().iter().enumerate() {
                     if entry.1 != most_common_block {
                         self.trusted_peers.lock().remove(j);
