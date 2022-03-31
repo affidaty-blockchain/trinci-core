@@ -168,6 +168,10 @@ impl<D: Db> Dispatcher<D> {
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
         if sub.has_subscribers(Event::TRANSACTION) {
+            debug!(
+                "[dispatcher] propagating tx {} in gossip",
+                hex::encode(tx.primary_hash().as_bytes())
+            );
             sub.publish(
                 Event::TRANSACTION,
                 Message::GetTransactionResponse { tx, origin: None },
@@ -333,7 +337,7 @@ impl<D: Db> Dispatcher<D> {
                 txs_hashes: txs_hashes.to_owned(),
             };
             pool.confirmed.insert(block.data.height, blk_info);
-        } else if missing_headers.start <= block.data.height {
+        } else if block.data.height > missing_headers.start + 1 {
             // in this case the node miss some block
             // it needes to be re-aligned
 

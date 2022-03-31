@@ -42,7 +42,8 @@ const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
 const SLEEP_TIME: u64 = 3;
 const TIME_OUT_SEC: u64 = 5;
 const MAX_ATTEMPTS: i32 = 3;
-const LATEST_WINDOW: usize = 3;
+/// Most common blocks range.
+const LATEST_WINDOW: usize = 5;
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
@@ -178,7 +179,7 @@ impl<D: Db> Aligner<D> {
                 let sorted_blocks_candidates: Vec<_> = hashmap.iter().collect();
                 let mut sorted_blocks: Vec<(&String, &(i64, u64))> = vec![];
 
-                // remove black listed blocks
+                // Remove black-listed blocks.
                 for block in sorted_blocks_candidates {
                     let hash: Hash = Hash::from_hex(block.0).unwrap();
                     if !self.blacklist_blocks.lock().contains(&hash) {
@@ -187,19 +188,11 @@ impl<D: Db> Aligner<D> {
                     }
                 }
 
-                debug!(
-                    "[aligner] trusted peers lock {}",
-                    self.trusted_peers.is_locked()
-                );
-
-                sorted_blocks.sort_by_key(|block| (block.1).0); // sort by occurencies (ascendent)
-                debug!("[alinger] 0");
+                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurencies (ascendent).
                 if sorted_blocks.len() > LATEST_WINDOW {
                     sorted_blocks = (&mut sorted_blocks[..LATEST_WINDOW]).to_vec();
                 }
-                debug!("[alinger] 1");
-                sorted_blocks.sort_by_key(|block| (block.1).1); // sort by height (ascendent)
-                debug!("[alinger] 2");
+                sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendent).
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 debug!("[alinger] removing not trusted peers");
@@ -209,7 +202,6 @@ impl<D: Db> Aligner<D> {
                     }
                 }
 
-                debug!("[aligner] trusted peers:");
                 for peer in self.trusted_peers.lock().iter() {
                     debug!("\t\t{}", peer.0);
                 }
@@ -247,7 +239,6 @@ impl<D: Db> Aligner<D> {
                         let mut attempt = 0;
                         let mut over = false;
 
-                        //collection_time.checked_sub(start.elapsed()).is_some() {
                         let trusted_peers = self.trusted_peers.clone();
                         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
                             while !over && attempt < MAX_ATTEMPTS {
@@ -292,7 +283,6 @@ impl<D: Db> Aligner<D> {
                                                 }
 
                                                 // Check alignment status.
-                                                //if !block.data.prev_hash.eq(&local_last_hash)
                                                 if block.data.height > (local_last.data.height + 1)
                                                 {
                                                     // Get previous block.
