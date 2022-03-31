@@ -173,7 +173,7 @@ impl<D: Db> Aligner<D> {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
                     debug!("[aligner] height: {}", entry.2.data.height.clone());
-                    counter.1 = entry.2.data.height.clone();
+                    counter.1 = entry.2.data.height;
                 }
 
                 let sorted_blocks_candidates: Vec<_> = hashmap.iter().collect();
@@ -190,7 +190,7 @@ impl<D: Db> Aligner<D> {
 
                 sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurencies (ascendent).
                 if sorted_blocks.len() > LATEST_WINDOW {
-                    sorted_blocks = (&mut sorted_blocks[..LATEST_WINDOW]).to_vec();
+                    sorted_blocks = sorted_blocks[..LATEST_WINDOW].to_vec();
                 }
                 sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendent).
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
