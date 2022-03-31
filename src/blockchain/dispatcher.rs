@@ -337,7 +337,7 @@ impl<D: Db> Dispatcher<D> {
                 txs_hashes: txs_hashes.to_owned(),
             };
             pool.confirmed.insert(block.data.height, blk_info);
-        } else if missing_headers.start <= block.data.height && block.data.height > 1 {
+        } else if missing_headers.start <= block.data.height {
             // in this case the node miss some block
             // it needes to be re-aligned
 
