@@ -181,6 +181,7 @@ impl<D: Db> Dispatcher<D> {
 
     fn put_transaction_handler(&self, tx: Transaction) -> Message {
         let result = self.put_transaction_internal(tx.clone());
+        debug!("[dispatcher] PTI DONE, to propagate");
         match result {
             Ok(hash) => {
                 self.broadcast_attempt(tx);

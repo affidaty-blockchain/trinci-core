@@ -172,7 +172,6 @@ impl<D: Db> Aligner<D> {
                 for entry in self.trusted_peers.lock().iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
-                    debug!("[aligner] height: {}", entry.2.data.height.clone());
                     counter.1 = entry.2.data.height;
                 }
 
