@@ -196,8 +196,11 @@ impl<D: Db> Aligner<D> {
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 debug!("[alinger] removing not trusted peers");
+                let local_last = self.db.read().load_block(u64::MAX).unwrap();
                 for (j, entry) in self.trusted_peers.lock().iter().enumerate() {
-                    if entry.1 != most_common_block {
+                    if entry.1 != most_common_block
+                        || (entry.2).data.height < local_last.data.height + 1
+                    {
                         self.trusted_peers.lock().remove(j);
                     }
                 }
