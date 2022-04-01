@@ -194,6 +194,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 }
                             }
                             Message::GetTransactionResponse { ref origin, .. } => {
+                                debug!("[p2p] SENDING TX IN GOSSIP #######");
                                 if origin.is_none() {
                                     let buf = rmp_serialize(&msg).unwrap();
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
