@@ -196,18 +196,24 @@ impl<D: Db> Aligner<D> {
 
                 debug!("[alinger] removing not trusted peers");
                 let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                for (j, entry) in self.trusted_peers.lock().iter().enumerate() {
+
+                let trusted_peers = self.trusted_peers.lock();
+                for (j, entry) in trusted_peers.iter().enumerate() {
                     if entry.1 != most_common_block
                         || (entry.2).data.height < local_last.data.height + 1
                     {
                         self.trusted_peers.lock().remove(j);
                     }
                 }
+                std::mem::drop(trusted_peers);
 
-                for peer in self.trusted_peers.lock().iter() {
+                debug!("[aligner] trusted peers:");
+                let trusted_peers = self.trusted_peers.lock();
+                for peer in trusted_peers.iter() {
                     debug!("\t\t{}", peer.0);
                 }
                 debug!("==========");
+                std::mem::drop(trusted_peers);
 
                 // Get last block height
                 let max_block_height = if self.trusted_peers.lock().len() > 0 {

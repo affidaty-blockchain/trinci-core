@@ -184,6 +184,7 @@ impl<D: Db> Dispatcher<D> {
         debug!("[dispatcher] PTI DONE, to propagate");
         match result {
             Ok(hash) => {
+                debug!("[dispatcher] PTI response OK");
                 self.broadcast_attempt(tx);
                 Message::PutTransactionResponse { hash }
             }
