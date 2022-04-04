@@ -286,8 +286,6 @@ impl<D: Db> Dispatcher<D> {
         origin: &Option<String>,
         _req: Message,
     ) {
-        //debug!("Aligner: {:?}", self.aligner.1);
-
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 
