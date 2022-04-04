@@ -200,7 +200,7 @@ impl<D: Db> Aligner<D> {
                             attempt = 0;
 
                             debug!(
-                                "[aligner] align bock {} recieved by {}",
+                                "[aligner] align block {} recieved by {}",
                                 block.data.height,
                                 origin.clone().unwrap()
                             );
@@ -403,6 +403,8 @@ impl<D: Db> Aligner<D> {
                             timeout = Duration::from_secs(TIME_OUT_SEC);
                             start = Instant::now();
                         }
+                    } else {
+                        return std::task::Poll::Ready(false);
                     }
                 }
             }
