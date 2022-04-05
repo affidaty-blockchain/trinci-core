@@ -262,6 +262,8 @@ impl<D: Db> Aligner<D> {
                         timeout = Duration::from_secs(TIME_OUT_SEC);
                         start = Instant::now();
                     }
+                } else {
+                    return std::task::Poll::Ready(false);
                 }
             }
         }
@@ -630,6 +632,8 @@ impl<D: Db> Aligner<D> {
                     }
                     None => (), // If no trusted peers, complete alignment task.
                 };
+            } else {
+                debug!("[aligner] unable to find trusted peers, aborting alignment");
             }
 
             // Reinitialise aligner structures.
