@@ -150,7 +150,7 @@ impl<D: Db> Aligner<D> {
     fn collect_missing_blocks(
         &self,
         max_block_height: u64,
-        peer: &String,
+        peer: &str,
         cx: &mut Context,
     ) -> Poll<bool> {
         // Send first request.
@@ -292,7 +292,7 @@ impl<D: Db> Aligner<D> {
 
     fn collect_missing_txs(
         &self,
-        peer: &String,
+        peer: &str,
         max_block_height: u64,
         cx: &mut Context,
     ) -> Poll<bool> {
@@ -618,8 +618,7 @@ impl<D: Db> Aligner<D> {
                                 // Wait untill all blocks are executed.
                                 let mut executed_block =
                                     self.db.read().load_block(u64::MAX).unwrap();
-                                let most_common_block =
-                                    self.trusted_peers.lock()[0].2.data.height.clone();
+                                let most_common_block = self.trusted_peers.lock()[0].2.data.height;
                                 while executed_block.data.height < most_common_block {
                                     executed_block = self.db.read().load_block(u64::MAX).unwrap();
                                 }
