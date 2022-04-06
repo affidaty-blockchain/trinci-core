@@ -67,12 +67,14 @@ pub struct BlockWorker<D: Db, W: Wm> {
     /// Executor running flag.
     executing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
-    is_validator: Arc<dyn IsValidator>,
+    is_validator_closure: Arc<dyn IsValidator>,
+    /// Variable that store the validator status of the node
+    is_validator: Arc<bool>,
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
     pub fn new(
-        is_validator: impl IsValidator,
+        is_validator_closure: impl IsValidator,
         config: BlockConfig,
         db: D,
         wm: W,
@@ -126,13 +128,14 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             executor,
             building,
             executing,
-            is_validator: Arc::new(is_validator),
+            is_validator_closure: Arc::new(is_validator_closure),
+            is_validator: Arc::new(false),
         }
     }
 
     /// Set the Node Validator check
     pub fn set_validator(&mut self, is_validator: impl IsValidator) {
-        self.is_validator = Arc::new(is_validator);
+        self.is_validator_closure = Arc::new(is_validator);
     }
 
     /// Set the Burn Fuel Method
@@ -223,11 +226,11 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         });
     }
 
-    async fn is_validator_async(is_validator: Arc<dyn IsValidator>, account_id: String) -> bool {
-        let fut = async move { (is_validator)(account_id) };
-        let jh = async_std::task::spawn(fut);
-        jh.await.unwrap_or_default()
-    }
+    // async fn is_validator_async(is_validator: Arc<dyn IsValidator>, account_id: String) -> bool {
+    //     let fut = async move { (is_validator)(account_id) };
+    //     let jh = async_std::task::spawn(fut);
+    //     jh.await.unwrap_or_default()
+    // }
 
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
@@ -236,26 +239,28 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let exec_timeout = self.config.lock().timeout as u64;
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
-        let is_validator = self.is_validator.clone();
-        let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
-        let mut is_validator_fut = Box::pin(is_validator);
+        let is_validator_closure = self.is_validator_closure.clone();
+        // let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
+        // let mut is_validator_fut = Box::pin(is_validator);
 
-        let mut validator = false;
+        // FIXME This call must be only read/mode
+        self.is_validator =
+            Arc::new((*is_validator_closure)(account_id.to_string()).unwrap_or_default());
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
-                validator = val;
-                let is_validator = self.is_validator.clone();
-                let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
-                is_validator_fut = Box::pin(is_validator);
-            }
+            // if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
+            //     validator = val;
+            //     let is_validator = self.is_validator_closure.clone();
+            //     let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
+            //     is_validator_fut = Box::pin(is_validator);
+            // }
 
             while exec_sleep.poll_unpin(cx).is_ready() {
-                if validator {
+                if *self.is_validator {
                     self.try_build_block(1);
                 }
                 debug!("TRY EXEC BLOCK");
-                self.try_exec_block(validator, self.is_validator.clone());
+                self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
 
@@ -270,8 +275,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 }
 
                 // We use try_lock because the lock may be held the "builder" in another thread.
-                if validator {
-                    self.try_exec_block(validator, self.is_validator.clone());
+                if *self.is_validator {
+                    self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                     self.try_build_block(threshold);
                 }
             }

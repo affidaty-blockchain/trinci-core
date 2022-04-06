@@ -30,6 +30,8 @@ use crate::{
 };
 use ring::digest;
 
+use super::CtxArgs;
+
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
     /// Wasm machine reference (None if implementation do not support nested calls).
@@ -50,6 +52,8 @@ pub struct CallContext<'a> {
     pub events: &'a mut Vec<SmartContractEvent>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
+    /// Initial fuel
+    pub initial_fuel: u64,
 }
 
 /// WASM logging facility.
@@ -102,13 +106,54 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
 
 /// Checks if an account has a callable method
 /// Returns:
-///  - 0 the account has no contract
-///  - 1 the account has a contract but we are not sure that `method` is callable
-///  - 2 the account has a contract with a callable `method`
-pub fn is_callable(ctx: &CallContext, account: &str, _method: &str) -> i32 {
-    match get_account_contract(ctx, account) {
-        Some(_) => 1, // TODO - verify that method is really callable
-        None => 0,
+///  - 0 the account has no callable method
+///  - 1 the account has a callable method
+// ///  - 2 the account has a contract with a callable `method`
+pub fn is_callable(
+    ctx: &mut CallContext,
+    account: &str,
+    method: &str,
+    initial_fuel: u64,
+) -> (u64, Result<i32>) {
+    let hash = match get_account_contract(ctx, account) {
+        Some(hash) => hash,
+        None => return (0, Ok(0)), // FIXME should we charge something?
+    };
+
+    match ctx.wm {
+        Some(ref mut wm) => {
+            let ctx_args = CtxArgs {
+                origin: ctx.origin,
+                owner: account,
+                caller: ctx.owner,
+            };
+            let app_hash = unwrap_or_return!(wm.app_hash_check(
+                ctx.db,
+                Some(hash),
+                ctx_args,
+                ctx.seed.clone()
+            ));
+            wm.is_callable_call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                account,
+                ctx.owner,
+                app_hash,
+                method.as_bytes(),
+                ctx.seed.clone(),
+                ctx.events,
+                initial_fuel,
+            )
+        }
+        None => (
+            1000, // FIXME * should pay for this?
+            Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "is_callable not implemented",
+            )),
+        ),
     }
 }
 
@@ -163,24 +208,39 @@ pub fn call(
     contract: Option<Hash>,
     method: &str,
     data: &[u8],
-) -> Result<Vec<u8>> {
+    initial_fuel: u64,
+) -> (u64, Result<Vec<u8>>) {
     match ctx.wm {
-        Some(ref mut wm) => wm.call(
-            ctx.db,
-            ctx.depth + 1,
-            ctx.network,
-            ctx.origin,
-            owner,
-            ctx.owner,
-            contract,
-            method,
-            data,
-            ctx.events,
+        Some(ref mut wm) => {
+            let ctx_args = CtxArgs {
+                origin: ctx.origin,
+                owner,
+                caller: ctx.owner,
+            };
+            let app_hash =
+                unwrap_or_return!(wm.app_hash_check(ctx.db, contract, ctx_args, ctx.seed.clone()));
+            wm.call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                owner,
+                ctx.owner,
+                app_hash,
+                method,
+                data,
+                ctx.seed.clone(),
+                ctx.events,
+                initial_fuel,
+            )
+        }
+        None => (
+            1000, // FIXME * should pay for this?
+            Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "nested calls not implemented",
+            )),
         ),
-        None => Err(Error::new_ext(
-            ErrorKind::WasmMachineFault,
-            "nested calls not implemented",
-        )),
     }
 }
 
@@ -247,8 +307,29 @@ mod tests {
              _app_hash,
              _method,
              _args,
-             _events| Ok(vec![]),
+             _seed,
+             _events,
+             _initial_fuel| (0, Ok(vec![])),
         );
+        wm.expect_is_callable_call().returning(
+            |_db,
+             _depth,
+             _network,
+             origin,
+             _owner,
+             _caller,
+             _app_hash,
+             _args,
+             _seed,
+             _events,
+             _initial_fuel| {
+                let val = if origin == "0" { 0 } else { 1 };
+                (0, Ok(val))
+            },
+        );
+        wm.expect_app_hash_check()
+            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, &[0, 1, 2])));
+
         wm
     }
 
@@ -307,6 +388,7 @@ mod tests {
                 origin: &self.owner,
                 events: &mut self.events,
                 seed,
+                initial_fuel: 0,
             }
         }
     }
@@ -376,9 +458,12 @@ mod tests {
         ctx.owner = ASSET_ACCOUNT;
         let target_account = account_id(0);
 
-        let result = is_callable(&ctx, &target_account, "some_method");
+        ctx.owner = "#test_account";
+        ctx.origin = "1";
 
-        assert_eq!(result, 1);
+        let (_, result) = is_callable(&mut ctx, &target_account, "some_method", MAX_FUEL);
+
+        assert_eq!(result, Ok(1));
     }
 
     #[test]
@@ -386,11 +471,14 @@ mod tests {
         let mut ctx = prepare_env();
         let mut ctx = ctx.as_wm_context();
         ctx.owner = ASSET_ACCOUNT;
-        let target_account = account_id(2); // This account has no contract
+        let target_account = account_id(0);
 
-        let result = is_callable(&ctx, &target_account, "some_method");
+        ctx.owner = "#test_account";
+        ctx.origin = "0";
 
-        assert_eq!(result, 0);
+        let (_, result) = is_callable(&mut ctx, &target_account, "some_method", MAX_FUEL);
+
+        assert_eq!(result, Ok(0));
     }
 
     #[test]
@@ -441,8 +529,6 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
         let random_number_dr = Drand::new(seed.clone()).rand(10);
-
-        println!("{}", random_number_hf);
 
         assert_eq!(random_number_hf, random_number_dr);
     }

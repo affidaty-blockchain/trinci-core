@@ -45,18 +45,17 @@ impl BridgeWorker {
         let receiver = sender
             .send(request)
             .await
-            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down"))?;
+            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down 1"))?;
 
         let response = receiver
             .recv()
             .await
-            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down"))?;
+            .map_err(|_err| Error::new_ext(ErrorKind::Other, "blockchain service seems down 2"))?;
 
         if !receiver.is_closed() {
             // Possible subscription
             async_std::task::spawn(Self::subscription_handler(receiver, stream.clone()));
         }
-
         Ok(response)
     }
 
@@ -131,7 +130,6 @@ impl BridgeWorker {
                     if let Ok(stream) = stream {
                         debug!("New bridge connection");
                         let _ = Self::connection_handler(stream, bc_chan.clone()).await;
-                        debug!("Dropping bridge connection");
                     } else {
                         debug!("Spurious bridge connection");
                     }

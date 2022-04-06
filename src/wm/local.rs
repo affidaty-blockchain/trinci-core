@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use super::AppInput;
+use super::{AppInput, CheckHashArgs, CtxArgs, MAX_FUEL};
 use crate::{
     base::{
         schema::SmartContractEvent,
@@ -241,10 +241,22 @@ mod local_host_func {
         let account = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+
         // Invoke portable host function.
-        Ok(host_func::is_callable(ctx, account, method))
+        let (consumed_fuel, result) = host_func::is_callable(ctx, account, method, remaining_fuel);
+
+        caller.consume_fuel(consumed_fuel)?;
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(_) => Ok(0),
+        }
     }
 
     /// Store asset
@@ -368,20 +380,35 @@ mod local_host_func {
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+
         // Invoke portable host function.
-        let buf = match host_func::call(ctx, &account, Some(contract), &method, args) {
-            Ok(buf) => rmp_serialize(&AppOutput {
-                success: true,
-                data: &buf,
-            }),
-            Err(err) => rmp_serialize(&AppOutput {
-                success: false,
-                data: err.to_string_full().as_bytes(),
-            }),
-        }
-        .unwrap_or_default();
+        let (consumed_fuel, buf) =
+            match host_func::call(ctx, &account, Some(contract), &method, args, remaining_fuel) {
+                (fuel, Ok(buf)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: true,
+                        data: &buf,
+                    }),
+                ),
+                (fuel, Err(err)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: false,
+                        data: err.to_string_full().as_bytes(),
+                    }),
+                ),
+            };
+        let buf = buf.unwrap_or_default();
+
+        caller.consume_fuel(consumed_fuel)?;
+
         return_buf(caller, mem, buf)
     }
 
@@ -402,20 +429,35 @@ mod local_host_func {
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
+
+        let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
         let ctx = caller.data_mut();
+
+        let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
+
         // Invoke portable host function.
-        let buf = match host_func::call(ctx, &account, None, &method, args) {
-            Ok(buf) => rmp_serialize(&AppOutput {
-                success: true,
-                data: &buf,
-            }),
-            Err(err) => rmp_serialize(&AppOutput {
-                success: false,
-                data: err.to_string_full().as_bytes(),
-            }),
-        }
-        .unwrap_or_default();
+        let (consumed_fuel, buf) =
+            match host_func::call(ctx, &account, None, &method, args, remaining_fuel) {
+                (fuel, Ok(buf)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: true,
+                        data: &buf,
+                    }),
+                ),
+                (fuel, Err(err)) => (
+                    fuel,
+                    rmp_serialize(&AppOutput {
+                        success: false,
+                        data: err.to_string_full().as_bytes(),
+                    }),
+                ),
+            };
+        let buf = buf.unwrap_or_default();
+
+        caller.consume_fuel(consumed_fuel)?;
+
         return_buf(caller, mem, buf)
     }
 
@@ -493,6 +535,16 @@ struct CachedModule {
     last_used: u64,
 }
 
+/// Arguments for the Service contract_updatable method
+#[derive(Serialize, Deserialize)]
+struct ContracUpdatableArgs {
+    account: String,
+    #[serde(with = "serde_bytes")]
+    current_contract: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    new_contract: Vec<u8>,
+}
+
 /// WebAssembly machine using wasmtime as the engine.
 pub struct WmLocal {
     /// Global wasmtime context for compilation and management of wasm modules.
@@ -501,8 +553,6 @@ pub struct WmLocal {
     cache: HashMap<Hash, CachedModule>,
     /// Maximum cache size.
     cache_max: usize,
-    /// Node execution mode
-    is_production: bool,
 }
 
 impl WmLocal {
@@ -515,18 +565,19 @@ impl WmLocal {
     /// error string.
     pub fn new(cache_max: usize) -> Self {
         assert!(
-            (cache_max != 0),
+            cache_max != 0,
             "Fatal: Wm cache size shall be greater than 0"
         );
 
         let mut config = Config::default();
         config.interruptable(true);
+        // FIXME: NOT ENABLE IF THE consume_fuel method is not present
+        config.consume_fuel(true);
 
         WmLocal {
             engine: Engine::new(&config).expect("wm engine creation"),
             cache: HashMap::new(),
             cache_max,
-            is_production: true,
         }
     }
 
@@ -591,10 +642,6 @@ impl WmLocal {
             .as_secs();
         Ok(&entry.module)
     }
-
-    pub fn set_mode(&mut self, is_production: bool) {
-        self.is_production = is_production;
-    }
 }
 
 /// Allocate memory in the wasm and return a pointer to the module linear array memory
@@ -630,58 +677,6 @@ fn write_mem(
     Ok(offset)
 }
 
-fn app_hash_check(
-    db: &mut dyn DbFork,
-    id: &str,
-    mut app_hash: Option<Hash>,
-    is_production: bool,
-) -> Result<Hash> {
-    let mut updated = false;
-    let account = match db.load_account(id) {
-        Some(mut account) if account.contract != app_hash => {
-            // TODO Replace this if/else statement with a call to TRINCI account method
-
-            if account.contract.is_none() {
-                // if the account isn't associated with a smart contract
-                // the `contract` is initialized by `app_hash` that is Some()
-                account.contract = app_hash;
-                updated = true;
-            } else if app_hash.is_none() {
-                // if otherwise app_hash is empty, we initialize
-                // app_hash to the account's smart contract that is Some()
-                app_hash = account.contract;
-            } else if is_production {
-                // if `app_hash` and `account.contract` are both Some()
-                // but different in production_env is an error
-                debug!("Invalid contract");
-                return Err(Error::new_ext(
-                    ErrorKind::ResourceNotFound,
-                    "incompatible contract app",
-                ));
-            } else {
-                // if `app_hash` and `account.contract` are both Some()
-                // but different in test_env the contract hash will
-                // be overwritten
-                account.contract = app_hash;
-                updated = true;
-            }
-            account
-        }
-        Some(account) => account,
-        None => {
-            updated = true;
-            Account::new(id, app_hash)
-        }
-    };
-    let app_hash = app_hash.ok_or_else(|| {
-        Error::new_ext(ErrorKind::ResourceNotFound, "smart contract not specified")
-    })?;
-    if updated {
-        db.store_account(account);
-    }
-    Ok(app_hash)
-}
-
 impl Wm for WmLocal {
     /// Execute a smart contract.
     fn call(
@@ -692,30 +687,16 @@ impl Wm for WmLocal {
         origin: &str,
         owner: &str,
         caller: &str,
-        contract: Option<Hash>,
+        app_hash: Hash,
         method: &str,
         args: &[u8],
+        seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
-    ) -> Result<Vec<u8>> {
-        let app_hash = app_hash_check(db, owner, contract, self.is_production)?;
-
-        let nw_name = String::from("nw_name_test");
-        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
-        let prev_hash =
-            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
-                .unwrap();
-        let txs_hash =
-            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
-                .unwrap();
-        let rxs_hash =
-            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
-                .unwrap();
-        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
-        let seed = Arc::new(seed);
-
+        initial_fuel: u64,
+    ) -> (u64, Result<Vec<u8>>) {
         let engine1 = self.engine.clone(); // FIXME
         let engine2 = self.engine.clone();
-        let module = self.get_module(&engine1, db, &app_hash)?;
+        let module = unwrap_or_return!(self.get_module(&engine1, db, &app_hash));
 
         // Prepare and set execution context for host functions.
         let ctx = CallContext {
@@ -728,17 +709,21 @@ impl Wm for WmLocal {
             origin,
             events,
             seed,
+            initial_fuel,
         };
 
         // Allocate execution context (aka Store).
         let mut store: Store<CallContext> = Store::new(&engine2, ctx);
 
+        store.add_fuel(initial_fuel).unwrap_or_default();
+
         // Get imported host functions list.
-        let imports = local_host_func::host_functions_register(&mut store, module)?;
+        let imports =
+            unwrap_or_return!(local_host_func::host_functions_register(&mut store, module));
 
         // Instantiate the wasm module.
-        let instance = Instance::new(&mut store, module, &imports)
-            .map_err(|err| Error::new_ext(ErrorKind::WasmMachineFault, err))?;
+        let instance = unwrap_or_return!(Instance::new(&mut store, module, &imports)
+            .map_err(|err| Error::new_ext(ErrorKind::WasmMachineFault, err)));
 
         // Only at this point we can borrow `self` as mutable to set it as the
         // store data `ctx.wm` reference (replacing the dummy one).
@@ -746,21 +731,26 @@ impl Wm for WmLocal {
 
         // Get wasm allocator reference (this component is able to reserve
         // memory that lives within the wasm module).
-        let alloc_func = instance
+        let alloc_func = unwrap_or_return!(instance
             .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
             .map_err(|_err| {
                 error!("Function 'alloc' not found");
                 Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
-            })?;
+            }));
 
         // Exporting the instance memory
-        let mem = instance.get_memory(&mut store, "memory").ok_or_else(|| {
+        let mem = unwrap_or_return!(instance.get_memory(&mut store, "memory").ok_or_else(|| {
             error!("Expected 'memory' not found");
             Error::new_ext(ErrorKind::ResourceNotFound, "wasm `memory` not found")
-        })?;
+        }));
 
         // Write method arguments into wasm memory.
-        let args_addr = write_mem(&mut store.as_context_mut(), &alloc_func, &mem, args)?;
+        let args_addr = unwrap_or_return!(write_mem(
+            &mut store.as_context_mut(),
+            &alloc_func,
+            &mem,
+            args
+        ));
 
         // Context information available to the wasm methods.
         let input = AppInput {
@@ -771,16 +761,16 @@ impl Wm for WmLocal {
             network,
             origin,
         };
-        let input_buf = rmp_serialize(&input)?;
-        let input_addr = write_mem(
+        let input_buf = unwrap_or_return!(rmp_serialize(&input));
+        let input_addr = unwrap_or_return!(write_mem(
             &mut store.as_context_mut(),
             &alloc_func,
             &mem,
             input_buf.as_ref(),
-        )?;
+        ));
 
         // Get function reference.
-        let run_func = instance
+        let run_func = unwrap_or_return!(instance
             .get_typed_func::<(i32, i32, i32, i32), WasmSlice, StoreContextMut<CallContext>>(
                 store.as_context_mut(),
                 "run",
@@ -788,7 +778,7 @@ impl Wm for WmLocal {
             .map_err(|_err| {
                 error!("Function `run` not found!");
                 Error::new_ext(ErrorKind::ResourceNotFound, "wasm `run` not found")
-            })?;
+            }));
 
         // Wasm "run" function input parameters list.
         let params = (
@@ -799,41 +789,305 @@ impl Wm for WmLocal {
         );
 
         // Call smart contract entry point.
-        let wslice = run_func
-            .call(store.as_context_mut(), params)
-            .map_err(|err| {
-                // Here the error shall be serious and a probable crash of the wasm sandbox.
-                Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
-            })?;
+        let wslice =
+            unwrap_or_return!(run_func
+                .call(store.as_context_mut(), params)
+                .map_err(|err| {
+                    // Here the error shall be serious and a probable crash of the wasm sandbox.
+                    Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
+                }));
+
+        let consumed_fuel = store.fuel_consumed().unwrap_or_default();
 
         let ctx = store.data_mut();
 
         if ctx.data_updated {
             // Account data has been altered, update the `data_hash`.
-            let mut account = ctx
+            let mut account = unwrap_or_return!(ctx
                 .db
                 .load_account(ctx.owner)
-                .ok_or_else(|| Error::new_ext(ErrorKind::WasmMachineFault, "inconsistent state"))?;
+                .ok_or_else(|| Error::new_ext(ErrorKind::WasmMachineFault, "inconsistent state")));
             account.data_hash = Some(ctx.db.state_hash(&account.id));
             ctx.db.store_account(account);
         }
-
         // Extract smart contract result from memory.
         let (offset, length) = wslice_split(wslice);
-        let buf = mem
+        let buf = unwrap_or_return!(mem
             .data(store.as_context())
             .get(offset as usize..offset as usize + length as usize)
             .ok_or_else(|| {
                 Error::new_ext(ErrorKind::WasmMachineFault, "out of bounds memory access")
-            })?;
+            }));
+
         match rmp_deserialize::<AppOutput>(buf) {
-            Ok(res) if res.success => Ok(res.data.to_owned()),
-            Ok(res) => Err(Error::new_ext(
-                ErrorKind::SmartContractFault,
-                String::from_utf8_lossy(res.data),
-            )),
-            Err(err) => Err(Error::new_ext(ErrorKind::SmartContractFault, err)),
+            Ok(res) if res.success => (consumed_fuel, { Ok(res.data.to_owned()) }),
+            Ok(res) => (
+                consumed_fuel,
+                Err(Error::new_ext(
+                    ErrorKind::SmartContractFault,
+                    String::from_utf8_lossy(res.data),
+                )),
+            ),
+            Err(err) => (
+                consumed_fuel,
+                Err(Error::new_ext(ErrorKind::SmartContractFault, err)),
+            ),
         }
+    }
+
+    fn contract_updatable<'a>(
+        &mut self,
+        fork: &mut dyn DbFork,
+        hash_args: CheckHashArgs<'a>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> bool {
+        let current_contract = match hash_args.current_hash {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+        let new_contract = match hash_args.new_hash {
+            Some(hash) => hash.as_bytes().to_vec(),
+            None => vec![],
+        };
+
+        let args = ContracUpdatableArgs {
+            account: hash_args.account.to_string(),
+            current_contract,
+            new_contract,
+        };
+
+        let args = match rmp_serialize(&args) {
+            Ok(value) => value,
+            Err(_) => {
+                // Note: this should not happen
+                panic!("This should not happen");
+            }
+        };
+        let account = match fork.load_account(SERVICE_ACCOUNT_ID) {
+            Some(acc) => acc,
+            None => return false,
+        };
+        let contract = match account.contract {
+            Some(contract) => contract,
+            None => return false,
+        };
+
+        let (_, res) = self.call(
+            fork,
+            0,
+            "",
+            ctx_args.origin,
+            SERVICE_ACCOUNT_ID,
+            ctx_args.caller,
+            contract,
+            "contract_updatable",
+            &args,
+            seed,
+            &mut vec![],
+            MAX_FUEL,
+        );
+
+        match res {
+            Ok(val) => rmp_deserialize::<bool>(&val).unwrap_or(false),
+            Err(_) => false,
+        }
+    }
+
+    fn app_hash_check<'a>(
+        &mut self,
+        db: &mut dyn DbFork,
+        mut app_hash: Option<Hash>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+    ) -> Result<Hash> {
+        let mut updated = false;
+
+        let mut account = match db.load_account(ctx_args.owner) {
+            Some(acc) => acc,
+            None => Account::new(ctx_args.owner, None),
+        };
+
+        let app_hash = if account.contract != app_hash {
+            // This prevent to call `contract_updatable` with an empty new hash
+            if let Some(contract) = account.contract {
+                if app_hash.is_none() {
+                    app_hash = Some(contract);
+                }
+            }
+
+            if account.contract == app_hash
+                || self.contract_updatable(
+                    db,
+                    CheckHashArgs {
+                        account: ctx_args.owner,
+                        current_hash: account.contract,
+                        new_hash: app_hash,
+                    },
+                    ctx_args,
+                    seed,
+                )
+            {
+                account.contract = app_hash;
+                updated = true;
+                match app_hash {
+                    Some(hash) => Ok(hash),
+                    None => Ok(Hash::default()),
+                }
+            } else {
+                Err(Error::new_ext(
+                    ErrorKind::InvalidContract,
+                    "cannot bind the contract to the account",
+                ))
+            }
+        } else if let Some(hash) = app_hash {
+            Ok(hash)
+        } else {
+            Err(Error::new_ext(
+                ErrorKind::ResourceNotFound,
+                "smart contract not specified",
+            ))
+        };
+
+        if updated {
+            db.store_account(account);
+        }
+
+        app_hash
+    }
+
+    fn is_callable_call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        app_hash: Hash,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        initial_fuel: u64,
+    ) -> (u64, Result<i32>) {
+        // TODO put common code with call in a separated method
+        let engine1 = self.engine.clone(); // FIXME
+        let engine2 = self.engine.clone();
+        let module = unwrap_or_return!(self.get_module(&engine1, db, &app_hash));
+
+        // Prepare and set execution context for host functions.
+        let ctx = CallContext {
+            wm: None,
+            db,
+            owner,
+            data_updated: false,
+            depth,
+            network,
+            origin,
+            events,
+            seed,
+            initial_fuel,
+        };
+
+        // Allocate execution context (aka Store).
+        let mut store: Store<CallContext> = Store::new(&engine2, ctx);
+
+        store.add_fuel(initial_fuel).unwrap_or_default();
+
+        // Get imported host functions list.
+        let imports =
+            unwrap_or_return!(local_host_func::host_functions_register(&mut store, module));
+
+        // Instantiate the wasm module.
+        let instance = unwrap_or_return!(Instance::new(&mut store, module, &imports)
+            .map_err(|err| Error::new_ext(ErrorKind::WasmMachineFault, err)));
+
+        // Only at this point we can borrow `self` as mutable to set it as the
+        // store data `ctx.wm` reference (replacing the dummy one).
+        store.data_mut().wm = Some(self);
+
+        // Get wasm allocator reference (this component is able to reserve
+        // memory that lives within the wasm module).
+        let alloc_func = unwrap_or_return!(instance
+            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
+            .map_err(|_err| {
+                error!("Function 'alloc' not found");
+                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
+            }));
+
+        // Exporting the instance memory
+        let mem = unwrap_or_return!(instance.get_memory(&mut store, "memory").ok_or_else(|| {
+            error!("Expected 'memory' not found");
+            Error::new_ext(ErrorKind::ResourceNotFound, "wasm `memory` not found")
+        }));
+
+        // Write method arguments into wasm memory.
+        let args_addr = unwrap_or_return!(write_mem(
+            &mut store.as_context_mut(),
+            &alloc_func,
+            &mem,
+            args
+        ));
+
+        // Context information available to the wasm methods.
+        let input = AppInput {
+            owner,
+            caller,
+            method: "is_callable",
+            depth,
+            network,
+            origin,
+        };
+        let input_buf = unwrap_or_return!(rmp_serialize(&input));
+        let input_addr = unwrap_or_return!(write_mem(
+            &mut store.as_context_mut(),
+            &alloc_func,
+            &mem,
+            input_buf.as_ref(),
+        ));
+
+        // Get function reference.
+        let is_callable_func = unwrap_or_return!(instance
+            .get_typed_func::<(i32, i32, i32, i32), i32, StoreContextMut<CallContext>>(
+                store.as_context_mut(),
+                "is_callable", // NOTE this could be passed as argument
+            )
+            .map_err(|_err| {
+                error!("Function `is_callable` not found!");
+                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `is_callable` not found")
+            }));
+
+        // Wasm "run" function input parameters list.
+        let params = (
+            input_addr,
+            input_buf.len() as i32,
+            args_addr,
+            args.len() as i32,
+        );
+
+        // Call smart contract method
+        let result = unwrap_or_return!(is_callable_func
+            .call(store.as_context_mut(), params)
+            .map_err(|err| {
+                // Here the error shall be serious and a probable crash of the wasm sandbox.
+                Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
+            }));
+
+        let consumed_fuel = store.fuel_consumed().unwrap_or_default();
+
+        let ctx = store.data_mut();
+
+        if ctx.data_updated {
+            // Account data has been altered, update the `data_hash`.
+            let mut account = unwrap_or_return!(ctx
+                .db
+                .load_account(ctx.owner)
+                .ok_or_else(|| Error::new_ext(ErrorKind::WasmMachineFault, "inconsistent state")));
+            account.data_hash = Some(ctx.db.state_hash(&account.id));
+            ctx.db.store_account(account);
+        }
+
+        (consumed_fuel, Ok(result))
     }
 }
 
@@ -859,13 +1113,29 @@ mod tests {
         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
     }
 
+    fn create_arc_seed() -> Arc<SeedSource> {
+        let nw_name = String::from("skynet");
+        let nonce: Vec<u8> = vec![0x12, 0x34, 0x56, 0x78, 0x90, 0x12, 0x34, 0x56];
+        let prev_hash =
+            Hash::from_hex("1220a4cea0f0f6eddc6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let txs_hash =
+            Hash::from_hex("1220a4cea0f1f6eddc6865fd6092a319ccc6d2387cf8bb63e64b4c48601a9a998569")
+                .unwrap();
+        let rxs_hash =
+            Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
+                .unwrap();
+        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        Arc::new(seed)
+    }
+
     impl WmLocal {
         fn exec_transaction<T: DbFork>(
             &mut self,
             db: &mut T,
             data: &TransactionData,
-        ) -> Result<Vec<u8>> {
-            self.exec_transaction_with_events(db, data, &mut Vec::new())
+        ) -> (u64, Result<Vec<u8>>) {
+            self.exec_transaction_with_events(db, data, &mut Vec::new(), create_arc_seed())
         }
 
         fn exec_transaction_with_events<T: DbFork>(
@@ -873,7 +1143,8 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
-        ) -> Result<Vec<u8>> {
+            seed: Arc<SeedSource>,
+        ) -> (u64, Result<Vec<u8>>) {
             self.call(
                 db,
                 0,
@@ -881,10 +1152,33 @@ mod tests {
                 data.get_caller().to_account_id().as_str(),
                 data.get_account(),
                 data.get_caller().to_account_id().as_str(),
-                *data.get_contract(),
+                data.get_contract().unwrap(),
                 data.get_method(),
                 data.get_args(),
+                seed,
                 events,
+                MAX_FUEL,
+            )
+        }
+
+        fn exec_is_callable<T: DbFork>(
+            &mut self,
+            db: &mut T,
+            method: &str,
+            app_hash: Hash,
+        ) -> (u64, Result<i32>) {
+            self.is_callable_call(
+                db,
+                0,
+                "skynet",
+                "origin",
+                "owner",
+                "caller",
+                app_hash,
+                method.as_bytes(),
+                create_arc_seed(),
+                &mut Vec::new(),
+                MAX_FUEL,
             )
         }
     }
@@ -904,12 +1198,12 @@ mod tests {
         db.expect_store_account().returning(move |_id| ());
         db.expect_state_hash().returning(|_| Hash::default());
         db.expect_load_account_data().returning(|_, key| {
-            if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
-            {
-                return None;
-            }
-            Some(TEST_WASM.to_vec())
-        });
+                if key == "contracts:code:12201810298b95a12ec9cde9210a81f2a7a5f0e4780da8d4a19b3b8346c0c684e12f"
+                {
+                    return None;
+                }
+                Some(TEST_WASM.to_vec())
+            });
         db
     }
 
@@ -965,12 +1259,40 @@ mod tests {
     }
 
     #[test]
+    fn test_exec_is_callable() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let hash = test_contract_hash();
+        let mut db = create_test_db();
+
+        let result = vm
+            .exec_is_callable(&mut db, "test_hf_drand", hash)
+            .1
+            .unwrap();
+
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_exec_not_callable_method() {
+        let mut vm = WmLocal::new(CACHE_MAX);
+        let hash = test_contract_hash();
+        let mut db = create_test_db();
+
+        let result = vm
+            .exec_is_callable(&mut db, "not_existent_method", hash)
+            .1
+            .unwrap();
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
     fn exec_transfer() {
         let mut vm = WmLocal::new(CACHE_MAX);
         let data = create_test_data_transfer();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, value!(null));
@@ -982,7 +1304,7 @@ mod tests {
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -994,9 +1316,7 @@ mod tests {
         let data = create_test_data_balance();
         let mut db = create_test_db();
 
-        vm.exec_transaction(&mut db, &data).unwrap();
-
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let val: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(val, 103);
@@ -1009,12 +1329,12 @@ mod tests {
         let data = create_test_data("inexistent", args);
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::SmartContractFault);
         assert_eq!(
             err.to_string_full(),
-            "smart contract fault: method `inexistent` not found"
+            "smart contract fault: method not found"
         );
     }
 
@@ -1026,7 +1346,7 @@ mod tests {
         data.set_account("NotExistingTestId".to_string());
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::ResourceNotFound);
         assert_eq!(
@@ -1052,7 +1372,7 @@ mod tests {
         });
         let data = create_test_data("echo_generic", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1075,7 +1395,7 @@ mod tests {
         });
         let data = create_test_data("echo_typed", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1090,7 +1410,7 @@ mod tests {
         });
         let data = create_test_data("echo_typed", input);
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         assert_eq!(
             err.to_string_full(),
@@ -1111,7 +1431,8 @@ mod tests {
         let mut events = Vec::new();
 
         let _ = vm
-            .exec_transaction_with_events(&mut db, &data, &mut events)
+            .exec_transaction_with_events(&mut db, &data, &mut events, create_arc_seed())
+            .1
             .unwrap();
 
         assert_eq!(events.len(), 2);
@@ -1142,7 +1463,7 @@ mod tests {
         });
         let data = create_test_data("nested_call", input.clone());
 
-        let buf = vm.exec_transaction(&mut db, &data).unwrap();
+        let buf = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let output: Value = rmp_deserialize(&buf).unwrap();
         assert_eq!(input, output);
@@ -1154,7 +1475,7 @@ mod tests {
         let data = create_data_divide_by_zero();
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -1167,7 +1488,7 @@ mod tests {
         let data = create_test_data("trigger_panic", value!(null));
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("trap").next().unwrap();
@@ -1180,7 +1501,7 @@ mod tests {
         let data = create_test_data("exhaust_memory", value!(null));
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("range").next().unwrap();
@@ -1193,7 +1514,7 @@ mod tests {
         let data = create_test_data("infinite_recursion", value!(true));
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("exhausted").next().unwrap();
@@ -1209,7 +1530,7 @@ mod tests {
         let data = create_test_data("get_random_sequence", value!({}));
         let mut db = create_test_db();
 
-        let output = vm.exec_transaction(&mut db, &data).unwrap();
+        let output = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         assert_eq!(
             vec![
@@ -1226,7 +1547,7 @@ mod tests {
         let data = create_test_data("get_hashmap", value!({}));
         let mut db = create_test_db();
 
-        let output = vm.exec_transaction(&mut db, &data).unwrap();
+        let output = vm.exec_transaction(&mut db, &data).1.unwrap();
 
         let input = vec![
             131, 164, 118, 97, 108, 49, 123, 164, 118, 97, 108, 50, 205, 1, 200, 164, 118, 97, 108,
@@ -1237,7 +1558,7 @@ mod tests {
     }
 
     // Need to be handle with an interrupt_handle
-    // https://docs.rs/wasmtime/0.26.0/wasmtime/struct.Store.html#method.interrupt_handle
+    // https://docs.rs/wasmtime/0.34.1/wasmtime/struct.Store.html#method.interrupt_handle
     #[test]
     #[ignore = "TODO"]
     fn wasm_infinite_loop() {
@@ -1245,7 +1566,7 @@ mod tests {
         let data = create_test_data("infinite_loop", value!(null));
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("access").next().unwrap();
@@ -1258,12 +1579,12 @@ mod tests {
         let data = create_test_data("null_pointer_indirection", value!(null));
         let mut db = create_test_db();
 
-        let err = vm.exec_transaction(&mut db, &data).unwrap_err();
+        let err = vm.exec_transaction(&mut db, &data).1.unwrap_err();
 
         let err_str = err.to_string_full();
         let err_str = err_str.split_inclusive("unreachable").next().unwrap();
         assert_eq!(err_str, "wasm machine fault: wasm trap: wasm `unreachable");
     }
 
-    // // TODO: add drand test
+    // TODO: add drand test
 }

@@ -51,7 +51,7 @@ use libp2p::{
 use std::{io, iter, str::FromStr};
 use tide::utils::async_trait;
 
-const MAX_TRANSMIT_SIZE: usize = 524288;
+const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
 
 // Request-response protocol
 #[derive(Debug, Clone)]
