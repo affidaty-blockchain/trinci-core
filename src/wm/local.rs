@@ -435,7 +435,6 @@ mod local_host_func {
         let ctx = caller.data_mut();
 
         let remaining_fuel = ctx.initial_fuel - consumed_fuel_so_far;
-
         // Invoke portable host function.
         let (consumed_fuel, buf) =
             match host_func::call(ctx, &account, None, &method, args, remaining_fuel) {
@@ -486,6 +485,12 @@ mod local_host_func {
         Ok(host_func::drand(ctx, max))
     }
 
+    /// Return the transaction block timestamp creation.
+    fn get_time(mut caller: Caller<'_, CallContext>) -> std::result::Result<u64, Trap> {
+        let ctx = caller.data_mut();
+        Ok(host_func::get_time(ctx))
+    }
+
     /// Register the required host functions using the same order as the wasm imports list.
     pub(crate) fn host_functions_register(
         mut store: &mut Store<CallContext>,
@@ -511,6 +516,7 @@ mod local_host_func {
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
                 "hf_drand" => Func::wrap(&mut store, drand),
+                "hf_get_time" => Func::wrap(&mut store, get_time),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
@@ -693,6 +699,7 @@ impl Wm for WmLocal {
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
+        block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>) {
         let engine1 = self.engine.clone(); // FIXME
         let engine2 = self.engine.clone();
@@ -710,6 +717,7 @@ impl Wm for WmLocal {
             events,
             seed,
             initial_fuel,
+            block_timestamp,
         };
 
         // Allocate execution context (aka Store).
@@ -841,6 +849,7 @@ impl Wm for WmLocal {
         hash_args: CheckHashArgs<'a>,
         ctx_args: CtxArgs<'a>,
         seed: Arc<SeedSource>,
+        block_timestamp: u64,
     ) -> bool {
         let current_contract = match hash_args.current_hash {
             Some(hash) => hash.as_bytes().to_vec(),
@@ -886,6 +895,7 @@ impl Wm for WmLocal {
             seed,
             &mut vec![],
             MAX_FUEL,
+            block_timestamp,
         );
 
         match res {
@@ -900,6 +910,7 @@ impl Wm for WmLocal {
         mut app_hash: Option<Hash>,
         ctx_args: CtxArgs<'a>,
         seed: Arc<SeedSource>,
+        block_timestamp: u64,
     ) -> Result<Hash> {
         let mut updated = false;
 
@@ -926,6 +937,7 @@ impl Wm for WmLocal {
                     },
                     ctx_args,
                     seed,
+                    block_timestamp,
                 )
             {
                 account.contract = app_hash;
@@ -969,6 +981,7 @@ impl Wm for WmLocal {
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
+        block_timestamp: u64,
     ) -> (u64, Result<i32>) {
         // TODO put common code with call in a separated method
         let engine1 = self.engine.clone(); // FIXME
@@ -987,6 +1000,7 @@ impl Wm for WmLocal {
             events,
             seed,
             initial_fuel,
+            block_timestamp,
         };
 
         // Allocate execution context (aka Store).
@@ -1158,6 +1172,7 @@ mod tests {
                 seed,
                 events,
                 MAX_FUEL,
+                0,
             )
         }
 
@@ -1179,6 +1194,7 @@ mod tests {
                 create_arc_seed(),
                 &mut Vec::new(),
                 MAX_FUEL,
+                0,
             )
         }
     }

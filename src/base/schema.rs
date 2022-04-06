@@ -560,6 +560,7 @@ pub struct BlockData {
 
 impl BlockData {
     /// Instance a new block structure.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validator: Option<PublicKey>,
         height: u64,

@@ -59,6 +59,7 @@ pub trait Wm: Send + 'static {
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
+        block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>);
 
     /// Execute the smart contract `is_callable` method
@@ -77,6 +78,7 @@ pub trait Wm: Send + 'static {
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
+        block_timestamp: u64,
     ) -> (u64, Result<i32>);
 
     fn app_hash_check<'a>(
@@ -85,6 +87,7 @@ pub trait Wm: Send + 'static {
         app_hash: Option<Hash>,
         ctx_args: CtxArgs<'a>,
         seed: Arc<SeedSource>,
+        block_timestamp: u64,
     ) -> Result<Hash>;
 
     fn contract_updatable<'a>(
@@ -93,6 +96,7 @@ pub trait Wm: Send + 'static {
         hash_args: CheckHashArgs<'a>,
         ctx_args: CtxArgs<'a>,
         seed: Arc<SeedSource>,
+        block_timestamp: u64,
     ) -> bool;
 }
 

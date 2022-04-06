@@ -214,6 +214,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         burn_fuel_method: &str,
         origin: &str,
         fuel: u64,
+        block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>) {
         let args = value!({
             "from": origin,
@@ -259,6 +260,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             self.seed.clone(),
             &mut vec![],
             MAX_FUEL,
+            block_timestamp,
         )
     }
 
@@ -268,6 +270,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
         burn_fuel_args_array: Vec<BurnFuelArgs>,
+        block_timestamp: u64,
     ) -> (bool, u64) {
         let mut global_result: bool = true;
         let mut global_burned_fuel = 0;
@@ -287,8 +290,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
             };
 
             // Call to consume fuel
-            let (_, result) =
-                self.call_burn_fuel(fork, burn_fuel_method, &burn_fuel_args.account, fuel);
+            let (_, result) = self.call_burn_fuel(
+                fork,
+                burn_fuel_method,
+                &burn_fuel_args.account,
+                fuel,
+                block_timestamp,
+            );
             match result {
                 Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
                     Ok(res) => {
@@ -312,6 +320,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
+        block_timestamp: u64,
     ) -> (Vec<BurnFuelArgs>, Receipt) {
         let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
 
@@ -325,6 +334,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             *tx.data.get_contract(),
             ctx_args,
             self.seed.clone(),
+            block_timestamp,
         );
 
         match app_hash {
@@ -342,6 +352,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     self.seed.clone(),
                     &mut events,
                     initial_fuel,
+                    block_timestamp,
                 );
 
                 let event_tx = tx.data.primary_hash();
@@ -429,6 +440,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
+        block_timestamp: u64,
     ) -> (Vec<BurnFuelArgs>, Receipt) {
         let mut results = HashMap::new();
         let mut execution_fail = false;
@@ -456,6 +468,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     *root_tx.data.get_contract(),
                     ctx_args,
                     self.seed.clone(),
+                    block_timestamp,
                 ) {
                     Ok(app_hash) => app_hash,
                     Err(e) => {
@@ -492,6 +505,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     self.seed.clone(),
                     &mut bulk_events,
                     initial_fuel,
+                    block_timestamp,
                 );
 
                 burn_fuel_args.push(BurnFuelArgs {
@@ -567,6 +581,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 *node.data.get_contract(),
                                 ctx_args,
                                 self.seed.clone(),
+                                block_timestamp,
                             ) {
                                 Ok(app_hash) => {
                                     let (fuel_consumed, result) = t_wm.call(
@@ -582,6 +597,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         self.seed.clone(),
                                         &mut bulk_events,
                                         initial_fuel,
+                                        block_timestamp,
                                     );
                                     burn_fuel_args.push(BurnFuelArgs {
                                         account: node.data.get_caller().to_account_id(),
@@ -702,6 +718,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         burn_fuel_method: &str,
+        block_timestamp: u64,
     ) -> Receipt {
         fork.flush();
 
@@ -709,15 +726,16 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let (fuel_to_burn, mut receipt) = match tx {
             Transaction::UnitTransaction(tx) => {
-                self.handle_unit_transaction(tx, fork, height, index, events)
+                self.handle_unit_transaction(tx, fork, height, index, events, block_timestamp)
             }
             Transaction::BulkTransaction(tx) => {
-                self.handle_bulk_transaction(tx, fork, height, index, events)
+                self.handle_bulk_transaction(tx, fork, height, index, events, block_timestamp)
             }
         };
 
         // Try to burn fuel from the caller account
-        let (res_burning, mut burned) = self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn);
+        let (res_burning, mut burned) =
+            self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn, block_timestamp);
         if res_burning {
             receipt.burned_fuel = burned;
             receipt
@@ -731,6 +749,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     burn_fuel_method,
                     &tx.get_caller().to_account_id(),
                     burned,
+                    block_timestamp,
                 )
                 .1
                 .is_err()
@@ -755,6 +774,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         txs_hashes: &[Hash],
+        block_timestamp: u64,
     ) -> Vec<Hash> {
         let mut rxs_hashes = vec![];
 
@@ -776,6 +796,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 height,
                 index as u32,
                 &self.burn_fuel_method.clone(),
+                block_timestamp,
             );
 
             rxs_hashes.push(rx.primary_hash());
@@ -804,7 +825,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut fork = self.db.write().fork_create();
 
         // Get a vector of executed transactions hashes.
-        let rxs_hashes = self.exec_transactions(&mut fork, height, txs_hashes);
+        let rxs_hashes =
+            self.exec_transactions(&mut fork, height, txs_hashes, block_info.timestamp);
 
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
@@ -1319,7 +1341,7 @@ mod tests {
 
         let tx = create_bulk_tx();
 
-        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new());
+        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new(), 0);
 
         assert!(rcpt.success);
     }

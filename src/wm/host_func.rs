@@ -54,6 +54,8 @@ pub struct CallContext<'a> {
     pub seed: Arc<SeedSource>,
     /// Initial fuel
     pub initial_fuel: u64,
+    /// Timestamp block creation.
+    pub block_timestamp: u64,
 }
 
 /// WASM logging facility.
@@ -131,7 +133,8 @@ pub fn is_callable(
                 ctx.db,
                 Some(hash),
                 ctx_args,
-                ctx.seed.clone()
+                ctx.seed.clone(),
+                ctx.block_timestamp
             ));
             wm.is_callable_call(
                 ctx.db,
@@ -145,6 +148,7 @@ pub fn is_callable(
                 ctx.seed.clone(),
                 ctx.events,
                 initial_fuel,
+                ctx.block_timestamp,
             )
         }
         None => (
@@ -217,8 +221,13 @@ pub fn call(
                 owner,
                 caller: ctx.owner,
             };
-            let app_hash =
-                unwrap_or_return!(wm.app_hash_check(ctx.db, contract, ctx_args, ctx.seed.clone()));
+            let app_hash = unwrap_or_return!(wm.app_hash_check(
+                ctx.db,
+                contract,
+                ctx_args,
+                ctx.seed.clone(),
+                ctx.block_timestamp
+            ));
             wm.call(
                 ctx.db,
                 ctx.depth + 1,
@@ -232,6 +241,7 @@ pub fn call(
                 ctx.seed.clone(),
                 ctx.events,
                 initial_fuel,
+                ctx.block_timestamp,
             )
         }
         None => (
@@ -248,6 +258,11 @@ pub fn call(
 pub fn drand(ctx: &CallContext, max: u64) -> u64 {
     let mut drand = Drand::new(ctx.seed.clone());
     drand.rand(max)
+}
+
+/// Get block timestamp.
+pub fn get_time(ctx: &CallContext) -> u64 {
+    ctx.block_timestamp
 }
 
 #[cfg(test)]
@@ -389,6 +404,7 @@ mod tests {
                 events: &mut self.events,
                 seed,
                 initial_fuel: 0,
+                block_timestamp: 0,
             }
         }
     }
