@@ -443,6 +443,7 @@ impl<D: Db> Aligner<D> {
                     validator: block.data.validator.to_owned(),
                     signature: Some(block.signature.clone()),
                     txs_hashes: txs.to_owned(),
+                    timestamp: block.data.timestamp,
                 };
                 pool.confirmed.insert(block.data.height, blk_info);
                 debug!(
@@ -477,6 +478,7 @@ impl<D: Db> Aligner<D> {
                             validator: block.data.validator.to_owned(),
                             signature: Some(block.signature.clone()),
                             txs_hashes: txs.to_owned(),
+                            timestamp: block.data.timestamp,
                         };
                         pool.confirmed.insert(block.data.height, blk_info);
                         debug!(

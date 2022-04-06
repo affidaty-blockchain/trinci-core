@@ -50,6 +50,8 @@ pub struct BlockInfo {
     /// Block transactions hashes. This is `None` when we're aware of only the
     /// block header.
     pub txs_hashes: Option<Vec<Hash>>,
+    /// Timestamp generated at block creation by validator
+    pub timestamp: u64,
 }
 
 /// Pool of outstanding transactions and blocks.
@@ -93,6 +95,7 @@ pub mod tests {
             signature: Some(vec![0, 1, 2]),
             validator: None,
             txs_hashes: Some(tx_hashes),
+            timestamp: 0,
         };
         pool.confirmed.insert(0, blk_info);
         pool

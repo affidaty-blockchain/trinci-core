@@ -554,6 +554,8 @@ pub struct BlockData {
     pub rxs_hash: Hash,
     /// Root of accounts state after applying the block transactions.
     pub state_hash: Hash,
+    /// Timestamp in which the block was created by validator.
+    pub timestamp: u64,
 }
 
 impl BlockData {
@@ -566,6 +568,7 @@ impl BlockData {
         txs_hash: Hash,
         rxs_hash: Hash,
         state_hash: Hash,
+        timestamp: u64,
     ) -> Self {
         BlockData {
             validator,
@@ -575,6 +578,7 @@ impl BlockData {
             txs_hash,
             rxs_hash,
             state_hash,
+            timestamp,
         }
     }
 }
@@ -979,6 +983,7 @@ pub mod tests {
             txs_hash,
             rxs_hash: res_hash,
             state_hash,
+            timestamp: 0,
         }
     }
 

@@ -61,6 +61,7 @@ struct BlockValues {
     exp_hash: Option<Hash>,
     signature: Option<Vec<u8>>,
     validator: Option<PublicKey>,
+    timestamp: u64,
 }
 
 // Struct that holds the consume fuel return value
@@ -828,6 +829,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             txs_hash,
             rxs_hash,
             fork.state_hash(""),
+            block_info.timestamp,
         );
 
         // Verify the block signature
@@ -917,10 +919,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let pool = self.pool.read();
         match pool.confirmed.get(&height) {
             Some(BlockInfo {
-                hash: _,
-                signature: _,
-                validator: _,
                 txs_hashes: Some(hashes),
+                ..
             }) => {
                 debug!("\tcan run height: {}", height);
                 debug!(
@@ -939,9 +939,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
-        let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.data.primary_hash(), block.data.height + 1),
-            None => (Hash::default(), 0),
+        let (mut prev_hash, mut height, timestamp) = match self.db.read().load_block(u64::MAX) {
+            Some(block) => (
+                block.data.primary_hash(),
+                block.data.height + 1,
+                block.data.timestamp,
+            ),
+            None => (Hash::default(), 0, 0),
         };
 
         debug!("EXECUTOR:  last height: {}", height);
@@ -957,6 +961,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature,
                         validator,
                         txs_hashes: Some(hashes),
+                        timestamp: _,
                     }) => (
                         *hash,
                         std::mem::take(signature),
@@ -975,6 +980,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     exp_hash: block_hash,
                     signature: block_signature.clone(),
                     validator: block_validator.clone(),
+                    timestamp,
                 },
                 is_validator,
                 is_validator_closure.clone(),
@@ -994,6 +1000,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature: block_signature,
                         validator: block_validator,
                         txs_hashes: Some(txs_hashes),
+                        timestamp,
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
                     error!("Block execution error: {}", err.to_string_full());
@@ -1395,6 +1402,7 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1431,6 +1439,7 @@ mod tests {
                     exp_hash: Some(Hash::default()),
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1464,6 +1473,7 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1500,6 +1510,7 @@ mod tests {
                     exp_hash: Some(Hash::default()),
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1570,6 +1581,7 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),

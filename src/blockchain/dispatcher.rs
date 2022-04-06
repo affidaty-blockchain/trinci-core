@@ -343,6 +343,7 @@ impl<D: Db> Dispatcher<D> {
                 validator: block.data.validator.to_owned(),
                 signature: Some(block.signature.clone()),
                 txs_hashes: txs_hashes.to_owned(),
+                timestamp: block.data.timestamp,
             };
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start <= block.data.height {
