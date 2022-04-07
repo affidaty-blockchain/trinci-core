@@ -32,12 +32,15 @@ use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
 use futures::{future, prelude::*};
 use std::sync::Arc;
+use std::thread;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use super::synchronizer::Synchronizer;
+use super::aligner::Aligner;
+use super::dispatcher::AlignerInterface;
+//use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
 pub trait IsValidator: Fn(String) -> Result<bool> + Send + Sync + 'static {}
@@ -59,14 +62,10 @@ pub struct BlockWorker<D: Db, W: Wm> {
     builder: Builder<D>,
     /// Executor subsystem, in charge of executing block transactions.
     executor: Executor<D, W>,
-    ///
-    synchronizer: Synchronizer<D>,
     /// Builder running flag.
     building: Arc<AtomicBool>,
     /// Executor running flag.
     executing: Arc<AtomicBool>,
-    ///
-    synchronizing: Arc<AtomicBool>,
     /// Method to tell if the Node is validator
     is_validator_closure: Arc<dyn IsValidator>,
     /// Variable that store the validator status of the node
@@ -90,28 +89,34 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
+        let mut aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
+
         let dispatcher = Dispatcher::new(
             config.clone(),
             pool.clone(),
             db.clone(),
             pubsub.clone(),
             seed.clone(),
-            p2p_id,
+            p2p_id.clone(),
+            AlignerInterface(aligner.request_channel(), aligner.status.clone()),
         );
+
+        thread::spawn(move || aligner.run());
+
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
-            pool.clone(),
+            pool,
             db.clone(),
             wm.clone(),
-            pubsub.clone(),
+            pubsub,
             config.lock().keypair.clone(),
             seed,
+            p2p_id,
         );
-        let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
+        //let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));
         let executing = Arc::new(AtomicBool::new(false));
-        let synchronizing = Arc::new(AtomicBool::new(false));
 
         Self {
             config,
@@ -121,10 +126,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             dispatcher,
             builder,
             executor,
-            synchronizer,
             building,
             executing,
-            synchronizing,
             is_validator_closure: Arc::new(is_validator_closure),
             is_validator: Arc::new(false),
         }
@@ -195,35 +198,25 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     fn try_exec_block(&self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         if !self.executor.can_run(u64::MAX) {
+            debug!("try_exec.canrun u64::MAX");
             return;
         }
         if self.executing.swap(true, Ordering::Relaxed) {
+            debug!("try_exec.executing");
             return;
         }
 
         let mut executor = self.executor.clone();
         let executing = self.executing.clone();
+        debug!("executor.run");
         task::spawn(async move {
             executor.run(is_validator, is_validator_closure);
             executing.store(false, Ordering::Relaxed);
         });
     }
 
-    fn try_synchronization(&self) {
-        if self.synchronizing.swap(true, Ordering::Relaxed) {
-            return;
-        }
-
-        let synchronizer = self.synchronizer.clone();
-        let synchronizing = self.synchronizing.clone();
-        task::spawn(async move {
-            synchronizer.run();
-            synchronizing.store(false, Ordering::Relaxed);
-        });
-    }
-
     fn handle_message(&self, req: Message, res_chan: BlockResponseSender) {
-        let dispatcher = self.dispatcher.clone();
+        let mut dispatcher = self.dispatcher.clone();
         task::spawn(async move {
             if let Some(res) = dispatcher.message_handler(req, &res_chan, 0) {
                 if let Err(_err) = res_chan.send(res).await {
@@ -245,11 +238,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let threshold = self.config.lock().threshold;
 
         let exec_timeout = self.config.lock().timeout as u64;
-        let sync_timeout = 3 * self.config.lock().timeout as u64;
-
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
-        let mut sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
-
         let is_validator_closure = self.is_validator_closure.clone();
         // let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
         // let mut is_validator_fut = Box::pin(is_validator);
@@ -270,13 +259,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 if *self.is_validator {
                     self.try_build_block(1);
                 }
+                debug!("TRY EXEC BLOCK");
                 self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
-            }
-
-            while sync_sleep.poll_unpin(cx).is_ready() {
-                self.try_synchronization();
-                sync_sleep = Box::pin(task::sleep(Duration::from_secs(sync_timeout)));
             }
 
             loop {

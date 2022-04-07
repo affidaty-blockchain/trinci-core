@@ -92,6 +92,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     burn_fuel_method: String,
     /// Drand Seed
     seed: Arc<SeedSource>,
+    /// P2P peer id
+    p2p_id: String,
     /// Validator flag
     is_validator: Arc<bool>,
 }
@@ -106,6 +108,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             keypair: self.keypair.clone(),
             burn_fuel_method: self.burn_fuel_method.clone(),
             seed: self.seed.clone(),
+            p2p_id: self.p2p_id.clone(),
             is_validator: self.is_validator.clone(),
         }
     }
@@ -163,6 +166,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         pubsub: Arc<Mutex<PubSub>>,
         keypair: Arc<KeyPair>,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         Executor {
             pool,
@@ -172,6 +176,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             keypair,
             burn_fuel_method: String::new(),
             seed,
+            p2p_id,
             is_validator: Arc::new(false),
         }
     }
@@ -793,6 +798,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         is_validator: bool,
         is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
+        debug!("EXEC BLOCK: {}", height);
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
 
@@ -882,6 +888,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             let msg = Message::GetBlockResponse {
                 block,
                 txs: Some(txs_hashes.to_owned()),
+                origin: None, // send it in gossip
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
         }
@@ -914,9 +921,19 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 signature: _,
                 validator: _,
                 txs_hashes: Some(hashes),
-            }) => hashes
-                .iter()
-                .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))),
+            }) => {
+                debug!("\tcan run height: {}", height);
+                debug!(
+                    "\t\t{:?}",
+                    hashes
+                        .iter()
+                        .all(|hash| matches!(pool.txs.get(hash), Some(Some(_))))
+                );
+                debug!("\t\t{:?}", hashes.iter());
+                hashes
+                    .iter()
+                    .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))) // it might not put tcx in pool
+            }
             _ => false,
         }
     }
@@ -926,6 +943,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Some(block) => (block.data.primary_hash(), block.data.height + 1),
             None => (Hash::default(), 0),
         };
+
+        debug!("EXECUTOR:  last height: {}", height);
 
         // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]
@@ -1040,7 +1059,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        let mut executor = Executor::new(pool, db, wm, sub, keypair, seed.clone());
+        let mut executor = Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        );
 
         if fuel_limit < FUEL_LIMIT {
             executor.set_burn_fuel_method(String::from("burn_fuel_method"));
@@ -1070,7 +1097,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+        Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        )
     }
 
     fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
@@ -1081,7 +1116,7 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair, seed)
+        Executor::new(pool, db, wm, sub, keypair, seed, "test_id".to_string())
     }
 
     fn create_db_mock(fail: bool) -> MockDb {

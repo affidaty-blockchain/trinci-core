@@ -48,7 +48,12 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
+
+pub(crate) struct AlignerInterface(
+    pub Arc<Mutex<BlockRequestSender>>,
+    pub Arc<(StdMutex<bool>, Condvar)>,
+);
 
 /// WARNING THIS MUST BE AT MAX EQUAL TO THE p2p MAX_TRANSMIT_SIZE
 pub const MAX_TRANSACTION_SIZE: usize = 524288 * 2;
@@ -67,6 +72,8 @@ pub(crate) struct Dispatcher<D: Db> {
     seed: Arc<SeedSource>,
     /// P2P ID
     p2p_id: String,
+    /// Aligner
+    aligner: AlignerInterface,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -78,6 +85,7 @@ impl<D: Db> Clone for Dispatcher<D> {
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
+            aligner: AlignerInterface(self.aligner.0.clone(), self.aligner.1.clone()),
         }
     }
 }
@@ -91,6 +99,7 @@ impl<D: Db> Dispatcher<D> {
         pubsub: Arc<Mutex<PubSub>>,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        aligner: AlignerInterface,
     ) -> Self {
         Dispatcher {
             config,
@@ -99,6 +108,7 @@ impl<D: Db> Dispatcher<D> {
             pubsub,
             seed,
             p2p_id,
+            aligner,
         }
     }
 
@@ -117,31 +127,44 @@ impl<D: Db> Dispatcher<D> {
         tx.check_integrity()?;
         let hash = tx.get_primary_hash();
 
-        debug!("Received transaction: {}", hex::encode(hash));
+        debug!("[PTI] Received transaction: {}", hex::encode(hash));
 
         // Check the network.
+        debug!("LOCAL: {}", self.config.lock().network);
+        debug!("TX: {}", tx.get_network());
+
         if self.config.lock().network != tx.get_network() {
+            debug!("[PTI] NW ko");
             return Err(ErrorKind::BadNetwork.into());
         }
 
+        debug!("[PTI] NW ok");
+
         // Check if already present in db.
         if self.db.read().contains_transaction(&hash) {
+            debug!("[PTI] Present in DB (KO)");
             return Err(ErrorKind::DuplicatedConfirmedTx.into());
         }
+
+        debug!("[PTI] Not present in DB (OK)");
 
         let mut pool = self.pool.write();
         match pool.txs.get_mut(&hash) {
             None => {
+                debug!("[PTI] TX added to pools");
                 pool.txs.insert(hash, Some(tx));
                 pool.unconfirmed.push(hash);
             }
             Some(tx_ref @ None) => {
+                debug!("[PTI] ???");
                 *tx_ref = Some(tx);
             }
             Some(Some(_)) => {
                 return if pool.unconfirmed.contains(&hash) {
+                    debug!("[PTI] Present in DB unconf (KO)");
                     Err(ErrorKind::DuplicatedUnconfirmedTx.into())
                 } else {
+                    debug!("[PTI] Present in DB conf (KO)");
                     Err(ErrorKind::DuplicatedConfirmedTx.into())
                 };
             }
@@ -153,14 +176,23 @@ impl<D: Db> Dispatcher<D> {
     fn broadcast_attempt(&self, tx: Transaction) {
         let mut sub = self.pubsub.lock();
         if sub.has_subscribers(Event::TRANSACTION) {
-            sub.publish(Event::TRANSACTION, Message::GetTransactionResponse { tx });
+            debug!(
+                "[dispatcher] propagating tx {} in gossip",
+                hex::encode(tx.primary_hash().as_bytes())
+            );
+            sub.publish(
+                Event::TRANSACTION,
+                Message::GetTransactionResponse { tx, origin: None },
+            );
         }
     }
 
     fn put_transaction_handler(&self, tx: Transaction) -> Message {
         let result = self.put_transaction_internal(tx.clone());
+        debug!("[dispatcher] PTI DONE, to propagate");
         match result {
             Ok(hash) => {
+                debug!("[dispatcher] PTI response OK");
                 self.broadcast_attempt(tx);
                 Message::PutTransactionResponse { hash }
             }
@@ -171,7 +203,7 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
-    fn get_transaction_handler(&self, hash: Hash) -> Message {
+    fn get_transaction_handler(&self, hash: Hash, _destination: Option<String>) -> Message {
         let mut opt = self.db.read().load_transaction(&hash);
         if opt.is_none() {
             opt = match self.pool.read().txs.get(&hash) {
@@ -180,7 +212,10 @@ impl<D: Db> Dispatcher<D> {
             }
         }
         match opt {
-            Some(tx) => Message::GetTransactionResponse { tx },
+            Some(tx) => Message::GetTransactionResponse {
+                tx,
+                origin: Some(self.p2p_id.clone()),
+            },
             None => Message::Exception(ErrorKind::ResourceNotFound.into()),
         }
     }
@@ -195,16 +230,19 @@ impl<D: Db> Dispatcher<D> {
 
     fn get_block_handler(&self, height: u64, txs: bool) -> Message {
         let opt = self.db.read().load_block(height);
+        debug!("GETBLOCKREQ\theight: {}\ttxs: {}", height, txs);
         match opt {
             Some(block) => {
                 let blk_txs = if txs {
-                    self.db.read().load_transactions_hashes(height)
+                    self.db.read().load_transactions_hashes(block.data.height)
                 } else {
                     None
                 };
+                debug!("GETBLOCKREQ response send\ttxs: {}", blk_txs.is_some());
                 Message::GetBlockResponse {
                     block,
                     txs: blk_txs,
+                    origin: Some(self.p2p_id.clone()),
                 }
             }
             None => Message::Exception(Error::new(ErrorKind::ResourceNotFound)),
@@ -231,13 +269,35 @@ impl<D: Db> Dispatcher<D> {
         }
     }
 
-    fn get_transaction_res_handler(&self, transaction: Transaction) {
-        let _ = self.put_transaction_internal(transaction);
+    #[allow(clippy::mutex_atomic)]
+    fn get_transaction_res_handler(&self, transaction: Transaction, origin: Option<String>) {
+        let res = self.put_transaction_internal(transaction.clone());
+        debug!("PUT TX INTERNAL: {}", res.is_ok());
+        // if in alignment just send
+        // an ACK to aligner, so that
+        // it can ask for next TX
+        let aligner_status = self.aligner.1.clone();
+        if !*aligner_status.0.lock().unwrap() {
+            let req = Message::GetTransactionResponse {
+                tx: transaction,
+                origin,
+            };
+            self.aligner.0.lock().send_sync(req).unwrap();
+        }
     }
 
-    fn get_block_res_handler(&self, block: Block, txs_hashes: Option<Vec<Hash>>) {
+    #[allow(clippy::mutex_atomic)]
+    fn get_block_res_handler(
+        &mut self,
+        block: &Block,
+        txs_hashes: &Option<Vec<Hash>>,
+        origin: &Option<String>,
+        _req: Message,
+    ) {
+        // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 
+        // collect missing blocks by heights
         let mut missing_headers = match opt {
             Some(last) => last.data.height + 1..block.data.height,
             None => 0..block.data.height,
@@ -246,7 +306,27 @@ impl<D: Db> Dispatcher<D> {
             missing_headers.end += 1;
         }
 
-        if missing_headers.start <= block.data.height {
+        // Check if wether or not there are missing blocks.
+        // In case the recieved block is the "next block", it means the behaviour
+        // is the one expected, the node is aligned.
+        // Note: this happens only if the node is not in a
+        // "alignment" status, shown by the status of the aligner (false -> alignment)
+        let aligner_status = self.aligner.1.clone();
+        debug!(
+            "[dispatcher]:\tlocal last: {}\n\trecieved:\t{}\nstatus\t{}",
+            missing_headers.end,
+            block.data.height,
+            *aligner_status.0.lock().unwrap()
+        );
+        debug!(
+            "[dispatcher]: missing_headers.start: {}",
+            missing_headers.start
+        );
+        if missing_headers.start + 1 == block.data.height && *aligner_status.0.lock().unwrap() {
+            // if recieved block contains txs
+            //  . remove those from unconfirmed pool
+            //  . add txs to pool.txs if not present
+            // push new block into pool.confirmed
             let mut pool = self.pool.write();
             if let Some(ref hashes) = txs_hashes {
                 for hash in hashes {
@@ -260,11 +340,35 @@ impl<D: Db> Dispatcher<D> {
             }
             let blk_info = BlockInfo {
                 hash: Some(block.data.primary_hash()),
-                validator: block.data.validator,
-                signature: Some(block.signature),
-                txs_hashes,
+                validator: block.data.validator.to_owned(),
+                signature: Some(block.signature.clone()),
+                txs_hashes: txs_hashes.to_owned(),
             };
             pool.confirmed.insert(block.data.height, blk_info);
+        } else if missing_headers.start <= block.data.height {
+            // in this case the node miss some block
+            // it needes to be re-aligned
+
+            // start aligner if not already running
+            if *aligner_status.0.lock().unwrap() {
+                debug!("[dispatcher] node is misaligned, launching aligner service");
+
+                *aligner_status.0.lock().unwrap() = false;
+                aligner_status.1.notify_one();
+            } else {
+                // send block message to aligner
+                debug!(
+                    "[dispatcher] sending GetBlockResponse to the aligner (height: {}) (txs: {})",
+                    block.clone().data.height,
+                    txs_hashes.is_some(),
+                );
+                let req = Message::GetBlockResponse {
+                    block: block.to_owned(),
+                    txs: txs_hashes.to_owned(),
+                    origin: origin.to_owned(),
+                };
+                self.aligner.0.lock().send_sync(req).unwrap();
+            }
         }
     }
 
@@ -306,7 +410,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     fn packed_message_handler(
-        &self,
+        &mut self,
         buf: Vec<u8>,
         res_chan: &BlockResponseSender,
         pack_level: usize,
@@ -358,7 +462,7 @@ impl<D: Db> Dispatcher<D> {
     }
 
     pub fn message_handler(
-        &self,
+        &mut self,
         req: Message,
         res_chan: &BlockResponseSender,
         pack_level: usize,
@@ -368,15 +472,19 @@ impl<D: Db> Dispatcher<D> {
                 let res = self.put_transaction_handler(tx);
                 confirm.then(|| res)
             }
-            Message::GetTransactionRequest { hash } => {
-                let res = self.get_transaction_handler(hash);
+            Message::GetTransactionRequest { hash, destination } => {
+                let res = self.get_transaction_handler(hash, destination);
                 Some(res)
             }
             Message::GetReceiptRequest { hash } => {
                 let res = self.get_receipt_handler(hash);
                 Some(res)
             }
-            Message::GetBlockRequest { height, txs } => {
+            Message::GetBlockRequest {
+                height,
+                txs,
+                destination: _,
+            } => {
                 let res = self.get_block_handler(height, txs);
                 Some(res)
             }
@@ -406,12 +514,21 @@ impl<D: Db> Dispatcher<D> {
                 self.pubsub.lock().unsubscribe(id, events);
                 None
             }
-            Message::GetBlockResponse { block, txs } => {
-                self.get_block_res_handler(block, txs);
+            Message::GetBlockResponse {
+                ref block,
+                ref txs,
+                ref origin,
+            } => {
+                debug!(
+                    "GETBLOCKRES\theight: {}\ttxs: {}",
+                    block.data.height,
+                    txs.clone().is_some()
+                );
+                self.get_block_res_handler(block, txs, origin, req.clone());
                 None
             }
-            Message::GetTransactionResponse { tx } => {
-                self.get_transaction_res_handler(tx);
+            Message::GetTransactionResponse { tx, origin } => {
+                self.get_transaction_res_handler(tx, origin);
                 None
             }
             Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
@@ -432,6 +549,7 @@ mod tests {
             },
             TransactionData,
         },
+        blockchain::aligner::Aligner,
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
@@ -468,10 +586,26 @@ mod tests {
             Hash::from_hex("1220a4cea0f0f6edd46865fd6092a319ccc6d5387cd8bb65e64bdc486f1a9a998569")
                 .unwrap();
 
-        let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
+        let seed = SeedSource::new(
+            nw_name,
+            nonce,
+            prev_hash.clone(),
+            txs_hash.clone(),
+            rxs_hash.clone(),
+        );
         let seed = Arc::new(seed);
 
-        Dispatcher::new(config, pool, db, pubsub, seed, "TEST".to_string())
+        let aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
+
+        Dispatcher::new(
+            config,
+            pool,
+            db,
+            pubsub,
+            seed,
+            "TEST".to_string(),
+            AlignerInterface(aligner.request_channel(), aligner.status.clone()),
+        )
     }
 
     fn create_db_mock(fail_condition: bool) -> MockDb {
@@ -497,7 +631,7 @@ mod tests {
     }
 
     impl Dispatcher<MockDb> {
-        fn message_handler_wrap(&self, req: Message) -> Option<Message> {
+        fn message_handler_wrap(&mut self, req: Message) -> Option<Message> {
             let (tx_chan, _rx_chan) = simple_channel::<Message>();
             self.message_handler(req, &tx_chan, 0)
         }
@@ -505,7 +639,7 @@ mod tests {
 
     #[test]
     fn put_too_large_unit_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
 
         let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
@@ -529,7 +663,7 @@ mod tests {
 
     #[test]
     fn put_unit_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -553,7 +687,7 @@ mod tests {
 
     #[test]
     fn put_bulk_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_bulk_tx(false),
@@ -577,7 +711,7 @@ mod tests {
 
     #[test]
     fn put_bulk_transaction_with_nodes() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_bulk_tx_alt(true),
@@ -601,7 +735,7 @@ mod tests {
 
     #[test]
     fn put_bad_signature_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
         match tx {
@@ -623,7 +757,7 @@ mod tests {
 
     #[test]
     fn put_bad_signature_bulk_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let mut tx = create_test_bulk_tx(false);
 
         match tx {
@@ -645,7 +779,7 @@ mod tests {
 
     #[test]
     fn put_duplicated_unconfirmed_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -660,7 +794,7 @@ mod tests {
 
     #[test]
     fn put_duplicated_confirmed_transaction() {
-        let dispatcher = create_dispatcher(true);
+        let mut dispatcher = create_dispatcher(true);
         let req = Message::PutTransactionRequest {
             confirm: true,
             tx: create_test_unit_tx(FUEL_LIMIT),
@@ -674,25 +808,28 @@ mod tests {
 
     #[test]
     fn get_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetTransactionRequest {
             hash: Hash::from_hex(TX_DATA_HASH_HEX).unwrap(),
+            destination: None,
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
         let exp_res = Message::GetTransactionResponse {
             tx: create_test_unit_tx(FUEL_LIMIT),
+            origin: Some("TEST".to_string()),
         };
         assert_eq!(res, exp_res);
     }
 
     #[test]
     fn get_block() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetBlockRequest {
             height: 0,
             txs: false,
+            destination: None,
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -700,13 +837,14 @@ mod tests {
         let exp_res = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: Some("TEST".to_string()),
         };
         assert_eq!(res, exp_res);
     }
 
     #[test]
     fn get_account() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetAccountRequest {
             id: ACCOUNT_ID.to_owned(),
             data: vec![],
@@ -724,7 +862,7 @@ mod tests {
     #[test]
     fn submit_packed() {
         let get_block_packed = hex::decode("93a13900c2").unwrap();
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::Packed {
             buf: get_block_packed,
         };
@@ -740,7 +878,7 @@ mod tests {
     #[test]
     fn submit_packed_named() {
         let get_block_packed = hex::decode("83a474797065a139a668656967687400a3747873c2").unwrap();
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::Packed {
             buf: get_block_packed,
         };
@@ -756,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_get_core_stats() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
         let req = Message::GetCoreStatsRequest;
 
         let res = dispatcher.message_handler_wrap(req).unwrap();

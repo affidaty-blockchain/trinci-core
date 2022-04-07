@@ -36,14 +36,16 @@ bitflags::bitflags! {
         const TRANSACTION = 1 << 0;
         /// New block has been executed.
         const BLOCK = 1 << 1;
-        /// Any unsolicited request from the blockchain.
-        const REQUEST = 1 << 2;
+        /// Any unsolicited gossip request from the blockchain.
+        const GOSSIP_REQUEST = 1 << 2;
+        /// Any unsolicited unicast request from the blockchain.
+        const UNICAST_REQUEST = 1 << 3;
         /// Contracts events
-        const CONTRACT_EVENTS = 1 << 3;
+        const CONTRACT_EVENTS = 1 << 4;
     }
 }
 
-const EVENTS_NUM: usize = 4;
+const EVENTS_NUM: usize = 5;
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -193,7 +195,9 @@ impl PubSub {
                         msg_clone = Message::Packed { buf };
                         pack_level -= 1;
                     }
+                    debug!("[pubsub] SEND #######");
                     let res = info_clone.chan.send(msg_clone).await;
+                    debug!("[pubsub] DNES #######");
                     if res.is_err() {
                         debug!("[sub] error publishing to '{}', closing channel", id_clone);
                         info_clone.chan.close();
@@ -235,6 +239,7 @@ mod tests {
 
         assert!(pubsub.has_subscribers(Event::BLOCK));
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
+        println!("{:?}", pubsub.has_subscribers(Event::CONTRACT_EVENTS));
         assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
     }
 
@@ -279,6 +284,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         // This also forces the thread termination so that we can join it below...
@@ -305,6 +311,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         pubsub.publish(Event::BLOCK, msg);

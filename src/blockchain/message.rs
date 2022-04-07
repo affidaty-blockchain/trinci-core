@@ -78,10 +78,18 @@ pub enum Message {
     GetTransactionRequest {
         /// `Transaction::data` hash.
         hash: Hash,
+        /// Destination of the `Transactioin`. `None` if local operations,
+        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        destination: Option<String>,
     },
     /// Get transaction response.
     #[serde(rename = "6")]
-    GetTransactionResponse { tx: Transaction },
+    GetTransactionResponse {
+        tx: Transaction,
+        /// Origin of the `Transaction`. `None` if local operations,
+        /// and no chance to propagate outside the response.
+        origin: Option<String>,
+    },
     /// Get receipt request.
     #[serde(rename = "7")]
     GetReceiptRequest {
@@ -101,6 +109,9 @@ pub enum Message {
         height: u64,
         /// Request for block transactions hashes.
         txs: bool,
+        /// Destination of the `Block`. `None` if local operations,
+        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        destination: Option<String>,
     },
     /// Get block response.
     #[serde(rename = "10")]
@@ -109,6 +120,9 @@ pub enum Message {
         block: Block,
         /// Block transactions hashes. `None` if not requested.
         txs: Option<Vec<Hash>>,
+        /// Origin of the `Block`. `None` if local operations,
+        /// and no chance to propagate outside the response.
+        origin: Option<String>,
     },
     /// Get account request.
     #[serde(rename = "11")]
@@ -156,6 +170,9 @@ pub enum Message {
     /// Get seed response.
     #[serde(rename = "21")]
     GetP2pIdResponse(String),
+    /// Send block info to aligner
+    #[serde(rename = "22")]
+    AlignBlockInfo { peer_id: String, block: Block },
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
@@ -214,11 +231,11 @@ mod tests {
     const PUT_TRANSACTION_RES_HEX: &str =
         "92a134c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9";
     const GET_TRANSACTION_REQ_HEX: &str =
-        "92a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9";
-    const GET_TRANSACTION_RES_HEX: &str = "92a13693a7756e69745f747899d94064386166386635363366323565623036353635316363646430356239373236666432376666396463343065336239633862346432633535666139383139663336d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c4603b472dc456b2db807f13b60920ee0c663405441b3b5e46f93371e40ecbe1a7922034865a4be36812394e7f65b26e626737c125174889888d30a85e131b3a75416cfa361621731853325b8383afd283beaaf244ebd9f86b88d8b275376f428fdb";
+        "93a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9c0";
+    const GET_TRANSACTION_RES_HEX: &str = "93a13693a7756e69745f747899d94064386166386635363366323565623036353635316363646430356239373236666432376666396463343065336239633862346432633535666139383139663336d92e516d59486e45514c64663568374b59626a4650754853526b325350676458724a5746683557363936485066713769cd03e8c408ab82b741e023a412a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea97465726d696e61746593a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc1c40a4f706171756544617461c4603b472dc456b2db807f13b60920ee0c663405441b3b5e46f93371e40ecbe1a7922034865a4be36812394e7f65b26e626737c125174889888d30a85e131b3a75416cfa361621731853325b8383afd283beaaf244ebd9f86b88d8b275376f428fdbc0";
     const GET_CONTRACTS_EVENTS_HEX: &str = "92a2313595c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74c4221220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569ab636f6f6c5f6d6574686f64c403010203";
 
-    const PACKED_HEX: &str = "92a3323535c42792a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9";
+    const PACKED_HEX: &str = "92a3323535c42893a135c42212207787c3d2d765727ec290eaa4dfbad582112641aa98e1c2279e34873a529808d9c0";
 
     fn exception_msg() -> Message {
         Message::Exception(Error::new_ext(ErrorKind::BadNetwork, "error source"))
@@ -254,12 +271,14 @@ mod tests {
     fn get_transaction_req_msg() -> Message {
         Message::GetTransactionRequest {
             hash: Hash::from_hex(HASH_HEX).unwrap(),
+            destination: None,
         }
     }
 
     fn get_transaction_res_msg() -> Message {
         Message::GetTransactionResponse {
             tx: create_test_unit_tx(FUEL_LIMIT),
+            origin: None,
         }
     }
 
@@ -460,6 +479,7 @@ mod tests {
             Message::GetBlockRequest {
                 height: 0,
                 txs: true,
+                destination: None,
             },
             Message::Exception(Error::new_ext(ErrorKind::WasmMachineFault, "fatality")),
             Message::Packed { buf: vec![1, 2, 3] },
@@ -479,6 +499,7 @@ mod tests {
         let org_msg = Message::GetBlockRequest {
             height: 0,
             txs: true,
+            destination: None,
         };
         let buf = rmp_serialize(&org_msg).unwrap();
 

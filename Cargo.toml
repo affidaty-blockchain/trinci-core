@@ -37,7 +37,7 @@ wasmtime = { version = "0.35.1", default-features = false, features = [
     "cranelift",
 ], optional = true }
 # P2P framework
-libp2p = { version = "0.39.1", default-features = false, features = [
+libp2p = { version = "0.43.0", default-features = false, features = [
     "tcp-async-io",
     "mplex",
     "plaintext",
@@ -45,6 +45,7 @@ libp2p = { version = "0.39.1", default-features = false, features = [
     "kad",
     "gossipsub",
     "identify",
+    "request-response",
 ], optional = true }
 # HTTP framework
 tide = { version = "0.16", default-features = false, features = [
