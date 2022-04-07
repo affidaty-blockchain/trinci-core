@@ -31,7 +31,13 @@ Additional labels for pre-release metadata:
 Changed
 * BlockchainSettings structure
 * Test/Production flag
-* improved `is_callable` host_function
+* Improved `is_callable` host_function
+* Improved `p2p` module, introduced reqres layer and reduced gossip messages
+* Added message fields:
+  * GetTransactionRequest: `destination: Option<String>`
+  * GetTransactionresponse: `origin: Option<String>`
+  * GetBlockRequest: `destination: Option<String>`
+  * GetBlockResponse: `origin: Option<String>`
 
 Added
 * `secure_call` host function
@@ -40,6 +46,11 @@ Added
 * Added size limit on transaction that can be executed
 * Fuel consumption
 * is_callable direct wasm call
+* Aligner module
+
+
+Removed
+* Stncronizer removed, now replaced by aligner
 
 0.2.6 - 08-02-2022
 ------------------
