@@ -324,7 +324,8 @@ mod tests {
              _args,
              _seed,
              _events,
-             _initial_fuel| (0, Ok(vec![])),
+             _initial_fuel,
+             _block_timestamp| (0, Ok(vec![])),
         );
         wm.expect_is_callable_call().returning(
             |_db,
@@ -337,13 +338,14 @@ mod tests {
              _args,
              _seed,
              _events,
-             _initial_fuel| {
+             _initial_fuel,
+             _block_timestamp| {
                 let val = if origin == "0" { 0 } else { 1 };
                 (0, Ok(val))
             },
         );
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, &[0, 1, 2])));
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, &[0, 1, 2])));
 
         wm
     }

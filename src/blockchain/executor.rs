@@ -1062,7 +1062,7 @@ mod tests {
 
     use serde_value::{value, Value};
 
-    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
+    const BLOCK_HEX: &str = "929893a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d00c403000102";
 
     const TEST_WASM: &[u8] = include_bytes!("../wm/test.wasm");
 
@@ -1184,8 +1184,8 @@ mod tests {
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call().returning(
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
@@ -1207,9 +1207,10 @@ mod tests {
                         )),
                     ),
                 }
-            });
+            },
+        );
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
@@ -1217,8 +1218,8 @@ mod tests {
     fn create_wm_mock_bulk() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call().returning(
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
@@ -1240,9 +1241,10 @@ mod tests {
                         )),
                     ),
                 }
-            });
+            },
+        );
         wm.expect_app_hash_check()
-            .returning(move |_, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
 
         wm
     }
@@ -1433,7 +1435,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
+            "12204c76c7c1bf84ec8cd759ca013c7c24d5d5b907cc28f8fd0878afb4b8efcf2588"
         );
     }
 
@@ -1633,7 +1635,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
+            "12204c76c7c1bf84ec8cd759ca013c7c24d5d5b907cc28f8fd0878afb4b8efcf2588"
         );
     }
 }

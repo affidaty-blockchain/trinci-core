@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn put_too_large_unit_transaction() {
-        let dispatcher = create_dispatcher(false);
+        let mut dispatcher = create_dispatcher(false);
 
         let mut tx = create_test_unit_tx(FUEL_LIMIT);
 
