@@ -110,7 +110,7 @@ impl<D: Db> Aligner<D> {
             if let Poll::Ready(Some((
                 Message::GetBlockResponse {
                     block,
-                    txs: _,
+                    txs: None,
                     origin,
                 },
                 _res_chan,
@@ -120,7 +120,7 @@ impl<D: Db> Aligner<D> {
                 // are in packed format, need to be deserialized
                 // and the only messages expected are `GetBlockResponse`.
                 debug!(
-                    "[alinger] last block proposal recieved by {} (height {})",
+                    "[aligner] last block proposal recieved by {} (height {})",
                     origin.clone().unwrap(),
                     block.data.height.clone()
                 );
@@ -186,7 +186,9 @@ impl<D: Db> Aligner<D> {
                     } = req
                     {
                         // Check if the block was expected or not
-                        if block.data.height > max_block_height {
+                        if block.data.height > max_block_height
+                            && !self.unexpected_blocks.lock().contains(&req)
+                        {
                             debug!(
                                 "[aligner] block with height grather than 
                                                             alignment height limit recieved, 
@@ -374,7 +376,7 @@ impl<D: Db> Aligner<D> {
                                     self.unexpected_blocks.lock().push(req.clone());
                                 }
                             }
-                            _ => debug!("[alinger] unexpected message"),
+                            _ => debug!("[aligner] unexpected message"),
                         }
                     }
                 } else {
@@ -542,7 +544,6 @@ impl<D: Db> Aligner<D> {
                 for block in sorted_blocks_candidates {
                     let hash: Hash = Hash::from_hex(block.0).unwrap();
                     if !self.blacklist_blocks.lock().contains(&hash) {
-                        debug!("[aligner] added block to sorted");
                         sorted_blocks.push(block);
                     }
                 }
@@ -555,16 +556,20 @@ impl<D: Db> Aligner<D> {
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 {
-                    debug!("[alinger] removing not trusted peers");
+                    debug!("[aligner] removing not trusted peers");
                     let local_last = self.db.read().load_block(u64::MAX).unwrap();
                     let trusted_peers = self.trusted_peers.lock();
-                    for (j, entry) in trusted_peers.iter().enumerate() {
-                        if entry.1 != most_common_block
-                            || (entry.2).data.height < local_last.data.height + 1
+                    let mut helper: Vec<(String, String, Block)> = vec![];
+                    for entry in trusted_peers.iter() {
+                        if entry.1 == most_common_block
+                            && (entry.2).data.height < local_last.data.height + 1
                         {
-                            self.trusted_peers.lock().remove(j);
+                            helper.push(entry.to_owned());
                         }
                     }
+                    std::mem::drop(trusted_peers);
+                    let mut trusted_peers = self.trusted_peers.lock();
+                    *trusted_peers = helper;
                     std::mem::drop(trusted_peers);
                 }
 
@@ -585,7 +590,7 @@ impl<D: Db> Aligner<D> {
                     0
                 };
 
-                debug!("[alinger] requesting last block to random trusted peer");
+                debug!("[aligner] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
                 let peer = &peers.choose(&mut rand::thread_rng());
                 match peer {
@@ -650,6 +655,11 @@ impl<D: Db> Aligner<D> {
                 let empty: Vec<Message> = vec![];
                 *missing_blocks = empty;
 
+                //debug!("unexpected blocks: {}", self.unexpected_blocks.is_locked());
+                let mut unexpected_blocks = self.unexpected_blocks.lock();
+                let empty: Vec<Message> = vec![];
+                *unexpected_blocks = empty;
+
                 //debug!("status: {}", self.status.0.is_poisoned());
                 *self.status.0.lock().unwrap() = true;
                 self.status.1.notify_all();
@@ -665,6 +675,11 @@ impl<D: Db> Aligner<D> {
                 debug!(
                     "[aligner] missing_blocks {}",
                     self.missing_blocks.lock().len()
+                );
+                // It should be 0.
+                debug!(
+                    "[aligner] unexpected blocks {}",
+                    self.unexpected_blocks.lock().len()
                 );
                 // It should be true
                 debug!("[aligner] status {:?}", self.status.0.lock().unwrap());

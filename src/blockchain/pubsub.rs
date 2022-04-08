@@ -195,9 +195,7 @@ impl PubSub {
                         msg_clone = Message::Packed { buf };
                         pack_level -= 1;
                     }
-                    debug!("[pubsub] SEND #######");
                     let res = info_clone.chan.send(msg_clone).await;
-                    debug!("[pubsub] DNES #######");
                     if res.is_err() {
                         debug!("[sub] error publishing to '{}', closing channel", id_clone);
                         info_clone.chan.close();
