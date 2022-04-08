@@ -558,13 +558,13 @@ impl<D: Db> Aligner<D> {
                 {
                     debug!("[aligner] removing not trusted peers");
                     let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                    let trusted_peers = self.trusted_peers.lock();
-                    let mut helper: Vec<(String, String, Block)> = vec![];
-                    for entry in trusted_peers.iter() {
-                        if entry.1 == most_common_block
-                            && (entry.2).data.height < local_last.data.height + 1
+                    let trusted_peers = self.trusted_peers.lock().to_vec();
+                    let mut helper = trusted_peers.to_vec();
+                    for (j, entry) in trusted_peers.iter().enumerate() {
+                        if entry.1 != most_common_block
+                            || (entry.2).data.height < local_last.data.height + 1
                         {
-                            helper.push(entry.to_owned());
+                            helper.remove(j);
                         }
                     }
                     std::mem::drop(trusted_peers);
