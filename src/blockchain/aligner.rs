@@ -92,9 +92,10 @@ impl<D: Db> Aligner<D> {
         }
     }
 
-    fn find_trusted_peers(&self, cx: &mut Context) -> Poll<bool> {
+    fn find_trusted_peers(&self, cx: &mut Context) -> Poll<Option<Vec<(String, String, Block)>>> {
         // Send a `GetBlockRequest` in broadcast to retrieve
         // as many peers as possible in a predetermined time window.
+        let mut collected_peers: Vec<(String, String, Block)> = vec![];
         let msg = Message::GetBlockRequest {
             height: u64::MAX,
             txs: false,
@@ -128,22 +129,20 @@ impl<D: Db> Aligner<D> {
                 let hash = block.hash(HashAlgorithm::Sha256);
                 let hash = hex::encode(hash.as_bytes());
 
-                if !self.trusted_peers.lock().contains(&(
+                if !collected_peers.contains(&(
                     origin.clone().unwrap().to_string(),
                     hash.clone(),
                     block.clone(),
                 )) {
-                    self.trusted_peers
-                        .lock()
-                        .push((origin.unwrap().to_string(), hash, block));
+                    collected_peers.push((origin.unwrap().to_string(), hash, block));
                 }
             }
         }
         debug!("[aligner] peer collection ended");
-        if self.trusted_peers.lock().len() > 0 {
-            std::task::Poll::Ready(true)
+        if collected_peers.len() > 0 {
+            std::task::Poll::Ready(Some(collected_peers))
         } else {
-            std::task::Poll::Ready(false)
+            std::task::Poll::Ready(None)
         }
     }
 
@@ -519,19 +518,21 @@ impl<D: Db> Aligner<D> {
             while collection_time.checked_sub(start.elapsed()).is_some() {}
 
             // Collect trusted peers.
-            let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
-                self.find_trusted_peers(cx)
-            });
+            let future = future::poll_fn(
+                move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
+                    self.find_trusted_peers(cx)
+                },
+            );
 
             let result = future.await;
 
-            if result {
+            if let Some(mut collected_peers) = result {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
                 // (occurencies, height)
                 debug!("[aligner] removing black list blocks");
                 let mut hashmap = HashMap::<String, (i64, u64)>::new();
-                for entry in self.trusted_peers.lock().iter() {
+                for entry in collected_peers.iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
                     counter.1 = entry.2.data.height;
@@ -558,18 +559,15 @@ impl<D: Db> Aligner<D> {
                 {
                     debug!("[aligner] removing not trusted peers");
                     let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                    let trusted_peers = self.trusted_peers.lock().to_vec();
-                    let mut helper = trusted_peers.to_vec();
-                    for (j, entry) in trusted_peers.iter().enumerate() {
+                    for (j, entry) in collected_peers.clone().iter().enumerate() {
                         if entry.1 != most_common_block
                             || (entry.2).data.height < local_last.data.height + 1
                         {
-                            helper.remove(j);
+                            collected_peers.remove(j);
                         }
                     }
-                    std::mem::drop(trusted_peers);
                     let mut trusted_peers = self.trusted_peers.lock();
-                    *trusted_peers = helper;
+                    *trusted_peers = collected_peers;
                     std::mem::drop(trusted_peers);
                 }
 
