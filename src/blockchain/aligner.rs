@@ -139,7 +139,7 @@ impl<D: Db> Aligner<D> {
             }
         }
         debug!("[aligner] peer collection ended");
-        if collected_peers.len() > 0 {
+        if !collected_peers.is_empty() {
             std::task::Poll::Ready(Some(collected_peers))
         } else {
             std::task::Poll::Ready(None)
