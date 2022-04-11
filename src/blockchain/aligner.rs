@@ -47,7 +47,7 @@ const LATEST_WINDOW: usize = 5;
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
-    /// Trusted peers (peer, last block hash).
+    /// Trusted peers (peer, last block proposal hash, last block proposal).
     trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
     /// Missing blocks.
     missing_blocks: Arc<Mutex<Vec<Message>>>,
@@ -526,7 +526,10 @@ impl<D: Db> Aligner<D> {
 
             let result = future.await;
 
-            if let Some(mut collected_peers) = result {
+            debug!("[aligner] acquiring local last");
+            let local_last = self.db.read().load_block(u64::MAX);
+
+            if let (Some(collected_peers), Some(local_last)) = (result, local_last) {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
                 // (occurencies, height)
@@ -557,23 +560,23 @@ impl<D: Db> Aligner<D> {
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 debug!("[aligner] removing not trusted peers");
-                let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                for (j, entry) in collected_peers.clone().iter().enumerate() {
-                    if entry.1 != most_common_block
-                        || (entry.2).data.height < local_last.data.height + 1
+                let mut trusted_peers: Vec<_> = vec![];
+                for entry in collected_peers.clone().iter() {
+                    if !(entry.1 != most_common_block
+                        || (entry.2).data.height < local_last.data.height + 1)
                     {
-                        collected_peers.remove(j);
+                        trusted_peers.push(entry.clone());
                     }
                 }
 
                 debug!("[aligner] trusted peers:");
-                for peer in collected_peers.iter() {
+                for peer in trusted_peers.iter() {
                     debug!("\t\t{}", peer.0);
                 }
                 debug!("==========");
 
                 // Get last block height
-                let max_block_height = if !collected_peers.is_empty() {
+                let max_block_height = if !trusted_peers.is_empty() {
                     collected_peers[0].2.data.height
                 } else {
                     0
@@ -587,7 +590,7 @@ impl<D: Db> Aligner<D> {
                 debug!("[aligner]  moving peers in self.trusted_peers");
                 self.trusted_peers
                     .lock()
-                    .append(&mut collected_peers.to_vec());
+                    .append(&mut trusted_peers.to_vec());
 
                 debug!("[aligner] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
