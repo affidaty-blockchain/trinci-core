@@ -556,37 +556,38 @@ impl<D: Db> Aligner<D> {
                 sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendent).
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
-                {
-                    debug!("[aligner] removing not trusted peers");
-                    let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                    for (j, entry) in collected_peers.clone().iter().enumerate() {
-                        if entry.1 != most_common_block
-                            || (entry.2).data.height < local_last.data.height + 1
-                        {
-                            collected_peers.remove(j);
-                        }
+                debug!("[aligner] removing not trusted peers");
+                let local_last = self.db.read().load_block(u64::MAX).unwrap();
+                for (j, entry) in collected_peers.clone().iter().enumerate() {
+                    if entry.1 != most_common_block
+                        || (entry.2).data.height < local_last.data.height + 1
+                    {
+                        collected_peers.remove(j);
                     }
-                    let mut trusted_peers = self.trusted_peers.lock();
-                    *trusted_peers = collected_peers;
-                    std::mem::drop(trusted_peers);
                 }
 
-                {
-                    debug!("[aligner] trusted peers:");
-                    let trusted_peers = self.trusted_peers.lock();
-                    for peer in trusted_peers.iter() {
-                        debug!("\t\t{}", peer.0);
-                    }
-                    debug!("==========");
-                    std::mem::drop(trusted_peers);
+                debug!("[aligner] trusted peers:");
+                for peer in collected_peers.iter() {
+                    debug!("\t\t{}", peer.0);
                 }
+                debug!("==========");
 
                 // Get last block height
-                let max_block_height = if self.trusted_peers.lock().len() > 0 {
-                    self.trusted_peers.lock()[0].2.data.height
+                let max_block_height = if !collected_peers.is_empty() {
+                    collected_peers[0].2.data.height
                 } else {
                     0
                 };
+
+                debug!(
+                    "[aligner] locking trusted peers: {}",
+                    self.trusted_peers.is_locked()
+                );
+
+                debug!("[aligner]  moving peers in self.trusted_peers");
+                self.trusted_peers
+                    .lock()
+                    .append(&mut collected_peers.to_vec());
 
                 debug!("[aligner] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
