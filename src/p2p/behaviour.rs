@@ -404,6 +404,7 @@ impl Behavior {
                 message,
                 message_id: _,
             } => {
+                debug!("[gossip] message recieved! ####");
                 match self
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
