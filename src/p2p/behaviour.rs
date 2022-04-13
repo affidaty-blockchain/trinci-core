@@ -259,8 +259,6 @@ impl Behavior {
         let gossip_config = GossipsubConfigBuilder::default()
             .validation_mode(ValidationMode::Permissive)
             .max_transmit_size(MAX_TRANSMIT_SIZE)
-            .fanout_ttl(Duration::from_secs(60 * 5))
-            .idle_timeout(Duration::from_secs(60 * 10))
             .build()
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         let mut gossip = Gossipsub::new(privacy, gossip_config)
