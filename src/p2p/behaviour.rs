@@ -48,7 +48,7 @@ use libp2p::{
     },
     Multiaddr, NetworkBehaviour, PeerId,
 };
-use std::{io, iter, str::FromStr};
+use std::{io, iter, str::FromStr, time::Duration};
 use tide::utils::async_trait;
 
 const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
@@ -259,6 +259,8 @@ impl Behavior {
         let gossip_config = GossipsubConfigBuilder::default()
             .validation_mode(ValidationMode::Permissive)
             .max_transmit_size(MAX_TRANSMIT_SIZE)
+            .fanout_ttl(Duration::from_secs(60 * 5))
+            .idle_timeout(Duration::from_secs(60 * 10))
             .build()
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         let mut gossip = Gossipsub::new(privacy, gossip_config)
@@ -370,7 +372,7 @@ impl Behavior {
             MdnsEvent::Expired(nodes) => {
                 for (peer, addr) in nodes {
                     debug!("[mdns] expired: {} @ {}", peer, addr);
-                    //self.gossip.remove_explicit_peer(&peer);
+                    self.gossip.remove_explicit_peer(&peer);
                     self.reqres.remove_address(&peer, &addr);
                 }
             }
