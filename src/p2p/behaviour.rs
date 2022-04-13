@@ -48,7 +48,7 @@ use libp2p::{
     },
     Multiaddr, NetworkBehaviour, PeerId,
 };
-use std::{io, iter, str::FromStr, time::Duration};
+use std::{io, iter, str::FromStr};
 use tide::utils::async_trait;
 
 const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
