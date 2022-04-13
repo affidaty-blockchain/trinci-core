@@ -122,8 +122,6 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
 
     let mut listening = false;
 
-    swarm.behaviour_mut().gossip.subscribe(&topic).unwrap();
-
     let topic = swarm.behaviour().gossip.topics().next().unwrap();
     let topic = IdentTopic::new(topic.to_string());
 
@@ -199,7 +197,13 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 }
                             }
                             Message::GetTransactionResponse { ref origin, .. } => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+
                                 debug!("[p2p] SENDING TX IN GOSSIP #######");
+
                                 if origin.is_none() {
                                     debug!("[p2p] origin is none ######");
                                     let buf = rmp_serialize(&msg).unwrap();

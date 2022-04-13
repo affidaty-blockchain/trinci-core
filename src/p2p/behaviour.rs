@@ -261,8 +261,15 @@ impl Behavior {
             .max_transmit_size(MAX_TRANSMIT_SIZE)
             .build()
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
-        let gossip = Gossipsub::new(privacy, gossip_config)
+        let mut gossip = Gossipsub::new(privacy, gossip_config)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+
+        //gossip
+        //    .subscribe(&topic)
+        //    .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
+
+        gossip.subscribe(&topic).unwrap();
+        debug!("[gossip] subscribed to {}", topic);
 
         Ok(gossip)
     }
@@ -339,6 +346,11 @@ impl Behavior {
                             },
                             Err(_) => warn!("blockchain service seems down"),
                         }
+                    }
+
+                    debug!("[#gossip#] (adding peer) known peers ");
+                    for peer in self.gossip.all_peers() {
+                        debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                     }
                 }
             }
