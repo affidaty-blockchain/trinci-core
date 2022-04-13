@@ -370,7 +370,7 @@ impl Behavior {
             MdnsEvent::Expired(nodes) => {
                 for (peer, addr) in nodes {
                     debug!("[mdns] expired: {} @ {}", peer, addr);
-                    self.gossip.remove_explicit_peer(&peer);
+                    //self.gossip.remove_explicit_peer(&peer);
                     self.reqres.remove_address(&peer, &addr);
                 }
             }
