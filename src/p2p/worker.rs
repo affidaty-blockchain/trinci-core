@@ -122,6 +122,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
 
     let mut listening = false;
 
+    swarm.behaviour_mut().gossip.subscribe(&topic).unwrap();
+
     let topic = swarm.behaviour().gossip.topics().next().unwrap();
     let topic = IdentTopic::new(topic.to_string());
 

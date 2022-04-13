@@ -261,12 +261,8 @@ impl Behavior {
             .max_transmit_size(MAX_TRANSMIT_SIZE)
             .build()
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
-        let mut gossip = Gossipsub::new(privacy, gossip_config)
+        let gossip = Gossipsub::new(privacy, gossip_config)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
-
-        gossip
-            .subscribe(&topic)
-            .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
         Ok(gossip)
     }
