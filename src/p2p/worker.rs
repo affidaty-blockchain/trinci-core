@@ -24,7 +24,7 @@ use crate::{
 use futures::{future, prelude::*};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
-    gossipsub::{error::PublishError, IdentTopic},
+    gossipsub::IdentTopic,
     identity::Keypair,
     mplex::MplexConfig,
     plaintext::PlainText2Config,
@@ -156,14 +156,11 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         // send in broadcast (gossip)
                                         let behavior = swarm.behaviour_mut();
                                         let buf = rmp_serialize(&msg).unwrap();
+                                        debug!("####### gossip topic {} #######", topic.clone());
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
-                                            if !matches!(err, PublishError::InsufficientPeers) {
-                                                error!("publish error: {:?}", err);
-                                            } else {
-                                                error!("####gosip error##### {}", err);
-                                            }
+                                            error!("[gossip] publish error {}", err);
                                         }
                                     }
                                 }
@@ -185,14 +182,11 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         // send in broadcast (gossip)
                                         let behavior = swarm.behaviour_mut();
                                         let buf = rmp_serialize(&msg).unwrap();
+                                        debug!("####### gossip topic {} #######", topic.clone());
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
-                                            if !matches!(err, PublishError::InsufficientPeers) {
-                                                error!("publish error: {:?}", err);
-                                            } else {
-                                                error!("####gosip error##### {}", err);
-                                            }
+                                            error!("[gossip] publish error {}", err);
                                         }
                                     }
                                 }
@@ -202,12 +196,9 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 if origin.is_none() {
                                     debug!("[p2p] origin is none ######");
                                     let buf = rmp_serialize(&msg).unwrap();
+                                    debug!("####### gossip topic {} #######", topic.clone());
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                        if !matches!(err, PublishError::InsufficientPeers) {
-                                            error!("publish error: {:?}", err);
-                                        } else {
-                                            error!("####gosip error##### {}", err);
-                                        }
+                                        error!("[gossip] publish error {}", err);
                                     }
                                 }
                             }
@@ -215,12 +206,9 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 // check if is a message to propagate in gossip
                                 if origin.is_none() {
                                     let buf = rmp_serialize(&msg).unwrap();
+                                    debug!("####### gossip topic {} #######", topic.clone());
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                        if !matches!(err, PublishError::InsufficientPeers) {
-                                            error!("publish error: {:?}", err);
-                                        } else {
-                                            error!("####gosip error##### {}", err);
-                                        }
+                                        error!("[gossip] publish error {}", err);
                                     }
                                 }
                             }
