@@ -247,7 +247,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                         match event {
                             crate::p2p::behaviour::ComposedEvent::Identify(event) => {
                                 debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
+                                for peer in swarm.behaviour().gossip.all_peers() {
                                     debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                                 }
                                 debug!("======");
@@ -255,7 +255,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             }
                             crate::p2p::behaviour::ComposedEvent::Kademlia(event) => {
                                 debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
+                                for peer in swarm.behaviour().gossip.all_peers() {
                                     debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                                 }
                                 debug!("======");
@@ -263,7 +263,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             }
                             crate::p2p::behaviour::ComposedEvent::Gossip(event) => {
                                 debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
+                                for peer in swarm.behaviour().gossip.all_peers() {
                                     debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                                 }
                                 debug!("======");
@@ -271,7 +271,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             }
                             crate::p2p::behaviour::ComposedEvent::Mdns(event) => {
                                 debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
+                                for peer in swarm.behaviour().gossip.all_peers() {
                                     debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                                 }
                                 debug!("======");
@@ -279,7 +279,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                             }
                             crate::p2p::behaviour::ComposedEvent::ReqRes(event) => {
                                 debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
+                                for peer in swarm.behaviour().gossip.all_peers() {
                                     debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
                                 }
                                 debug!("======");
