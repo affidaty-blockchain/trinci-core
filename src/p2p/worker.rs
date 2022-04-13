@@ -122,10 +122,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
 
     let mut listening = false;
 
-    // DEBUG
-    for topic in swarm.behaviour_mut().gossip.topics() {
-        debug!("########### NODE TOPIC! {}", topic);
-    }
+    let topic = swarm.behaviour().gossip.topics().next().unwrap();
+    let topic = IdentTopic::new(topic.to_string());
 
     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
         loop {
