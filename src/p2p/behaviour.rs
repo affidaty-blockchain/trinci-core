@@ -308,43 +308,48 @@ impl Behavior {
     pub fn identify_event_handler(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received { peer_id, info } => {
-                if info.protocol_version == self.network_name {
-                    self.gossip.add_explicit_peer(&peer_id);
-                    for addr in info.listen_addrs {
-                        info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
-                        self.kad.add_address(&peer_id, addr.clone());
-                        info!(
-                            "[ident] adding {} to req-res routing table @ {}",
-                            peer_id, addr
-                        );
-                        self.reqres.add_address(&peer_id, addr);
+                //if info.protocol_version == self.network_name {
+                debug!(
+                    "identified peer PROTOCOL VERSION: {}",
+                    info.protocol_version
+                );
+                debug!("local peer NETWORK NAME: {}", info.protocol_version);
+                self.gossip.add_explicit_peer(&peer_id);
+                for addr in info.listen_addrs {
+                    info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                    self.kad.add_address(&peer_id, addr.clone());
+                    info!(
+                        "[ident] adding {} to req-res routing table @ {}",
+                        peer_id, addr
+                    );
+                    self.reqres.add_address(&peer_id, addr);
 
-                        // Send last block to the new known peer.
-                        let last_block_req_msg = Message::GetBlockRequest {
-                            height: u64::MAX,
-                            txs: false,
-                            destination: Some(peer_id.clone().to_string()),
-                        };
+                    // Send last block to the new known peer.
+                    let last_block_req_msg = Message::GetBlockRequest {
+                        height: u64::MAX,
+                        txs: false,
+                        destination: Some(peer_id.clone().to_string()),
+                    };
 
-                        match self.bc_chan.send_sync(last_block_req_msg) {
-                            Ok(res_chan) => match res_chan.recv_sync() {
-                                Ok(message) => {
-                                    if let Message::GetBlockResponse { .. } = message {
-                                        let last_block_message =
-                                            ReqUnicastMessage(rmp_serialize(&message).unwrap());
-                                        self.reqres.send_request(&peer_id, last_block_message);
-                                        debug!(
-                                            "[ident] sending to new peer {} last local block",
-                                            peer_id.to_string()
-                                        );
-                                    }
+                    match self.bc_chan.send_sync(last_block_req_msg) {
+                        Ok(res_chan) => match res_chan.recv_sync() {
+                            Ok(message) => {
+                                if let Message::GetBlockResponse { .. } = message {
+                                    let last_block_message =
+                                        ReqUnicastMessage(rmp_serialize(&message).unwrap());
+                                    self.reqres.send_request(&peer_id, last_block_message);
+                                    debug!(
+                                        "[ident] sending to new peer {} last local block",
+                                        peer_id.to_string()
+                                    );
                                 }
-                                Err(_) => warn!("blockchain service seems down"),
-                            },
+                            }
                             Err(_) => warn!("blockchain service seems down"),
-                        }
+                        },
+                        Err(_) => warn!("blockchain service seems down"),
                     }
                 }
+                //}
             }
             _ => info!("[ident] event: {:?}", event),
         }
