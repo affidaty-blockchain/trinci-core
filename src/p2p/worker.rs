@@ -246,18 +246,43 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                     if let libp2p::swarm::SwarmEvent::Behaviour(event) = event {
                         match event {
                             crate::p2p::behaviour::ComposedEvent::Identify(event) => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+                                debug!("======");
                                 swarm.behaviour_mut().identify_event_handler(event)
                             }
                             crate::p2p::behaviour::ComposedEvent::Kademlia(event) => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+                                debug!("======");
                                 swarm.behaviour_mut().kad_event_handler(event)
                             }
                             crate::p2p::behaviour::ComposedEvent::Gossip(event) => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+                                debug!("======");
                                 swarm.behaviour_mut().gossip_event_handler(event)
                             }
                             crate::p2p::behaviour::ComposedEvent::Mdns(event) => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+                                debug!("======");
                                 swarm.behaviour_mut().mdsn_event_handler(event)
                             }
                             crate::p2p::behaviour::ComposedEvent::ReqRes(event) => {
+                                debug!("[#gossip#] known peers");
+                                for peer in behavior.gossip.all_peers() {
+                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
+                                }
+                                debug!("======");
                                 swarm.behaviour_mut().reqres_event_handler(event)
                             }
                         }
