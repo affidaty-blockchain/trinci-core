@@ -572,7 +572,23 @@ impl Behavior {
                             // from now on if it has to ask for blocks and block it asks to the trusted peers
                             match self.bc_chan.send_sync(msg) {
                                 Ok(_) => {
-                                    debug!("[req-res](req) block submited to blockchain service")
+                                    debug!("[req-res](req) block submited to blockchain service");
+                                    let buf = rmp_serialize(&Message::Ack).unwrap();
+                                    if self
+                                        .reqres
+                                        .send_response(channel, ResUnicastMessage(buf))
+                                        .is_ok()
+                                    {
+                                        debug!(
+                                            "[req-res] message (res) {} containing ACK",
+                                            request_id.to_string(),
+                                        );
+                                    } else {
+                                        debug!(
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
+                                                request_id.to_string(),
+                                            );
+                                    }
                                 }
                                 Err(_err) => {
                                     warn!("blockchain service seems down");
@@ -643,6 +659,9 @@ impl Behavior {
                                 warn!("blockchain service seems down");
                             }
                         },
+                        Message::Ack => {
+                            debug!("[req-res](res) recieved ACK from {}", peer.to_string())
+                        }
                         _ => (),
                     }
                 }
@@ -658,7 +677,6 @@ impl Behavior {
                     request_id.to_string(),
                     error.to_string()
                 );
-                self.gossip.add_explicit_peer(&peer);
             }
             RequestResponseEvent::InboundFailure {
                 peer,
@@ -671,7 +689,6 @@ impl Behavior {
                     peer.to_string(),
                     error.to_string()
                 );
-                self.gossip.add_explicit_peer(&peer);
             }
             RequestResponseEvent::ResponseSent { peer, request_id } => {
                 debug!(

@@ -173,6 +173,9 @@ pub enum Message {
     /// Send block info to aligner
     #[serde(rename = "22")]
     AlignBlockInfo { peer_id: String, block: Block },
+    /// Acknowledgment that a req message has been recieved.
+    #[serde(rename = "253")]
+    Ack,
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
