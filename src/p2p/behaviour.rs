@@ -441,16 +441,16 @@ impl Behavior {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                debug!("[gossip] subscribed peer-id: {}, topic: {}", peer_id, topic);
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 debug!(
-                    "[pubsub] unsubscribed peer-id: {}, topic: {}",
+                    "[gossip] unsubscribed peer-id: {}, topic: {}",
                     peer_id, topic
                 );
             }
             GossipsubEvent::GossipsubNotSupported { peer_id } => {
-                debug!("[pubsub] peer-id: {} don't support pubsub", peer_id);
+                debug!("[gossip] peer-id: {} don't support pubsub", peer_id);
             }
         }
     }

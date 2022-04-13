@@ -161,6 +161,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         {
                                             if !matches!(err, PublishError::InsufficientPeers) {
                                                 error!("publish error: {:?}", err);
+                                            } else {
+                                                error!("####gosip error##### {}", err);
                                             }
                                         }
                                     }
@@ -188,6 +190,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         {
                                             if !matches!(err, PublishError::InsufficientPeers) {
                                                 error!("publish error: {:?}", err);
+                                            } else {
+                                                error!("####gosip error##### {}", err);
                                             }
                                         }
                                     }
@@ -201,6 +205,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
                                         if !matches!(err, PublishError::InsufficientPeers) {
                                             error!("publish error: {:?}", err);
+                                        } else {
+                                            error!("####gosip error##### {}", err);
                                         }
                                     }
                                 }
@@ -212,6 +218,8 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
                                         if !matches!(err, PublishError::InsufficientPeers) {
                                             error!("publish error: {:?}", err);
+                                        } else {
+                                            error!("####gosip error##### {}", err);
                                         }
                                     }
                                 }
