@@ -654,10 +654,11 @@ impl Behavior {
             } => {
                 debug!(
                     "[req-res] {} failed {}: {}",
-                    peer.to_string(),
+                    peer.clone().to_string(),
                     request_id.to_string(),
                     error.to_string()
                 );
+                self.gossip.add_explicit_peer(&peer);
             }
             RequestResponseEvent::InboundFailure {
                 peer,
@@ -670,6 +671,7 @@ impl Behavior {
                     peer.to_string(),
                     error.to_string()
                 );
+                self.gossip.add_explicit_peer(&peer);
             }
             RequestResponseEvent::ResponseSent { peer, request_id } => {
                 debug!(
