@@ -97,8 +97,6 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
     let topic: String = NODE_TOPIC.to_string();
     let topic = IdentTopic::new(topic);
 
-    debug!("[p2p] TOPIC: {} #########", topic);
-
     let nw_name: String = config.network.lock().clone();
 
     let transport = build_transport(&keypair);
@@ -161,7 +159,6 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         // send in broadcast (gossip)
                                         let behavior = swarm.behaviour_mut();
                                         let buf = rmp_serialize(&msg).unwrap();
-                                        debug!("####### gossip topic {} #######", topic.clone());
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
@@ -187,7 +184,6 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         // send in broadcast (gossip)
                                         let behavior = swarm.behaviour_mut();
                                         let buf = rmp_serialize(&msg).unwrap();
-                                        debug!("####### gossip topic {} #######", topic.clone());
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
@@ -197,15 +193,9 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 }
                             }
                             Message::GetTransactionResponse { ref origin, .. } => {
-                                debug!("[#gossip#] known peers");
-                                for peer in behavior.gossip.all_peers() {
-                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
-                                }
-
-                                debug!("[p2p] SENDING TX IN GOSSIP #######");
+                                debug!("[p2p] propagating transaction in gossip");
 
                                 if origin.is_none() {
-                                    debug!("[p2p] origin is none ######");
                                     let buf = rmp_serialize(&msg).unwrap();
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
                                         error!("[gossip] publish error {}", err);
@@ -256,11 +246,6 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 swarm.behaviour_mut().mdsn_event_handler(event)
                             }
                             crate::p2p::behaviour::ComposedEvent::ReqRes(event) => {
-                                debug!("[#gossip#] known peers");
-                                for peer in swarm.behaviour().gossip.all_peers() {
-                                    debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
-                                }
-                                debug!("======");
                                 swarm.behaviour_mut().reqres_event_handler(event)
                             }
                         }

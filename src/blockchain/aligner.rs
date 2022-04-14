@@ -623,7 +623,6 @@ impl<D: Db> Aligner<D> {
                                 //       to the least recenf (last array element).
                                 debug!("[aligner] submitting alignment blocks to pool service");
                                 self.update_pool();
-                                debug!("[aligner] pool updated");
                                 // Wait untill all blocks are executed.
                                 let mut executed_block =
                                     self.db.read().load_block(u64::MAX).unwrap();

@@ -240,7 +240,6 @@ impl Behavior {
             let boot_addr = Multiaddr::from_str(boot_addr)
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
 
-            debug!("[kad] ADDING BOOT PEER");
             kad.add_address(&boot_peer, boot_addr);
 
             //kad.bootstrap().unwrap();
@@ -264,11 +263,10 @@ impl Behavior {
         let mut gossip = Gossipsub::new(privacy, gossip_config)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
-        //gossip
-        //    .subscribe(&topic)
-        //    .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
+        gossip
+            .subscribe(&topic)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
-        gossip.subscribe(&topic).unwrap();
         debug!("[gossip] subscribed to {}", topic);
 
         Ok(gossip)
@@ -347,11 +345,6 @@ impl Behavior {
                             Err(_) => warn!("blockchain service seems down"),
                         }
                     }
-
-                    debug!("[#gossip#] (adding peer) known peers ");
-                    for peer in self.gossip.all_peers() {
-                        debug!("[#gossip#] {}:\n{:?}", peer.0, peer.1);
-                    }
                 }
             }
             _ => info!("[ident] event: {:?}", event),
@@ -412,7 +405,6 @@ impl Behavior {
                 message,
                 message_id: _,
             } => {
-                debug!("[gossip] message recieved! ####");
                 match self
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
