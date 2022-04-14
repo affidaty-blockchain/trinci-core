@@ -65,7 +65,7 @@ pub trait Wm: Send + 'static {
     /// Execute the smart contract `is_callable` method
     /// It is required to pass the database to contextualize the operations.
     #[allow(clippy::too_many_arguments)]
-    fn is_callable_call(
+    fn callable_call(
         &mut self,
         db: &mut dyn DbFork,
         depth: u16,

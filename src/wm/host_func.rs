@@ -136,7 +136,7 @@ pub fn is_callable(
                 ctx.seed.clone(),
                 ctx.block_timestamp
             ));
-            wm.is_callable_call(
+            wm.callable_call(
                 ctx.db,
                 ctx.depth + 1,
                 ctx.network,
@@ -327,7 +327,7 @@ mod tests {
              _initial_fuel,
              _block_timestamp| (0, Ok(vec![])),
         );
-        wm.expect_is_callable_call().returning(
+        wm.expect_callable_call().returning(
             |_db,
              _depth,
              _network,
