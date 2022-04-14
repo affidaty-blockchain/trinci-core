@@ -968,7 +968,7 @@ impl Wm for WmLocal {
         app_hash
     }
 
-    fn is_callable_call(
+    fn callable_call(
         &mut self,
         db: &mut dyn DbFork,
         depth: u16,
@@ -1182,7 +1182,7 @@ mod tests {
             method: &str,
             app_hash: Hash,
         ) -> (u64, Result<i32>) {
-            self.is_callable_call(
+            self.callable_call(
                 db,
                 0,
                 "skynet",
