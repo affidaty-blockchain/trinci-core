@@ -240,7 +240,6 @@ impl Behavior {
             let boot_addr = Multiaddr::from_str(boot_addr)
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
 
-            debug!("[kad] ADDING BOOT PEER");
             kad.add_address(&boot_peer, boot_addr);
 
             //kad.bootstrap().unwrap();
@@ -267,6 +266,8 @@ impl Behavior {
         gossip
             .subscribe(&topic)
             .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
+
+        debug!("[gossip] subscribed to {}", topic);
 
         Ok(gossip)
     }
@@ -440,16 +441,16 @@ impl Behavior {
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                debug!("[gossip] subscribed peer-id: {}, topic: {}", peer_id, topic);
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 debug!(
-                    "[pubsub] unsubscribed peer-id: {}, topic: {}",
+                    "[gossip] unsubscribed peer-id: {}, topic: {}",
                     peer_id, topic
                 );
             }
             GossipsubEvent::GossipsubNotSupported { peer_id } => {
-                debug!("[pubsub] peer-id: {} don't support pubsub", peer_id);
+                debug!("[gossip] peer-id: {} don't support pubsub", peer_id);
             }
         }
     }
@@ -561,7 +562,23 @@ impl Behavior {
                             // from now on if it has to ask for blocks and block it asks to the trusted peers
                             match self.bc_chan.send_sync(msg) {
                                 Ok(_) => {
-                                    debug!("[req-res](req) block submited to blockchain service")
+                                    debug!("[req-res](req) block submited to blockchain service");
+                                    let buf = rmp_serialize(&Message::Ack).unwrap();
+                                    if self
+                                        .reqres
+                                        .send_response(channel, ResUnicastMessage(buf))
+                                        .is_ok()
+                                    {
+                                        debug!(
+                                            "[req-res] message (res) {} containing ACK",
+                                            request_id.to_string(),
+                                        );
+                                    } else {
+                                        debug!(
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
+                                                request_id.to_string(),
+                                            );
+                                    }
                                 }
                                 Err(_err) => {
                                     warn!("blockchain service seems down");
@@ -632,6 +649,9 @@ impl Behavior {
                                 warn!("blockchain service seems down");
                             }
                         },
+                        Message::Ack => {
+                            debug!("[req-res](res) recieved ACK from {}", peer.to_string())
+                        }
                         _ => (),
                     }
                 }
@@ -643,7 +663,7 @@ impl Behavior {
             } => {
                 debug!(
                     "[req-res] {} failed {}: {}",
-                    peer.to_string(),
+                    peer.clone().to_string(),
                     request_id.to_string(),
                     error.to_string()
                 );

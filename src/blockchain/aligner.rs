@@ -47,7 +47,7 @@ const LATEST_WINDOW: usize = 5;
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
-    /// Trusted peers (peer, last block hash).
+    /// Trusted peers (peer, last block proposal hash, last block proposal).
     trusted_peers: Arc<Mutex<Vec<(String, String, Block)>>>,
     /// Missing blocks.
     missing_blocks: Arc<Mutex<Vec<Message>>>,
@@ -92,9 +92,10 @@ impl<D: Db> Aligner<D> {
         }
     }
 
-    fn find_trusted_peers(&self, cx: &mut Context) -> Poll<bool> {
+    fn find_trusted_peers(&self, cx: &mut Context) -> Poll<Option<Vec<(String, String, Block)>>> {
         // Send a `GetBlockRequest` in broadcast to retrieve
         // as many peers as possible in a predetermined time window.
+        let mut collected_peers: Vec<(String, String, Block)> = vec![];
         let msg = Message::GetBlockRequest {
             height: u64::MAX,
             txs: false,
@@ -110,7 +111,7 @@ impl<D: Db> Aligner<D> {
             if let Poll::Ready(Some((
                 Message::GetBlockResponse {
                     block,
-                    txs: _,
+                    txs: None,
                     origin,
                 },
                 _res_chan,
@@ -120,7 +121,7 @@ impl<D: Db> Aligner<D> {
                 // are in packed format, need to be deserialized
                 // and the only messages expected are `GetBlockResponse`.
                 debug!(
-                    "[alinger] last block proposal recieved by {} (height {})",
+                    "[aligner] last block proposal recieved by {} (height {})",
                     origin.clone().unwrap(),
                     block.data.height.clone()
                 );
@@ -128,22 +129,20 @@ impl<D: Db> Aligner<D> {
                 let hash = block.hash(HashAlgorithm::Sha256);
                 let hash = hex::encode(hash.as_bytes());
 
-                if !self.trusted_peers.lock().contains(&(
+                if !collected_peers.contains(&(
                     origin.clone().unwrap().to_string(),
                     hash.clone(),
                     block.clone(),
                 )) {
-                    self.trusted_peers
-                        .lock()
-                        .push((origin.unwrap().to_string(), hash, block));
+                    collected_peers.push((origin.unwrap().to_string(), hash, block));
                 }
             }
         }
         debug!("[aligner] peer collection ended");
-        if self.trusted_peers.lock().len() > 0 {
-            std::task::Poll::Ready(true)
+        if !collected_peers.is_empty() {
+            std::task::Poll::Ready(Some(collected_peers))
         } else {
-            std::task::Poll::Ready(false)
+            std::task::Poll::Ready(None)
         }
     }
 
@@ -186,7 +185,9 @@ impl<D: Db> Aligner<D> {
                     } = req
                     {
                         // Check if the block was expected or not
-                        if block.data.height > max_block_height {
+                        if block.data.height > max_block_height
+                            && !self.unexpected_blocks.lock().contains(&req)
+                        {
                             debug!(
                                 "[aligner] block with height grather than 
                                                             alignment height limit recieved, 
@@ -374,7 +375,7 @@ impl<D: Db> Aligner<D> {
                                     self.unexpected_blocks.lock().push(req.clone());
                                 }
                             }
-                            _ => debug!("[alinger] unexpected message"),
+                            _ => debug!("[aligner] unexpected message"),
                         }
                     }
                 } else {
@@ -517,19 +518,24 @@ impl<D: Db> Aligner<D> {
             while collection_time.checked_sub(start.elapsed()).is_some() {}
 
             // Collect trusted peers.
-            let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
-                self.find_trusted_peers(cx)
-            });
+            let future = future::poll_fn(
+                move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
+                    self.find_trusted_peers(cx)
+                },
+            );
 
             let result = future.await;
 
-            if result {
+            debug!("[aligner] acquiring local last");
+            let local_last = self.db.read().load_block(u64::MAX);
+
+            if let (Some(collected_peers), Some(local_last)) = (result, local_last) {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
                 // (occurencies, height)
                 debug!("[aligner] removing black list blocks");
                 let mut hashmap = HashMap::<String, (i64, u64)>::new();
-                for entry in self.trusted_peers.lock().iter() {
+                for entry in collected_peers.iter() {
                     let counter = hashmap.entry(entry.1.clone()).or_default();
                     counter.0 += 1;
                     counter.1 = entry.2.data.height;
@@ -542,7 +548,6 @@ impl<D: Db> Aligner<D> {
                 for block in sorted_blocks_candidates {
                     let hash: Hash = Hash::from_hex(block.0).unwrap();
                     if !self.blacklist_blocks.lock().contains(&hash) {
-                        debug!("[aligner] added block to sorted");
                         sorted_blocks.push(block);
                     }
                 }
@@ -554,38 +559,40 @@ impl<D: Db> Aligner<D> {
                 sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendent).
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
-                {
-                    debug!("[alinger] removing not trusted peers");
-                    let local_last = self.db.read().load_block(u64::MAX).unwrap();
-                    let trusted_peers = self.trusted_peers.lock();
-                    for (j, entry) in trusted_peers.iter().enumerate() {
-                        if entry.1 != most_common_block
-                            || (entry.2).data.height < local_last.data.height + 1
-                        {
-                            self.trusted_peers.lock().remove(j);
-                        }
+                debug!("[aligner] removing not trusted peers");
+                let mut trusted_peers: Vec<_> = vec![];
+                for entry in collected_peers.clone().iter() {
+                    if !(entry.1 != most_common_block
+                        || (entry.2).data.height < local_last.data.height + 1)
+                    {
+                        trusted_peers.push(entry.clone());
                     }
-                    std::mem::drop(trusted_peers);
                 }
 
-                {
-                    debug!("[aligner] trusted peers:");
-                    let trusted_peers = self.trusted_peers.lock();
-                    for peer in trusted_peers.iter() {
-                        debug!("\t\t{}", peer.0);
-                    }
-                    debug!("==========");
-                    std::mem::drop(trusted_peers);
+                debug!("[aligner] trusted peers:");
+                for peer in trusted_peers.iter() {
+                    debug!("\t\t{}", peer.0);
                 }
+                debug!("==========");
 
                 // Get last block height
-                let max_block_height = if self.trusted_peers.lock().len() > 0 {
-                    self.trusted_peers.lock()[0].2.data.height
+                let max_block_height = if !trusted_peers.is_empty() {
+                    collected_peers[0].2.data.height
                 } else {
                     0
                 };
 
-                debug!("[alinger] requesting last block to random trusted peer");
+                debug!(
+                    "[aligner] locking trusted peers: {}",
+                    self.trusted_peers.is_locked()
+                );
+
+                debug!("[aligner]  moving peers in self.trusted_peers");
+                self.trusted_peers
+                    .lock()
+                    .append(&mut trusted_peers.to_vec());
+
+                debug!("[aligner] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
                 let peer = &peers.choose(&mut rand::thread_rng());
                 match peer {
@@ -616,7 +623,6 @@ impl<D: Db> Aligner<D> {
                                 //       to the least recenf (last array element).
                                 debug!("[aligner] submitting alignment blocks to pool service");
                                 self.update_pool();
-                                debug!("[aligner] pool updated");
                                 // Wait untill all blocks are executed.
                                 let mut executed_block =
                                     self.db.read().load_block(u64::MAX).unwrap();
@@ -650,6 +656,11 @@ impl<D: Db> Aligner<D> {
                 let empty: Vec<Message> = vec![];
                 *missing_blocks = empty;
 
+                //debug!("unexpected blocks: {}", self.unexpected_blocks.is_locked());
+                let mut unexpected_blocks = self.unexpected_blocks.lock();
+                let empty: Vec<Message> = vec![];
+                *unexpected_blocks = empty;
+
                 //debug!("status: {}", self.status.0.is_poisoned());
                 *self.status.0.lock().unwrap() = true;
                 self.status.1.notify_all();
@@ -665,6 +676,11 @@ impl<D: Db> Aligner<D> {
                 debug!(
                     "[aligner] missing_blocks {}",
                     self.missing_blocks.lock().len()
+                );
+                // It should be 0.
+                debug!(
+                    "[aligner] unexpected blocks {}",
+                    self.unexpected_blocks.lock().len()
                 );
                 // It should be true
                 debug!("[aligner] status {:?}", self.status.0.lock().unwrap());

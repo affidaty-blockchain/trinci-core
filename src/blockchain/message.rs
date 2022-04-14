@@ -173,6 +173,11 @@ pub enum Message {
     /// Send block info to aligner
     #[serde(rename = "22")]
     AlignBlockInfo { peer_id: String, block: Block },
+    /// Acknowledgment message for reqres,
+    /// it means that a req message
+    /// has been recieved.
+    #[serde(rename = "253")]
+    Ack,
     /// Stop blockchain service.
     #[serde(rename = "254")]
     Stop,
@@ -401,6 +406,8 @@ mod tests {
         let msg = get_transaction_req_msg();
 
         let buf = rmp_serialize(&msg).unwrap();
+
+        //println!("{}", hex::encode(&buf));
 
         assert_eq!(hex::encode(&buf), GET_TRANSACTION_REQ_HEX);
     }

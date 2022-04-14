@@ -130,41 +130,41 @@ impl<D: Db> Dispatcher<D> {
         debug!("[PTI] Received transaction: {}", hex::encode(hash));
 
         // Check the network.
-        debug!("LOCAL: {}", self.config.lock().network);
-        debug!("TX: {}", tx.get_network());
+        //debug!("LOCAL: {}", self.config.lock().network);
+        //debug!("TX: {}", tx.get_network());
 
         if self.config.lock().network != tx.get_network() {
-            debug!("[PTI] NW ko");
+            //debug!("[PTI] NW KO");
             return Err(ErrorKind::BadNetwork.into());
         }
 
-        debug!("[PTI] NW ok");
+        //debug!("[PTI] NW OK");
 
         // Check if already present in db.
         if self.db.read().contains_transaction(&hash) {
-            debug!("[PTI] Present in DB (KO)");
+            //debug!("[PTI] Present in DB (KO)");
             return Err(ErrorKind::DuplicatedConfirmedTx.into());
         }
 
-        debug!("[PTI] Not present in DB (OK)");
+        //debug!("[PTI] Not present in DB (OK)");
 
         let mut pool = self.pool.write();
         match pool.txs.get_mut(&hash) {
             None => {
-                debug!("[PTI] TX added to pools");
+                //debug!("[PTI] TX added to pools");
                 pool.txs.insert(hash, Some(tx));
                 pool.unconfirmed.push(hash);
             }
             Some(tx_ref @ None) => {
-                debug!("[PTI] ???");
+                //debug!("[PTI] ???");
                 *tx_ref = Some(tx);
             }
             Some(Some(_)) => {
                 return if pool.unconfirmed.contains(&hash) {
-                    debug!("[PTI] Present in DB unconf (KO)");
+                    //debug!("[PTI] Present in DB unconf (KO)");
                     Err(ErrorKind::DuplicatedUnconfirmedTx.into())
                 } else {
-                    debug!("[PTI] Present in DB conf (KO)");
+                    //debug!("[PTI] Present in DB conf (KO)");
                     Err(ErrorKind::DuplicatedConfirmedTx.into())
                 };
             }
@@ -189,7 +189,6 @@ impl<D: Db> Dispatcher<D> {
 
     fn put_transaction_handler(&self, tx: Transaction) -> Message {
         let result = self.put_transaction_internal(tx.clone());
-        debug!("[dispatcher] PTI DONE, to propagate");
         match result {
             Ok(hash) => {
                 debug!("[dispatcher] PTI response OK");
@@ -230,7 +229,6 @@ impl<D: Db> Dispatcher<D> {
 
     fn get_block_handler(&self, height: u64, txs: bool) -> Message {
         let opt = self.db.read().load_block(height);
-        debug!("GETBLOCKREQ\theight: {}\ttxs: {}", height, txs);
         match opt {
             Some(block) => {
                 let blk_txs = if txs {
@@ -238,7 +236,6 @@ impl<D: Db> Dispatcher<D> {
                 } else {
                     None
                 };
-                debug!("GETBLOCKREQ response send\ttxs: {}", blk_txs.is_some());
                 Message::GetBlockResponse {
                     block,
                     txs: blk_txs,
@@ -272,7 +269,10 @@ impl<D: Db> Dispatcher<D> {
     #[allow(clippy::mutex_atomic)]
     fn get_transaction_res_handler(&self, transaction: Transaction, origin: Option<String>) {
         let res = self.put_transaction_internal(transaction.clone());
-        debug!("PUT TX INTERNAL: {}", res.is_ok());
+        debug!(
+            "[dispatcher] put transaction internal result: {}",
+            res.is_ok()
+        );
         // if in alignment just send
         // an ACK to aligner, so that
         // it can ask for next TX
@@ -313,13 +313,13 @@ impl<D: Db> Dispatcher<D> {
         // "alignment" status, shown by the status of the aligner (false -> alignment)
         let aligner_status = self.aligner.1.clone();
         debug!(
-            "[dispatcher]:\tlocal last: {}\n\trecieved:\t{}\nstatus\t{}",
+            "[dispatcher] local last: {}\n recieved:\t{}\n status\t{}",
             missing_headers.end,
             block.data.height,
             *aligner_status.0.lock().unwrap()
         );
         debug!(
-            "[dispatcher]: missing_headers.start: {}",
+            "[dispatcher] missing_headers.start:\t{}",
             missing_headers.start
         );
         if missing_headers.start + 1 == block.data.height && *aligner_status.0.lock().unwrap() {

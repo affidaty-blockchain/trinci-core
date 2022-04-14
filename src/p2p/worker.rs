@@ -24,7 +24,7 @@ use crate::{
 use futures::{future, prelude::*};
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
-    gossipsub::{error::PublishError, IdentTopic},
+    gossipsub::IdentTopic,
     identity::Keypair,
     mplex::MplexConfig,
     plaintext::PlainText2Config,
@@ -120,6 +120,9 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
 
     let mut listening = false;
 
+    let topic = swarm.behaviour().gossip.topics().next().unwrap();
+    let topic = IdentTopic::new(topic.to_string());
+
     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
         loop {
             match block_rx.poll_next_unpin(cx) {
@@ -159,9 +162,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
-                                            if !matches!(err, PublishError::InsufficientPeers) {
-                                                error!("publish error: {:?}", err);
-                                            }
+                                            error!("[gossip] publish error {}", err);
                                         }
                                     }
                                 }
@@ -186,21 +187,18 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         if let Err(err) =
                                             behavior.gossip.publish(topic.clone(), buf)
                                         {
-                                            if !matches!(err, PublishError::InsufficientPeers) {
-                                                error!("publish error: {:?}", err);
-                                            }
+                                            error!("[gossip] publish error {}", err);
                                         }
                                     }
                                 }
                             }
                             Message::GetTransactionResponse { ref origin, .. } => {
-                                debug!("[p2p] SENDING TX IN GOSSIP #######");
+                                debug!("[p2p] propagating transaction in gossip");
+
                                 if origin.is_none() {
                                     let buf = rmp_serialize(&msg).unwrap();
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                        if !matches!(err, PublishError::InsufficientPeers) {
-                                            error!("publish error: {:?}", err);
-                                        }
+                                        error!("[gossip] publish error {}", err);
                                     }
                                 }
                             }
@@ -209,9 +207,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                 if origin.is_none() {
                                     let buf = rmp_serialize(&msg).unwrap();
                                     if let Err(err) = behavior.gossip.publish(topic.clone(), buf) {
-                                        if !matches!(err, PublishError::InsufficientPeers) {
-                                            error!("publish error: {:?}", err);
-                                        }
+                                        error!("[gossip] publish error {}", err);
                                     }
                                 }
                             }

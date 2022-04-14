@@ -47,6 +47,7 @@ Added
 * Fuel consumption
 * is_callable direct wasm call
 * Aligner module
+* Message::Ack for reqres interaction
 
 
 Removed
@@ -79,6 +80,7 @@ Added
 * Bootstrap from wasm or wasm+txs
 * Config from bootstrap
 * Network name from bootstrap hash
+
 
 
 0.2.3 - 25-11-2021
