@@ -184,6 +184,7 @@ impl<D: Db> Dispatcher<D> {
                 Event::TRANSACTION,
                 Message::GetTransactionResponse { tx, origin: None },
             );
+            // TODO: send mesage to mponoitor of tx creation
         }
     }
 

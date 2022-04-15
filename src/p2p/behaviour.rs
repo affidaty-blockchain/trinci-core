@@ -409,6 +409,7 @@ impl Behavior {
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
                 {
+                    // TODO: if message is a TX propagation or block propagatoion send it to monitor
                     Ok(res_chan) => {
                         // Check if the blockchain has a response or if has dropped the response channel.
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {

@@ -915,6 +915,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 origin: None, // send it in gossip
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
+            // TODO: propagate block generation to monitor
         }
 
         if is_validator {

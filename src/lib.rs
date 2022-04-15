@@ -32,6 +32,7 @@ pub mod channel;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod network_monitor;
 pub mod wm;
 
 // Optional public modules.
