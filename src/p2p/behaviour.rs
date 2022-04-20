@@ -51,6 +51,9 @@ use libp2p::{
 use std::{io, iter, str::FromStr};
 use tide::utils::async_trait;
 
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{tools::send_topology, types::NodeTopology};
+
 const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
 
 // Request-response protocol
@@ -366,6 +369,17 @@ impl Behavior {
                     self.gossip.remove_explicit_peer(&peer);
                     self.reqres.remove_address(&peer, &addr);
                 }
+
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology { neighbours };
+                    send_topology(topology_update);
+                }
             }
         }
     }
@@ -409,7 +423,6 @@ impl Behavior {
                     .bc_chan
                     .send_sync(Message::Packed { buf: message.data })
                 {
-                    // TODO: if message is a TX propagation or block propagatoion send it to monitor
                     Ok(res_chan) => {
                         // Check if the blockchain has a response or if has dropped the response channel.
                         if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
@@ -443,6 +456,16 @@ impl Behavior {
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 debug!("[gossip] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology { neighbours };
+                    send_topology(topology_update);
+                }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 debug!(

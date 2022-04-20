@@ -43,8 +43,19 @@ use crate::{
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
+    network_monitor::{
+        tools::send_update,
+        types::{Action, Event as MonitorEvent},
+    }, // TODO add conditional
     wm::{CtxArgs, Wm, MAX_FUEL},
-    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
+    Error,
+    ErrorKind,
+    KeyPair,
+    PublicKey,
+    Receipt,
+    Result,
+    Transaction,
+    SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -910,12 +921,23 @@ impl<D: Db, W: Wm> Executor<D, W> {
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
-                block,
+                block: block.clone(),
                 txs: Some(txs_hashes.to_owned()),
                 origin: None, // send it in gossip
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
-            // TODO: propagate block generation to monitor
+
+            #[cfg(feature = "rt-monitor")]
+            {
+                // Sending produced block to network monitor.
+                let block_json = serde_json::to_string(&block).unwrap();
+                let block_event = MonitorEvent {
+                    peer_id: self.p2p_id.clone(),
+                    action: Action::BlockProduced,
+                    payload: block_json,
+                };
+                send_update(block_event);
+            }
         }
 
         if is_validator {

@@ -50,6 +50,12 @@ use crate::{
 };
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
 
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{
+    tools::send_update,
+    types::{Action, Event as MonitorEvent},
+};
+
 pub(crate) struct AlignerInterface(
     pub Arc<Mutex<BlockRequestSender>>,
     pub Arc<(StdMutex<bool>, Condvar)>,
@@ -184,7 +190,6 @@ impl<D: Db> Dispatcher<D> {
                 Event::TRANSACTION,
                 Message::GetTransactionResponse { tx, origin: None },
             );
-            // TODO: send mesage to mponoitor of tx creation
         }
     }
 
@@ -193,7 +198,18 @@ impl<D: Db> Dispatcher<D> {
         match result {
             Ok(hash) => {
                 debug!("[dispatcher] PTI response OK");
-                self.broadcast_attempt(tx);
+                self.broadcast_attempt(tx.clone());
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending produced transaction to network monitor.
+                    let tx_json = serde_json::to_string(&tx).unwrap();
+                    let tx_event = MonitorEvent {
+                        peer_id: self.p2p_id.clone(),
+                        action: Action::TransactionProduced,
+                        payload: tx_json,
+                    };
+                    send_update(tx_event);
+                }
                 Message::PutTransactionResponse { hash }
             }
             Err(err) => {
@@ -274,6 +290,19 @@ impl<D: Db> Dispatcher<D> {
             "[dispatcher] put transaction internal result: {}",
             res.is_ok()
         );
+        #[cfg(feature = "rt-monitor")]
+        {
+            // Sending produced recieved to network monitor.
+            let tx_json = serde_json::to_string(&transaction).unwrap();
+            let tx_event = MonitorEvent {
+                peer_id: self.p2p_id.clone(),
+                action: Action::TransactionRecieved,
+                payload: tx_json,
+            };
+            // send event
+            send_update(tx_event);
+        }
+
         // if in alignment just send
         // an ACK to aligner, so that
         // it can ask for next TX
@@ -347,6 +376,18 @@ impl<D: Db> Dispatcher<D> {
                 timestamp: block.data.timestamp,
             };
             pool.confirmed.insert(block.data.height, blk_info);
+
+            #[cfg(feature = "rt-monitor")]
+            {
+                // Sending recived block to network monitor.
+                let block_json = serde_json::to_string(block).unwrap();
+                let block_event = MonitorEvent {
+                    peer_id: self.p2p_id.clone(),
+                    action: Action::BlockRecieved,
+                    payload: block_json,
+                };
+                send_update(block_event);
+            }
         } else if missing_headers.start <= block.data.height {
             // in this case the node miss some block
             // it needes to be re-aligned
