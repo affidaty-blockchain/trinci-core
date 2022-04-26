@@ -21,10 +21,7 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::{
-        serialize::{rmp_deserialize, rmp_serialize},
-        BlockchainSettings,
-    },
+    base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
