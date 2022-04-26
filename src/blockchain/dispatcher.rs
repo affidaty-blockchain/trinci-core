@@ -201,12 +201,23 @@ impl<D: Db> Dispatcher<D> {
                 self.broadcast_attempt(tx.clone());
                 #[cfg(feature = "rt-monitor")]
                 {
+                    // Retrieve network name.
+                    let buf = self
+                        .db
+                        .read()
+                        .load_configuration("blockchain:settings")
+                        .unwrap(); // If this fails is at the very beginning
+                    let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                    let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
                     // Sending produced transaction to network monitor.
                     let tx_json = serde_json::to_string(&tx).unwrap();
                     let tx_event = MonitorEvent {
                         peer_id: self.p2p_id.clone(),
                         action: Action::TransactionProduced,
                         payload: tx_json,
+                        network: network_name,
                     };
                     send_update(tx_event);
                 }
@@ -292,14 +303,24 @@ impl<D: Db> Dispatcher<D> {
         );
         #[cfg(feature = "rt-monitor")]
         {
+            // Retrieve network name.
+            let buf = self
+                .db
+                .read()
+                .load_configuration("blockchain:settings")
+                .unwrap(); // If this fails is at the very beginning
+            let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+            let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
             // Sending produced recieved to network monitor.
             let tx_json = serde_json::to_string(&transaction).unwrap();
             let tx_event = MonitorEvent {
                 peer_id: self.p2p_id.clone(),
                 action: Action::TransactionRecieved,
                 payload: tx_json,
+                network: network_name,
             };
-            // send event
             send_update(tx_event);
         }
 
@@ -379,12 +400,23 @@ impl<D: Db> Dispatcher<D> {
 
             #[cfg(feature = "rt-monitor")]
             {
+                // Retrieve network name.
+                let buf = self
+                    .db
+                    .read()
+                    .load_configuration("blockchain:settings")
+                    .unwrap(); // If this fails is at the very beginning
+                let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
                 // Sending recived block to network monitor.
                 let block_json = serde_json::to_string(block).unwrap();
                 let block_event = MonitorEvent {
                     peer_id: self.p2p_id.clone(),
                     action: Action::BlockRecieved,
                     payload: block_json,
+                    network: network_name,
                 };
                 send_update(block_event);
             }

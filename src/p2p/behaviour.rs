@@ -21,7 +21,10 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::{rmp_deserialize, rmp_serialize},
+    base::{
+        serialize::{rmp_deserialize, rmp_serialize},
+        BlockchainSettings,
+    },
     blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
@@ -158,6 +161,9 @@ pub(crate) struct Behavior {
     pub bc_chan: BlockRequestSender,
     #[behaviour(ignore)]
     pub network_name: String,
+    /// Local peer ID.
+    #[behaviour(ignore)]
+    pub peer_id: String,
 }
 
 #[derive(Debug)]
@@ -306,6 +312,7 @@ impl Behavior {
             bc_chan,
             reqres,
             network_name: format!("trinci/{}/1.0.0", nw_name),
+            peer_id: peer_id.to_string(),
         })
     }
 
@@ -377,7 +384,11 @@ impl Behavior {
                     for neighbour in self.gossip.all_peers() {
                         neighbours.push(neighbour.0.to_string());
                     }
-                    let topology_update = NodeTopology { neighbours };
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
                     send_topology(topology_update);
                 }
             }
@@ -463,7 +474,11 @@ impl Behavior {
                     for neighbour in self.gossip.all_peers() {
                         neighbours.push(neighbour.0.to_string());
                     }
-                    let topology_update = NodeTopology { neighbours };
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
                     send_topology(topology_update);
                 }
             }

@@ -39,7 +39,7 @@ use crate::{
             UnsignedTransaction,
         },
         serialize::{rmp_deserialize, rmp_serialize},
-        Mutex, RwLock,
+        BlockchainSettings, Mutex, RwLock,
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
@@ -929,12 +929,23 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
             #[cfg(feature = "rt-monitor")]
             {
+                // Retrieve network name.
+                let buf = self
+                    .db
+                    .read()
+                    .load_configuration("blockchain:settings")
+                    .unwrap(); // If this fails is at the very beginning
+                let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
                 // Sending produced block to network monitor.
                 let block_json = serde_json::to_string(&block).unwrap();
                 let block_event = MonitorEvent {
                     peer_id: self.p2p_id.clone(),
                     action: Action::BlockProduced,
                     payload: block_json,
+                    network: network_name,
                 };
                 send_update(block_event);
             }
