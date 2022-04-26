@@ -3,7 +3,8 @@ use super::types::{Event, NodeTopology};
 #[cfg(feature = "rt-monitor")]
 use isahc::{self, Request, RequestExt};
 
-const ADDRESS: &str = "https://monitor.affidaty.net/api/v1/nodesMonitor/sendAction";
+const ADDRESS_ACTION: &str = "https://monitor.affidaty.net/api/v1/nodesMonitor/sendAction";
+const ADDRESS_TOPOLOGY: &str = "https://monitor.affidaty.net/api/v1/nodesMonitor/sendTopology";
 
 /// Sends the event
 pub fn send_update(message: Event) {
@@ -17,7 +18,7 @@ pub fn send_update(message: Event) {
 
     debug!("{}", request);
 
-    let response = match Request::post(ADDRESS)
+    let response = match Request::post(ADDRESS_ACTION)
         .header("content-type", "application/json")
         .body(request)
     {
@@ -46,7 +47,7 @@ pub fn send_topology(message: NodeTopology) {
 
     debug!("{}", request);
 
-    let response = match Request::post(ADDRESS)
+    let response = match Request::post(ADDRESS_TOPOLOGY)
         .header("content-type", "application/json")
         .body(request)
     {
