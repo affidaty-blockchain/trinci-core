@@ -595,9 +595,9 @@ impl Behavior {
                         //        }
                         //    }
                         //}
-                        _ => error!("[reqres](req) unexpected blockchain message"),
+                        _ => error!("[req-res](req) unexpected blockchain message"),
                     },
-                    _ => error!("[reqres](req) error indeserialization"),
+                    _ => error!("[req-res](req) error indeserialization"),
                 };
             }
             RequestResponseEvent::Message {
@@ -626,7 +626,7 @@ impl Behavior {
                                     }
                                     Err(error) => {
                                         debug!(
-                                            "[req-res](res) error in submitig tx response in bc_chan: {}",
+                                            "[req-res](res) error in submitting tx response in bc_chan: {}",
                                             error
                                         )
                                     }

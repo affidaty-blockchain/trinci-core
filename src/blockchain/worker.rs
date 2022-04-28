@@ -198,17 +198,14 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     fn try_exec_block(&self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
         if !self.executor.can_run(u64::MAX) {
-            debug!("try_exec.canrun u64::MAX");
             return;
         }
         if self.executing.swap(true, Ordering::Relaxed) {
-            debug!("try_exec.executing");
             return;
         }
 
         let mut executor = self.executor.clone();
         let executing = self.executing.clone();
-        debug!("executor.run");
         task::spawn(async move {
             executor.run(is_validator, is_validator_closure);
             executing.store(false, Ordering::Relaxed);
@@ -226,12 +223,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         });
     }
 
-    // async fn is_validator_async(is_validator: Arc<dyn IsValidator>, account_id: String) -> bool {
-    //     let fut = async move { (is_validator)(account_id) };
-    //     let jh = async_std::task::spawn(fut);
-    //     jh.await.unwrap_or_default()
-    // }
-
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
     pub async fn run(&mut self, account_id: &str) {
@@ -240,8 +231,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let exec_timeout = self.config.lock().timeout as u64;
         let mut exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
         let is_validator_closure = self.is_validator_closure.clone();
-        // let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
-        // let mut is_validator_fut = Box::pin(is_validator);
 
         // FIXME This call must be only read/mode
         self.is_validator =
@@ -252,7 +241,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 if *self.is_validator {
                     self.try_build_block(1);
                 }
-                debug!("TRY EXEC BLOCK");
                 self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
