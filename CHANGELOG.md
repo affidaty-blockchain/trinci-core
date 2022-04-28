@@ -130,7 +130,7 @@ Changed
 
 Fixed
 
-* Binary portability issues due to an issue in exonum-merkledb dependendencies.
+* Binary portability issues due to an issue in exonum-merkledb dependencies.
   In particular the project was forcing max optimizations to libsodium build.
   This was causing the inclusion of non-portable cpu instructions within the
   binary.
@@ -210,7 +210,7 @@ Changed
 
 * Removed all but one transactions submission from node boot sequence. The
   blockchain node now boots in vanilla state. The node wasm loader is set to
-  the "bootstrap-loader" unitl the node has not produced the genesis block.
+  the "bootstrap-loader" until the node has not produced the genesis block.
 
 
 0.1.2 - 15-06-2021
@@ -274,7 +274,7 @@ Added
 * REST web service for new transactions submission and read access to core
   structures using "rocket" v0.4.10.
 * Sandboxed execution of arbitrary smart contracts using "wasmtime" v0.27.0.
-* Project-specific error type with capablity to propagate subsystems errors.
+* Project-specific error type with capability to propagate subsystems errors.
 * Support for ecdsa secp384r1 digital signature using "ring" v0.16.20.
 * Account id generation as a function of ecdsa public key.
 * Rust smart contracts sdk for third-party developers.

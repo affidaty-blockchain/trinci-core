@@ -78,8 +78,8 @@ pub enum Message {
     GetTransactionRequest {
         /// `Transaction::data` hash.
         hash: Hash,
-        /// Destination of the `Transactioin`. `None` if local operations,
-        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        /// Destination of the `Transaction`. `None` if local operations,
+        /// or to gossip propagation. TODO: maybe Some("ALL") for gossip
         destination: Option<String>,
     },
     /// Get transaction response.
@@ -110,7 +110,7 @@ pub enum Message {
         /// Request for block transactions hashes.
         txs: bool,
         /// Destination of the `Block`. `None` if local operations,
-        /// or to gossip propagation. TODO: mabye Some("ALL") for gossip
+        /// or to gossip propagation. TODO: maybe Some("ALL") for gossip
         destination: Option<String>,
     },
     /// Get block response.
@@ -173,9 +173,9 @@ pub enum Message {
     /// Send block info to aligner
     #[serde(rename = "22")]
     AlignBlockInfo { peer_id: String, block: Block },
-    /// Acknowledgment message for reqres,
+    /// Acknowledgment message for reqRes,
     /// it means that a req message
-    /// has been recieved.
+    /// has been received.
     #[serde(rename = "253")]
     Ack,
     /// Stop blockchain service.

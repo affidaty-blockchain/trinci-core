@@ -57,7 +57,7 @@ pub trait Db: Send + Sync + 'static {
     fn load_transactions_hashes(&self, height: u64) -> Option<Vec<Hash>>;
 
     /// Create database fork.
-    /// A fork is a set of uncommited modifications to the database.
+    /// A fork is a set of uncommitted modifications to the database.
     fn fork_create(&mut self) -> Self::DbForkType;
 
     /// Commit modifications contained in a database fork.
@@ -69,7 +69,7 @@ pub trait Db: Send + Sync + 'static {
 
 /// Database fork trait.
 /// Used to atomically apply a sequence of transactions to the database.
-/// Instances of this trait cannot be safelly shared between threads.
+/// Instances of this trait cannot be safely shared between threads.
 #[cfg_attr(test, automock)]
 pub trait DbFork: 'static {
     /// Get accounts state hash.

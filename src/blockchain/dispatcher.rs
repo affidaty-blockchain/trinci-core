@@ -161,7 +161,7 @@ impl<D: Db> Dispatcher<D> {
             }
             Some(Some(_)) => {
                 return if pool.unconfirmed.contains(&hash) {
-                    //debug!("[PTI] Present in DB unconf (KO)");
+                    //debug!("[PTI] Present in DB unconfirmed (KO)");
                     Err(ErrorKind::DuplicatedUnconfirmedTx.into())
                 } else {
                     //debug!("[PTI] Present in DB conf (KO)");
@@ -307,13 +307,13 @@ impl<D: Db> Dispatcher<D> {
         }
 
         // Check if wether or not there are missing blocks.
-        // In case the recieved block is the "next block", it means the behaviour
+        // In case the received block is the "next block", it means the behavior
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)
         let aligner_status = self.aligner.1.clone();
         debug!(
-            "[dispatcher] local last: {}\n recieved:\t{}\n status\t{}",
+            "[dispatcher] local last: {}\n received:\t{}\n status\t{}",
             missing_headers.end,
             block.data.height,
             *aligner_status.0.lock().unwrap()
@@ -323,7 +323,7 @@ impl<D: Db> Dispatcher<D> {
             missing_headers.start
         );
         if missing_headers.start + 1 == block.data.height && *aligner_status.0.lock().unwrap() {
-            // if recieved block contains txs
+            // if received block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
             // push new block into pool.confirmed
@@ -348,7 +348,7 @@ impl<D: Db> Dispatcher<D> {
             pool.confirmed.insert(block.data.height, blk_info);
         } else if missing_headers.start <= block.data.height {
             // in this case the node miss some block
-            // it needes to be re-aligned
+            // it needs to be re-aligned
 
             // start aligner if not already running
             if *aligner_status.0.lock().unwrap() {

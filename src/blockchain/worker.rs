@@ -248,13 +248,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             Arc::new((*is_validator_closure)(account_id.to_string()).unwrap_or_default());
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
-            // if let Poll::Ready(val) = is_validator_fut.poll_unpin(cx) {
-            //     validator = val;
-            //     let is_validator = self.is_validator_closure.clone();
-            //     let is_validator = Self::is_validator_async(is_validator, account_id.to_owned());
-            //     is_validator_fut = Box::pin(is_validator);
-            // }
-
             while exec_sleep.poll_unpin(cx).is_ready() {
                 if *self.is_validator {
                     self.try_build_block(1);

@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, HashMap};
 /// 2. we discover that a block has been already confirmed;
 ///
 /// The first case typically happens when a node has acquired the right to do
-/// the operationi, in this case the node injecting a new block is called a
+/// the operation, in this case the node injecting a new block is called a
 /// validator.
 ///
 /// The second case typically happens when a node discovers from other peers

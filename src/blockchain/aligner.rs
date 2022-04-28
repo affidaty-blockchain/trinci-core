@@ -52,7 +52,7 @@ pub(crate) struct Aligner<D: Db> {
     /// Missing blocks.
     missing_blocks: Arc<Mutex<Vec<Message>>>,
     /// Unexpected blocks.
-    /// Height grather than most common last block.
+    /// Height greater than most common last block.
     unexpected_blocks: Arc<Mutex<Vec<Message>>>,
     /// Black-listed blocks Hashes.
     blacklist_blocks: Arc<Mutex<Vec<Hash>>>,
@@ -117,11 +117,11 @@ impl<D: Db> Aligner<D> {
                 _res_chan,
             ))) = self.rx_chan.lock().poll_next_unpin(cx)
             {
-                // The messages recieved from the p2p nw (unicast layer)
+                // The messages received from the p2p nw (unicast layer)
                 // are in packed format, need to be deserialized
                 // and the only messages expected are `GetBlockResponse`.
                 debug!(
-                    "[aligner] last block proposal recieved by {} (height {})",
+                    "[aligner] last block proposal received by {} (height {})",
                     origin.clone().unwrap(),
                     block.data.height.clone()
                 );
@@ -174,8 +174,8 @@ impl<D: Db> Aligner<D> {
             if timeout.checked_sub(start.elapsed()).is_some() {
                 if let Poll::Ready(Some((req, _res_chan))) = self.rx_chan.lock().poll_next_unpin(cx)
                 {
-                    debug!("[aligner] new message recieved");
-                    // Check if the recieved message is
+                    debug!("[aligner] new message received");
+                    // Check if the received message is
                     // from previous peer collection task,
                     // in that case discard the message.
                     if let Message::GetBlockResponse {
@@ -190,7 +190,7 @@ impl<D: Db> Aligner<D> {
                         {
                             debug!(
                                 "[aligner] block with height grather than 
-                                                            alignment height limit recieved, 
+                                                            alignment height limit received, 
                                                             collecting for possible pool insertion"
                             );
                             self.unexpected_blocks.lock().push(req);
@@ -201,7 +201,7 @@ impl<D: Db> Aligner<D> {
                             attempt = 0;
 
                             debug!(
-                                "[aligner] align block {} recieved by {}",
+                                "[aligner] align block {} received by {}",
                                 block.data.height,
                                 origin.clone().unwrap()
                             );
@@ -271,7 +271,7 @@ impl<D: Db> Aligner<D> {
 
         if let Some(Message::GetBlockResponse { block, .. }) = self.missing_blocks.lock().last() {
             if attempt >= MAX_ATTEMPTS {
-                // If last block recieved doesn't point to local last block,
+                // If last block received doesn't point to local last block,
                 // then the most common remote block is compromised.
                 if hash_local_last.ne(&block.data.prev_hash) {
                     if let Some(Message::GetBlockResponse { block, .. }) =
@@ -324,22 +324,22 @@ impl<D: Db> Aligner<D> {
                     if let Poll::Ready(Some((req, _res_chan))) =
                         self.rx_chan.lock().poll_next_unpin(cx)
                     {
-                        debug!("[aligner] new message recieved");
+                        debug!("[aligner] new message received");
                         match req {
                             Message::GetTransactionResponse { tx, origin } => {
                                 if tx.get_primary_hash().eq(requested_tx.unwrap()) {
-                                    // reset timet and attempts
+                                    // reset timer and attempts
                                     timeout = Duration::from_secs(TIME_OUT_SEC);
                                     start = Instant::now();
                                     attempt = 0;
 
                                     debug!(
-                                        "[aligner] align tx {:?} recieved by {}",
+                                        "[aligner] align tx {:?} received by {}",
                                         tx.get_primary_hash(),
                                         origin.unwrap()
                                     );
 
-                                    // Once the expected TX is recieved, ask for the next one.
+                                    // Once the expected TX is received, ask for the next one.
                                     // Note: submission to pool and DB is handled by dispatcher.
                                     requested_tx = missing_txs.next();
 
@@ -369,7 +369,7 @@ impl<D: Db> Aligner<D> {
                                 if block.data.height > max_block_height {
                                     debug!(
                                         "[aligner] block with height grather than 
-                                                            alignment height limit recieved, 
+                                                            alignment height limit received, 
                                                             collecting for possible pool insertion"
                                     );
                                     self.unexpected_blocks.lock().push(req.clone());
@@ -532,7 +532,7 @@ impl<D: Db> Aligner<D> {
             if let (Some(collected_peers), Some(local_last)) = (result, local_last) {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
-                // (occurencies, height)
+                // (occurrences, height)
                 debug!("[aligner] removing black list blocks");
                 let mut hashmap = HashMap::<String, (i64, u64)>::new();
                 for entry in collected_peers.iter() {
@@ -552,7 +552,7 @@ impl<D: Db> Aligner<D> {
                     }
                 }
 
-                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurencies (ascendent).
+                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurrences (ascendent).
                 if sorted_blocks.len() > LATEST_WINDOW {
                     sorted_blocks = sorted_blocks[..LATEST_WINDOW].to_vec();
                 }
@@ -604,7 +604,7 @@ impl<D: Db> Aligner<D> {
                         let outcome = future.await;
 
                         // Only progress the procedure if the block
-                        // and transaction's hash collection ended succesfully
+                        // and transaction's hash collection ended successfully
                         if outcome {
                             debug!(
                                 "[aligner] requesting transactions from missing blocks to trusted peers");
@@ -615,15 +615,15 @@ impl<D: Db> Aligner<D> {
 
                             let outcome = future.await;
 
-                            // Only progress if previous tastks were succesfully completed.
+                            // Only progress if previous tasks were successfully completed.
                             if outcome {
                                 // Update pools with the retrieved blocks.
                                 // Note: in the `missing_block` array blocks are collected
                                 //       from the most recent (first array element),
-                                //       to the least recenf (last array element).
+                                //       to the least recent (last array element).
                                 debug!("[aligner] submitting alignment blocks to pool service");
                                 self.update_pool();
-                                // Wait untill all blocks are executed.
+                                // Wait until all blocks are executed.
                                 let mut executed_block =
                                     self.db.read().load_block(u64::MAX).unwrap();
                                 let most_common_block = self.trusted_peers.lock()[0].2.data.height;
@@ -643,7 +643,7 @@ impl<D: Db> Aligner<D> {
                 debug!("[aligner] unable to find trusted peers, aborting alignment");
             }
 
-            // Reinitialise aligner structures.
+            // Reinitialize aligner structures.
             debug!("[aligner] reset aligner");
             {
                 //debug!("trusted peers: {}", self.trusted_peers.is_locked());
