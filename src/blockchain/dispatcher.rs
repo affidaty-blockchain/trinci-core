@@ -345,6 +345,29 @@ impl<D: Db> Dispatcher<D> {
         origin: &Option<String>,
         _req: Message,
     ) {
+        #[cfg(feature = "rt-monitor")]
+        {
+            // Retrieve network name.
+            let buf = self
+                .db
+                .read()
+                .load_configuration("blockchain:settings")
+                .unwrap(); // If this fails is at the very beginning
+            let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+            let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+            // Sending recived block to network monitor.
+            let block_json = serde_json::to_string(block).unwrap();
+            let block_event = MonitorEvent {
+                peer_id: self.p2p_id.clone(),
+                action: Action::BlockRecieved,
+                payload: block_json,
+                network: network_name,
+            };
+            send_update(block_event);
+        }
+
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 
@@ -397,29 +420,6 @@ impl<D: Db> Dispatcher<D> {
                 timestamp: block.data.timestamp,
             };
             pool.confirmed.insert(block.data.height, blk_info);
-
-            #[cfg(feature = "rt-monitor")]
-            {
-                // Retrieve network name.
-                let buf = self
-                    .db
-                    .read()
-                    .load_configuration("blockchain:settings")
-                    .unwrap(); // If this fails is at the very beginning
-                let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
-
-                let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
-
-                // Sending recived block to network monitor.
-                let block_json = serde_json::to_string(block).unwrap();
-                let block_event = MonitorEvent {
-                    peer_id: self.p2p_id.clone(),
-                    action: Action::BlockRecieved,
-                    payload: block_json,
-                    network: network_name,
-                };
-                send_update(block_event);
-            }
         } else if missing_headers.start <= block.data.height {
             // in this case the node miss some block
             // it needes to be re-aligned
