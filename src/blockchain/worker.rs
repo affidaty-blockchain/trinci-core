@@ -31,7 +31,7 @@ use crate::{
 use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
 use futures::{future, prelude::*};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
 use std::thread;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -40,7 +40,6 @@ use std::{
 
 use super::aligner::Aligner;
 use super::dispatcher::AlignerInterface;
-//use super::synchronizer::Synchronizer;
 
 /// Closure trait to load a wasm binary.
 pub trait IsValidator: Fn(String) -> Result<bool> + Send + Sync + 'static {}
@@ -70,6 +69,8 @@ pub struct BlockWorker<D: Db, W: Wm> {
     is_validator_closure: Arc<dyn IsValidator>,
     /// Variable that store the validator status of the node
     is_validator: Arc<bool>,
+    /// Check the status of the aligner. If true cannot build blocks
+    aligner_status: Arc<(StdMutex<bool>, Condvar)>,
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
@@ -101,6 +102,8 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             AlignerInterface(aligner.request_channel(), aligner.status.clone()),
         );
 
+        let aligner_status = aligner.status.clone();
+
         thread::spawn(move || aligner.run());
 
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
@@ -130,6 +133,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             executing,
             is_validator_closure: Arc::new(is_validator_closure),
             is_validator: Arc::new(false),
+            aligner_status,
         }
     }
 
@@ -238,9 +242,10 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             while exec_sleep.poll_unpin(cx).is_ready() {
-                if *self.is_validator {
+                if *self.is_validator && *self.aligner_status.0.lock().unwrap() {
                     self.try_build_block(1);
                 }
+
                 self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
@@ -258,7 +263,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 // We use try_lock because the lock may be held the "builder" in another thread.
                 if *self.is_validator {
                     self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
-                    self.try_build_block(threshold);
+                    if *self.aligner_status.0.lock().unwrap() {
+                        self.try_build_block(threshold);
+                    }
                 }
             }
             Poll::Pending
