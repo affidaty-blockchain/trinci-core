@@ -552,11 +552,11 @@ impl<D: Db> Aligner<D> {
                     }
                 }
 
-                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurrences (ascendent).
+                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurrences (ascendant).
                 if sorted_blocks.len() > LATEST_WINDOW {
                     sorted_blocks = sorted_blocks[..LATEST_WINDOW].to_vec();
                 }
-                sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendent).
+                sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendant).
                 let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
 
                 debug!("[aligner] removing not trusted peers");

@@ -476,7 +476,7 @@ impl Behavior {
                 );
                 // the message received is encapsulated in Message::Packed
                 let msg = Message::Packed { buf: buf.clone() };
-                // check wether is:
+                // check whether is:
                 //  - GetTransactionRequest
                 //  - GetBlockRequest
                 //  - GetBlockResponse

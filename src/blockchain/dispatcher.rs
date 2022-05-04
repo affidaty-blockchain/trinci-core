@@ -306,7 +306,7 @@ impl<D: Db> Dispatcher<D> {
             missing_headers.end += 1;
         }
 
-        // Check if wether or not there are missing blocks.
+        // Check if whether or not there are missing blocks.
         // In case the received block is the "next block", it means the behavior
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
