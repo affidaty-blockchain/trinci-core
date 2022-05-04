@@ -311,7 +311,7 @@ impl<D: Db> Aligner<D> {
 
     fn collect_missing_txs(
         &self,
-        peer: &str,
+        initial_peer: String,
         max_block_height: u64,
         cx: &mut Context,
     ) -> Poll<bool> {
@@ -324,20 +324,24 @@ impl<D: Db> Aligner<D> {
         let missing_txs = self.missing_txs.lock().clone();
         let mut missing_txs = missing_txs.iter();
         let mut requested_tx = missing_txs.next();
-        let mut over = requested_tx.is_none();
-
+        let mut over = false;
+        let mut current_peer = initial_peer;
+        let mut send_message = true;
         debug!("[aligner] first requested tx: {:?}", requested_tx.unwrap());
 
-        if !over {
-            let mut msg = Message::GetTransactionRequest {
-                hash: *requested_tx.unwrap(),
-                destination: Some(peer.to_string()),
-            };
-            self.pubsub
-                .lock()
-                .publish(Event::UNICAST_REQUEST, msg.clone());
-
+        if requested_tx.is_some() {
             while !over && attempt < MAX_ATTEMPTS {
+                if send_message {
+                    let msg = Message::GetTransactionRequest {
+                        hash: *requested_tx.unwrap(),
+                        destination: Some(current_peer.clone()),
+                    };
+                    self.pubsub
+                        .lock()
+                        .publish(Event::UNICAST_REQUEST, msg.clone());
+                    send_message = false;
+                }
+
                 if timeout.checked_sub(start.elapsed()).is_some() {
                     if let Poll::Ready(Some((req, _res_chan))) =
                         self.rx_chan.lock().poll_next_unpin(cx)
@@ -361,18 +365,13 @@ impl<D: Db> Aligner<D> {
                                     // Note: submission to pool and DB is handled by dispatcher.
                                     requested_tx = missing_txs.next();
 
-                                    if let Some(requested_tx) = requested_tx {
+                                    if requested_tx.is_some() {
                                         // Ask to a random trusted peer the transaction.
                                         let peers = self.trusted_peers.lock().clone();
                                         let peer =
                                             &peers.choose(&mut rand::thread_rng()).unwrap().0;
-                                        msg = Message::GetTransactionRequest {
-                                            hash: *requested_tx,
-                                            destination: Some(peer.to_string()),
-                                        };
-                                        self.pubsub
-                                            .lock()
-                                            .publish(Event::UNICAST_REQUEST, msg.clone());
+                                        current_peer = peer.clone();
+                                        send_message = true;
                                     } else {
                                         over = true;
                                     }
@@ -393,7 +392,7 @@ impl<D: Db> Aligner<D> {
                                     self.unexpected_blocks.lock().push(req.clone());
                                 }
                             }
-                            _ => debug!("[aligner] unexpected message"),
+                            _ => error!("[aligner] unexpected message"),
                         }
                     }
                 } else {
@@ -408,22 +407,11 @@ impl<D: Db> Aligner<D> {
                         let peers = self.trusted_peers.lock().clone();
                         let peer = &peers.choose(&mut rand::thread_rng()).unwrap().0;
 
-                        if let Message::GetTransactionRequest {
-                            hash,
-                            destination: _,
-                        } = msg
-                        {
-                            msg = Message::GetTransactionRequest {
-                                hash,
-                                destination: Some(peer.to_string()),
-                            };
+                        current_peer = peer.clone();
 
-                            self.pubsub
-                                .lock()
-                                .publish(Event::UNICAST_REQUEST, msg.clone());
-                            timeout = Duration::from_secs(TIME_OUT_SEC);
-                            start = Instant::now();
-                        }
+                        timeout = Duration::from_secs(TIME_OUT_SEC);
+                        start = Instant::now();
+                        send_message = true;
                     } else {
                         return std::task::Poll::Ready(false);
                     }
@@ -431,6 +419,7 @@ impl<D: Db> Aligner<D> {
             }
         }
         if attempt >= MAX_ATTEMPTS {
+            // NOTE This should be redundant
             std::task::Poll::Ready(false)
         } else {
             std::task::Poll::Ready(true)
@@ -628,7 +617,7 @@ impl<D: Db> Aligner<D> {
                                 "[aligner] requesting transactions from missing blocks to trusted peers");
                             let future =
                                 future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
-                                    self.collect_missing_txs(peer, max_block_height, cx)
+                                    self.collect_missing_txs(peer.clone(), max_block_height, cx)
                                 });
 
                             let outcome = future.await;
