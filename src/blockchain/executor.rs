@@ -944,14 +944,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 txs_hashes: Some(hashes),
                 ..
             }) => {
-                debug!("\tcan run height: {}", height);
-                //debug!(
-                //    "\t\t{:?}",
-                //    hashes
-                //        .iter()
-                //        .all(|hash| matches!(pool.txs.get(hash), Some(Some(_))))
-                //);
-                //debug!("\t\t{:?}", hashes.iter());
                 hashes
                     .iter()
                     .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))) // it might not put tcx in pool
@@ -969,8 +961,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
             ),
             None => (Hash::default(), 0, 0),
         };
-
-        debug!("[executor] last height: {}", height);
 
         // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]
@@ -993,7 +983,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     _ => break,
                 };
 
-            debug!("Executing block {}", height);
             match self.exec_block(
                 height,
                 &txs_hashes,

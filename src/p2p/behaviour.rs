@@ -243,7 +243,6 @@ impl Behavior {
 
             kad.add_address(&boot_peer, boot_addr);
 
-            //kad.bootstrap().unwrap();
             let peer: PeerId = libp2p::identity::Keypair::generate_ed25519()
                 .public()
                 .into();
@@ -312,6 +311,7 @@ impl Behavior {
             IdentifyEvent::Received { peer_id, info } => {
                 if info.protocol_version == self.network_name {
                     self.gossip.add_explicit_peer(&peer_id);
+
                     for addr in info.listen_addrs {
                         info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
                         self.kad.add_address(&peer_id, addr.clone());
@@ -325,15 +325,16 @@ impl Behavior {
                         let last_block_req_msg = Message::GetBlockRequest {
                             height: u64::MAX,
                             txs: false,
-                            destination: Some(peer_id.clone().to_string()),
+                            destination: Some(peer_id.to_string()),
                         };
 
                         match self.bc_chan.send_sync(last_block_req_msg) {
                             Ok(res_chan) => match res_chan.recv_sync() {
                                 Ok(message) => {
                                     if let Message::GetBlockResponse { .. } = message {
-                                        let last_block_message =
-                                            ReqUnicastMessage(rmp_serialize(&message).unwrap());
+                                        let last_block_message = ReqUnicastMessage(
+                                            rmp_serialize(&message).unwrap_or_default(),
+                                        );
                                         self.reqres.send_request(&peer_id, last_block_message);
                                         debug!(
                                             "[ident] sending to new peer {} last local block",
@@ -379,9 +380,6 @@ impl Behavior {
                 for addr in addresses.iter() {
                     debug!("[kad] discovered: {} @ {}", peer, addr);
                 }
-                // probably it is not needed, actually it may be a problem
-                // we add the peer already in identify event
-                //self.gossip.add_explicit_peer(&peer);
             }
             KademliaEvent::OutboundQueryCompleted {
                 result: QueryResult::GetClosestPeers(result),
@@ -475,15 +473,19 @@ impl Behavior {
                     request_id.to_string(),
                     peer.to_string()
                 );
+
+                let original_message = rmp_deserialize(&buf);
+
                 // the message received is encapsulated in Message::Packed
-                let msg = Message::Packed { buf: buf.clone() };
+                let msg = Message::Packed { buf };
+
                 // check whether is:
                 //  - GetTransactionRequest
                 //  - GetBlockRequest
                 //  - GetBlockResponse
                 // In case of *Request => ask locally to blockchain service and sand back a reqRes.response.
                 // In case of GetBlockResponse => submit last block to local blockchain service.
-                match rmp_deserialize(&buf) {
+                match original_message {
                     Ok(MultiMessage::Simple(req)) => match req {
                         Message::GetTransactionRequest {
                             hash: _,
@@ -528,7 +530,7 @@ impl Behavior {
                                         res_chan.recv_sync()
                                     {
                                         let msg = Message::GetBlockResponse { block, txs, origin };
-                                        let buf = rmp_serialize(&msg).unwrap();
+                                        let buf = rmp_serialize(&msg).unwrap_or_default();
                                         if self
                                             .reqres
                                             .send_response(channel, ResUnicastMessage(buf))
@@ -551,11 +553,7 @@ impl Behavior {
                                 }
                             }
                         }
-                        Message::GetBlockResponse {
-                            block: _,
-                            txs: _,
-                            origin: _,
-                        } => {
+                        Message::GetBlockResponse { .. } => {
                             // this is only possible when peer just subscribed to new topic
                             // collect blocks and peer id in a time window
                             // select a group of trusted peers
@@ -564,7 +562,7 @@ impl Behavior {
                             match self.bc_chan.send_sync(msg) {
                                 Ok(_) => {
                                     debug!("[req-res](req) block submited to blockchain service");
-                                    let buf = rmp_serialize(&Message::Ack).unwrap();
+                                    let buf = rmp_serialize(&Message::Ack).unwrap_or_default();
                                     if self
                                         .reqres
                                         .send_response(channel, ResUnicastMessage(buf))
@@ -586,23 +584,13 @@ impl Behavior {
                                 }
                             }
                         }
-                        //Message::GetTransactionResponse { tx: _, origin: _ } => {
-                        //    match self.bc_chan.send_sync(req) {
-                        //        Ok(_) => {
-                        //            debug!("[req-res](req) tx submitted to blockchain service")
-                        //        }
-                        //        Err(_err) => {
-                        //            warn!("blockchain service seems down");
-                        //        }
-                        //    }
-                        //}
                         _ => error!("[req-res](req) unexpected blockchain message"),
                     },
                     _ => error!("[req-res](req) error indeserialization"),
                 };
             }
             RequestResponseEvent::Message {
-                peer,
+                peer: _,
                 message:
                     RequestResponseMessage::Response {
                         request_id: _,
@@ -613,11 +601,9 @@ impl Behavior {
                 //  - GetBlockResponse
                 //  - GetTransactionResponse
                 // this means that it is only needed to submit it to blockchain service.
-                debug!("[req-res](res) message received from: {}", peer.to_string());
-
-                let msg = Message::Packed { buf: buf.clone() };
 
                 if let Ok(MultiMessage::Simple(req)) = rmp_deserialize(&buf) {
+                    let msg = Message::Packed { buf };
                     match req {
                         Message::GetTransactionResponse { .. } => {
                             match self.bc_chan.send_sync(msg) {
@@ -650,9 +636,6 @@ impl Behavior {
                                 warn!("blockchain service seems down");
                             }
                         },
-                        Message::Ack => {
-                            debug!("[req-res](res) received ACK from {}", peer.to_string())
-                        }
                         _ => (),
                     }
                 }
@@ -664,7 +647,7 @@ impl Behavior {
             } => {
                 debug!(
                     "[req-res] {} failed {}: {}",
-                    peer.clone().to_string(),
+                    peer.to_string(),
                     request_id.to_string(),
                     error.to_string()
                 );

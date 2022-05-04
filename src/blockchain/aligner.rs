@@ -534,17 +534,6 @@ impl<D: Db> Aligner<D> {
             })
             .collect();
 
-        // DELETE ME
-        debug!("[aligner] trusted peers:");
-        for peer in trusted_peers.iter() {
-            debug!("\t\t{}", peer.0);
-        }
-        debug!("==========");
-        debug!(
-            "[aligner] locking trusted peers: {}",
-            self.trusted_peers.is_locked()
-        );
-
         debug!("[aligner]  moving peers in self.trusted_peers");
         self.trusted_peers
             .lock()
