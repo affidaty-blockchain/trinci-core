@@ -494,6 +494,91 @@ impl<D: Db> Aligner<D> {
         }
     }
 
+    fn filter_peers(
+        &self,
+        collected_peers: Vec<(String, String, Block)>,
+        last_block_height: u64,
+    ) -> u64 {
+        debug!("[aligner] removing black list blocks");
+        let mut map = HashMap::<String, (i64, u64)>::new();
+
+        collected_peers.iter().for_each(|peer| {
+            let counter = map.entry(peer.1.clone()).or_default();
+            counter.0 += 1;
+            counter.1 = peer.2.data.height;
+        });
+
+        // Remove black-listed blocks.
+        let mut sorted_blocks: Vec<(&String, &(i64, u64))> = map
+            .iter()
+            .filter(|block| {
+                let hash: Hash = Hash::from_hex(block.0).unwrap_or_default();
+                !self.blacklist_blocks.lock().contains(&hash)
+            })
+            .collect();
+
+        sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurrences (ascendant).
+        if sorted_blocks.len() > LATEST_WINDOW {
+            sorted_blocks = sorted_blocks[..LATEST_WINDOW].to_vec();
+        }
+        sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendant).
+        let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
+
+        debug!("[aligner] removing not trusted peers");
+        let block_height = collected_peers[0].2.data.height;
+
+        let trusted_peers: Vec<(String, String, Block)> = collected_peers
+            .into_iter()
+            .filter(|entry| {
+                !(entry.1 != most_common_block || (entry.2).data.height < last_block_height + 1)
+            })
+            .collect();
+
+        // DELETE ME
+        debug!("[aligner] trusted peers:");
+        for peer in trusted_peers.iter() {
+            debug!("\t\t{}", peer.0);
+        }
+        debug!("==========");
+        debug!(
+            "[aligner] locking trusted peers: {}",
+            self.trusted_peers.is_locked()
+        );
+
+        debug!("[aligner]  moving peers in self.trusted_peers");
+        self.trusted_peers
+            .lock()
+            .append(&mut trusted_peers.to_vec());
+
+        // Get last block height
+        if !trusted_peers.is_empty() {
+            block_height
+        } else {
+            0
+        }
+    }
+
+    fn reset(&self) {
+        //debug!("trusted peers: {}", self.trusted_peers.is_locked());
+        let mut trusted_peers = self.trusted_peers.lock();
+        let empty: Vec<(String, String, Block)> = vec![];
+        *trusted_peers = empty;
+
+        //debug!("missing blocks: {}", self.missing_blocks.is_locked());
+        let mut missing_blocks = self.missing_blocks.lock();
+        let empty: Vec<Message> = vec![];
+        *missing_blocks = empty;
+
+        //debug!("unexpected blocks: {}", self.unexpected_blocks.is_locked());
+        let mut unexpected_blocks = self.unexpected_blocks.lock();
+        let empty: Vec<Message> = vec![];
+        *unexpected_blocks = empty;
+
+        //debug!("status: {}", self.status.0.is_poisoned());
+        *self.status.0.lock().unwrap() = true;
+        self.status.1.notify_all();
+    }
+
     async fn run_async(&self) {
         debug!("[aligner] service up");
 
@@ -505,7 +590,7 @@ impl<D: Db> Aligner<D> {
                     .wait_while(self.status.0.lock().unwrap(), |pending| *pending);
             }
 
-            debug!("[aligner] new align instance initialised");
+            debug!("[aligner] new align instance initialized");
 
             // Wait some time before collecting new peers in case of a flood of "new added peer" messages
             let collection_time = Duration::from_secs(SLEEP_TIME);
@@ -513,13 +598,13 @@ impl<D: Db> Aligner<D> {
             while collection_time.checked_sub(start.elapsed()).is_some() {}
 
             // Collect trusted peers.
-            let future = future::poll_fn(
+            let collected_peers_fut = future::poll_fn(
                 move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
                     self.find_trusted_peers(cx)
                 },
             );
 
-            let result = future.await;
+            let result = collected_peers_fut.await;
 
             debug!("[aligner] acquiring local last");
             let local_last = self.db.read().load_block(u64::MAX);
@@ -528,64 +613,7 @@ impl<D: Db> Aligner<D> {
                 // Once the collection task ended, to find the trusted peers,
                 // the peers with the most common last block are chosen.
                 // (occurrences, height)
-                debug!("[aligner] removing black list blocks");
-                let mut hashmap = HashMap::<String, (i64, u64)>::new();
-                for entry in collected_peers.iter() {
-                    let counter = hashmap.entry(entry.1.clone()).or_default();
-                    counter.0 += 1;
-                    counter.1 = entry.2.data.height;
-                }
-
-                let sorted_blocks_candidates: Vec<_> = hashmap.iter().collect();
-                let mut sorted_blocks: Vec<(&String, &(i64, u64))> = vec![];
-
-                // Remove black-listed blocks.
-                for block in sorted_blocks_candidates {
-                    let hash: Hash = Hash::from_hex(block.0).unwrap();
-                    if !self.blacklist_blocks.lock().contains(&hash) {
-                        sorted_blocks.push(block);
-                    }
-                }
-
-                sorted_blocks.sort_by_key(|block| (block.1).0); // Sort by occurrences (ascendant).
-                if sorted_blocks.len() > LATEST_WINDOW {
-                    sorted_blocks = sorted_blocks[..LATEST_WINDOW].to_vec();
-                }
-                sorted_blocks.sort_by_key(|block| (block.1).1); // Sort by height (ascendant).
-                let most_common_block = sorted_blocks.last().unwrap().0.to_owned();
-
-                debug!("[aligner] removing not trusted peers");
-                let mut trusted_peers: Vec<_> = vec![];
-                for entry in collected_peers.clone().iter() {
-                    if !(entry.1 != most_common_block
-                        || (entry.2).data.height < local_last.data.height + 1)
-                    {
-                        trusted_peers.push(entry.clone());
-                    }
-                }
-
-                debug!("[aligner] trusted peers:");
-                for peer in trusted_peers.iter() {
-                    debug!("\t\t{}", peer.0);
-                }
-                debug!("==========");
-
-                // Get last block height
-                let max_block_height = if !trusted_peers.is_empty() {
-                    collected_peers[0].2.data.height
-                } else {
-                    0
-                };
-
-                debug!(
-                    "[aligner] locking trusted peers: {}",
-                    self.trusted_peers.is_locked()
-                );
-
-                debug!("[aligner]  moving peers in self.trusted_peers");
-                self.trusted_peers
-                    .lock()
-                    .append(&mut trusted_peers.to_vec());
+                let max_block_height = self.filter_peers(collected_peers, local_last.data.height);
 
                 debug!("[aligner] requesting last block to random trusted peer");
                 let peers = self.trusted_peers.lock().clone();
@@ -640,26 +668,7 @@ impl<D: Db> Aligner<D> {
 
             // Reinitialize aligner structures.
             debug!("[aligner] reset aligner");
-            {
-                //debug!("trusted peers: {}", self.trusted_peers.is_locked());
-                let mut trusted_peers = self.trusted_peers.lock();
-                let empty: Vec<(String, String, Block)> = vec![];
-                *trusted_peers = empty;
-
-                //debug!("missing blocks: {}", self.missing_blocks.is_locked());
-                let mut missing_blocks = self.missing_blocks.lock();
-                let empty: Vec<Message> = vec![];
-                *missing_blocks = empty;
-
-                //debug!("unexpected blocks: {}", self.unexpected_blocks.is_locked());
-                let mut unexpected_blocks = self.unexpected_blocks.lock();
-                let empty: Vec<Message> = vec![];
-                *unexpected_blocks = empty;
-
-                //debug!("status: {}", self.status.0.is_poisoned());
-                *self.status.0.lock().unwrap() = true;
-                self.status.1.notify_all();
-            }
+            self.reset();
 
             {
                 // It should be 0.
