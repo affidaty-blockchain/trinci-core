@@ -41,7 +41,7 @@ use std::{
 const PEER_COLLECTION_TIME_WINDOW: u64 = 10;
 const SLEEP_TIME: u64 = 3;
 const TIME_OUT_SEC: u64 = 5;
-const MAX_ATTEMPTS: i32 = 3;
+const MAX_ATTEMPTS: u8 = 3;
 /// Most common blocks range.
 const LATEST_WINDOW: usize = 5;
 
@@ -147,6 +147,78 @@ impl<D: Db> Aligner<D> {
         }
     }
 
+    // TODO Refactoring of this method
+    #[allow(clippy::too_many_arguments)]
+    fn try_to_retrieve_a_block(
+        &self,
+        over: &mut bool,
+        timeout: &mut Duration,
+        start: &mut Instant,
+        attempt: &mut u8,
+        max_block_height: u64,
+        last_block_height: u64,
+        cx: &mut Context,
+    ) {
+        if let Poll::Ready(Some((req, _res_chan))) = self.rx_chan.lock().poll_next_unpin(cx) {
+            debug!("[aligner] new message received");
+            // Check if the received message is
+            // from previous peer collection task,
+            // in that case discard the message.
+            if let Message::GetBlockResponse {
+                ref block,
+                txs: Some(ref txs_hashes),
+                ref origin,
+            } = req
+            {
+                // Check if the block was expected or not
+                if block.data.height > max_block_height
+                    && !self.unexpected_blocks.lock().contains(&req)
+                {
+                    debug!(
+                        "[aligner] block with height greater than 
+                                 alignment height limit received, 
+                                 collecting for possible pool insertion"
+                    );
+                    self.unexpected_blocks.lock().push(req);
+                } else {
+                    // reset timeout and attempts
+                    *timeout = Duration::from_secs(TIME_OUT_SEC);
+                    *start = Instant::now();
+                    *attempt = 0;
+
+                    debug!(
+                        "[aligner] align block {} received by {:?}",
+                        block.data.height, &origin
+                    );
+
+                    self.missing_blocks.lock().push(req.clone());
+                    for tx in txs_hashes {
+                        debug!("[aligner] adding hash tx");
+                        self.missing_txs.lock().push(*tx);
+                    }
+
+                    // Check alignment status.
+                    if block.data.height > (last_block_height + 1) {
+                        // Get previous block.
+                        let peers = self.trusted_peers.lock();
+                        let peer = &peers.choose(&mut rand::thread_rng()).unwrap().0;
+
+                        let msg = Message::GetBlockRequest {
+                            height: block.data.height - 1,
+                            txs: true,
+                            destination: Some(peer.to_string()),
+                        };
+                        self.pubsub.lock().publish(Event::UNICAST_REQUEST, msg);
+                    } else {
+                        // Alignment block gathering completed.
+                        debug!("[aligner] alignment blocks gathering completed");
+                        *over = true;
+                    }
+                }
+            }
+        }
+    }
+
     fn collect_missing_blocks(
         &self,
         max_block_height: u64,
@@ -166,75 +238,22 @@ impl<D: Db> Aligner<D> {
         // Until "local_last.next" retrieved ask for "remote_last.previous".
         let mut timeout = Duration::from_secs(TIME_OUT_SEC);
         let mut start = Instant::now();
-        let mut attempt = 0;
+        let mut attempt: u8 = 0;
         let mut over = false;
         let local_last = self.db.read().load_block(u64::MAX).unwrap();
         let hash_local_last = local_last.hash(HashAlgorithm::Sha256);
 
         while !over && attempt < MAX_ATTEMPTS {
             if timeout.checked_sub(start.elapsed()).is_some() {
-                if let Poll::Ready(Some((req, _res_chan))) = self.rx_chan.lock().poll_next_unpin(cx)
-                {
-                    debug!("[aligner] new message received");
-                    // Check if the received message is
-                    // from previous peer collection task,
-                    // in that case discard the message.
-                    if let Message::GetBlockResponse {
-                        ref block,
-                        txs: Some(ref txs_hashes),
-                        ref origin,
-                    } = req
-                    {
-                        // Check if the block was expected or not
-                        if block.data.height > max_block_height
-                            && !self.unexpected_blocks.lock().contains(&req)
-                        {
-                            debug!(
-                                "[aligner] block with height grather than 
-                                                            alignment height limit received, 
-                                                            collecting for possible pool insertion"
-                            );
-                            self.unexpected_blocks.lock().push(req);
-                        } else {
-                            // reset timeout and attempts
-                            timeout = Duration::from_secs(TIME_OUT_SEC);
-                            start = Instant::now();
-                            attempt = 0;
-
-                            debug!(
-                                "[aligner] align block {} received by {}",
-                                block.data.height,
-                                origin.clone().unwrap()
-                            );
-
-                            self.missing_blocks.lock().push(req.clone());
-                            for tx in txs_hashes {
-                                debug!("[aligner] adding hash tx");
-                                self.missing_txs.lock().push(*tx);
-                            }
-
-                            // Check alignment status.
-                            if block.data.height > (local_last.data.height + 1) {
-                                // Get previous block.
-                                let peers = self.trusted_peers.lock().clone();
-                                let peer = &peers.choose(&mut rand::thread_rng()).unwrap().0;
-
-                                msg = Message::GetBlockRequest {
-                                    height: block.data.height - 1,
-                                    txs: true,
-                                    destination: Some(peer.to_string()),
-                                };
-                                self.pubsub
-                                    .lock()
-                                    .publish(Event::UNICAST_REQUEST, msg.clone());
-                            } else {
-                                // Alignment block gathering completed.
-                                debug!("[aligner] alignment blocks gathering completed");
-                                over = true;
-                            }
-                        }
-                    }
-                }
+                self.try_to_retrieve_a_block(
+                    &mut over,
+                    &mut timeout,
+                    &mut start,
+                    &mut attempt,
+                    max_block_height,
+                    local_last.data.height,
+                    cx,
+                );
             } else {
                 debug!(
                     "[aligner] alignment block request timed out (attempt: {})",
@@ -244,7 +263,7 @@ impl<D: Db> Aligner<D> {
 
                 // Send message again (to another peer) and reset TO count.
                 if attempt < MAX_ATTEMPTS {
-                    let peers = self.trusted_peers.lock().clone();
+                    let peers = self.trusted_peers.lock();
                     let peer = &peers.choose(&mut rand::thread_rng()).unwrap().0;
                     if let Message::GetBlockRequest {
                         height,
@@ -278,9 +297,7 @@ impl<D: Db> Aligner<D> {
                     if let Some(Message::GetBlockResponse { block, .. }) =
                         self.missing_blocks.lock().first()
                     {
-                        self.blacklist_blocks
-                            .lock()
-                            .push(block.hash(HashAlgorithm::Sha256));
+                        self.blacklist_blocks.lock().push(block.primary_hash());
                     }
                 }
                 std::task::Poll::Ready(false)
