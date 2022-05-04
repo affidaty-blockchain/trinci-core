@@ -317,6 +317,7 @@ impl<D: Db> Aligner<D> {
     ) -> Poll<bool> {
         // Send unicast request to a random trusted peer for every transaction in `missing_txs`.
 
+        // TODO Use Box::pin(timeout)
         let mut timeout = Duration::from_secs(TIME_OUT_SEC);
         let mut start = Instant::now();
         let mut attempt = 0;
@@ -426,8 +427,37 @@ impl<D: Db> Aligner<D> {
         }
     }
 
+    fn add_txs_to_the_pool(&self, block: &Block, txs: &Option<Vec<Hash>>, unexpected: bool) {
+        let mut pool = self.pool.write();
+        if let Some(ref hashes) = txs {
+            for hash in hashes {
+                if pool.unconfirmed.contains(hash) {
+                    pool.unconfirmed.remove(hash);
+                }
+                if !pool.txs.contains_key(hash) {
+                    pool.txs.insert(*hash, None);
+                }
+            }
+        }
+        let blk_info = BlockInfo {
+            hash: Some(block.data.primary_hash()),
+            validator: block.data.validator.to_owned(),
+            signature: Some(block.signature.to_owned()),
+            txs_hashes: txs.to_owned(),
+            timestamp: block.data.timestamp,
+        };
+        pool.confirmed.insert(block.data.height, blk_info);
+
+        // TMP only for early debug
+        let block_type = if unexpected { "unexpected " } else { "" };
+        debug!(
+            "[aligner] {}block {} inserted in confirmed pool",
+            block_type, block.data.height
+        );
+    }
+
     fn update_pool(&self) {
-        let missing_blocks = self.missing_blocks.lock().clone();
+        let missing_blocks = self.missing_blocks.lock();
         for msg in missing_blocks.iter().rev() {
             if let Message::GetBlockResponse {
                 block,
@@ -435,64 +465,22 @@ impl<D: Db> Aligner<D> {
                 origin: _,
             } = msg
             {
-                let mut pool = self.pool.write();
-                if let Some(ref hashes) = txs {
-                    for hash in hashes {
-                        if pool.unconfirmed.contains(hash) {
-                            pool.unconfirmed.remove(hash);
-                        }
-                        if !pool.txs.contains_key(hash) {
-                            pool.txs.insert(*hash, None);
-                        }
-                    }
-                }
-                let blk_info = BlockInfo {
-                    hash: Some(block.data.primary_hash()),
-                    validator: block.data.validator.to_owned(),
-                    signature: Some(block.signature.clone()),
-                    txs_hashes: txs.to_owned(),
-                    timestamp: block.data.timestamp,
-                };
-                pool.confirmed.insert(block.data.height, blk_info);
-                debug!(
-                    "[aligner] block {} inserted in confirmed pool",
-                    block.data.height
-                );
+                self.add_txs_to_the_pool(block, txs, false);
             }
         }
 
         // Update pools with unexpected blocks
         let mut last_block = self.trusted_peers.lock()[0].2.data.height + 1;
 
-        let unexpected_blocks = self.unexpected_blocks.lock().clone();
+        let unexpected_blocks = self.unexpected_blocks.lock();
+
+        // TODO sort the unexpected blocks
         while unexpected_blocks
             .iter()
             .find_map(|msg| match msg {
                 Message::GetBlockResponse { block, txs, .. } => {
                     if block.data.height == last_block {
-                        let mut pool = self.pool.write();
-                        if let Some(ref hashes) = txs {
-                            for hash in hashes {
-                                if pool.unconfirmed.contains(hash) {
-                                    pool.unconfirmed.remove(hash);
-                                }
-                                if !pool.txs.contains_key(hash) {
-                                    pool.txs.insert(*hash, None);
-                                }
-                            }
-                        }
-                        let blk_info = BlockInfo {
-                            hash: Some(block.data.primary_hash()),
-                            validator: block.data.validator.to_owned(),
-                            signature: Some(block.signature.clone()),
-                            txs_hashes: txs.to_owned(),
-                            timestamp: block.data.timestamp,
-                        };
-                        pool.confirmed.insert(block.data.height, blk_info);
-                        debug!(
-                            "[aligner] unexpected block {} inserted in confirmed pool",
-                            block.data.height
-                        );
+                        self.add_txs_to_the_pool(block, txs, true);
                         Some(())
                     } else {
                         None

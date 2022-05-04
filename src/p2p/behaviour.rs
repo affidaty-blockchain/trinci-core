@@ -209,6 +209,7 @@ impl Behavior {
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
         let config = MdnsConfig::default();
+
         //config.ttl = Duration::from_secs_f64((60 * 15) as f64);
         let fut = Mdns::new(config);
         let mdns = task::block_on(fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
