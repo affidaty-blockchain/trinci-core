@@ -136,7 +136,7 @@ impl RequestResponseCodec for TrinciCodec {
     }
 }
 
-/// Network behavior for application level message processing.
+/// Network behaviour for application level message processing.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "ComposedEvent")]
 pub(crate) struct Behavior {
@@ -476,7 +476,7 @@ impl Behavior {
                 );
                 // the message received is encapsulated in Message::Packed
                 let msg = Message::Packed { buf: buf.clone() };
-                // check wether is:
+                // check whether is:
                 //  - GetTransactionRequest
                 //  - GetBlockRequest
                 //  - GetBlockResponse
