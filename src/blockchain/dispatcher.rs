@@ -27,7 +27,7 @@
 //! When the message is submitted as a `Packed` message:
 //! - the payload can be a single packed `Message` or a vector of `Message`s.
 //! - one incoming Packed message generates one outgoing Packed message, this
-//!   behavior is performed **for all** message types, even for the ones that
+//!   behaviour is performed **for all** message types, even for the ones that
 //!   normally do not send out a response. This is to avoid starvation of
 //!   submitters that are not commonly aware of the actual content of the packed payload.
 //!   In case of messages that are not supposed to send out a real response
@@ -307,7 +307,7 @@ impl<D: Db> Dispatcher<D> {
         }
 
         // Check if whether or not there are missing blocks.
-        // In case the received block is the "next block", it means the behavior
+        // In case the received block is the "next block", it means the behaviour
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)

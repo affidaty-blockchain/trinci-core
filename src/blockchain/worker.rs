@@ -229,6 +229,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
     /// Blockchain worker asynchronous task.
     /// This can be stopped by submitting a `Stop` message to its input channel.
+    #[allow(clippy::mutex_atomic)]
     pub async fn run(&mut self, account_id: &str) {
         let threshold = self.config.lock().threshold;
 
@@ -242,7 +243,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
 
         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<()> {
             while exec_sleep.poll_unpin(cx).is_ready() {
-                #[allow(clippy::mutex-atomic)]
                 if *self.is_validator && *self.aligner_status.0.lock().unwrap() {
                     self.try_build_block(1);
                 }
@@ -264,7 +264,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 // We use try_lock because the lock may be held the "builder" in another thread.
                 if *self.is_validator {
                     self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
-                    #[allow(clippy::mutex-atomic)]
                     if *self.aligner_status.0.lock().unwrap() {
                         self.try_build_block(threshold);
                     }
