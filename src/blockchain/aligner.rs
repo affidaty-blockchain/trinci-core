@@ -112,7 +112,7 @@ impl<D: Db> Aligner<D> {
                 Message::GetBlockResponse {
                     block,
                     txs: None,
-                    origin,
+                    origin: Some(origin),
                 },
                 _res_chan,
             ))) = self.rx_chan.lock().poll_next_unpin(cx)
@@ -122,23 +122,24 @@ impl<D: Db> Aligner<D> {
                 // and the only messages expected are `GetBlockResponse`.
                 debug!(
                     "[aligner] last block proposal received by {} (height {})",
-                    origin.clone().unwrap(),
-                    block.data.height.clone()
+                    &origin, block.data.height
                 );
 
-                let hash = block.hash(HashAlgorithm::Sha256);
-                let hash = hex::encode(hash.as_bytes());
+                let hash = hex::encode(block.primary_hash());
 
-                if !collected_peers.contains(&(
-                    origin.clone().unwrap().to_string(),
-                    hash.clone(),
-                    block.clone(),
-                )) {
-                    collected_peers.push((origin.unwrap().to_string(), hash, block));
-                }
+                collected_peers
+                    .iter()
+                    .position(|(o, h, b)| o == &origin && h == &hash && b == &block)
+                    .unwrap_or_else(|| {
+                        collected_peers.push((origin, hash, block));
+                        collected_peers.len() - 1
+                    });
             }
         }
-        debug!("[aligner] peer collection ended");
+        error!(
+            "[aligner] peer collection ended: {} peers found",
+            collected_peers.len()
+        );
         if !collected_peers.is_empty() {
             std::task::Poll::Ready(Some(collected_peers))
         } else {

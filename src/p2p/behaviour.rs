@@ -642,7 +642,7 @@ impl Behavior {
                                     debug!("[req-res](res) received GetBlockResponse, submitted to blockchain service")
                                 }
                                 Err(error) => {
-                                    debug!("[req-res](res) error in submitig block response in bc_chan: {}", error)
+                                    debug!("[req-res](res) error in submitting block response in bc_chan: {}", error)
                                 }
                             },
                             Err(_err) => {
