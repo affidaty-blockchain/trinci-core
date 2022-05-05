@@ -36,10 +36,10 @@ bitflags::bitflags! {
         const TRANSACTION = 1 << 0;
         /// New block has been executed.
         const BLOCK = 1 << 1;
-        /// Contracts events
-        const CONTRACT_EVENTS = 1 << 2;
         /// Any unsolicited gossip request from the blockchain.
-        const GOSSIP_REQUEST = 1 << 3;
+        const GOSSIP_REQUEST = 1 << 2;
+        /// Contracts events
+        const CONTRACT_EVENTS = 1 << 3;
         /// Any unsolicited unicast request from the blockchain.
         const UNICAST_REQUEST = 1 << 4;
     }
