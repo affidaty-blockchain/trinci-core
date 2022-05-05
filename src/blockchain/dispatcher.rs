@@ -605,7 +605,7 @@ mod tests {
             pubsub,
             seed,
             "TEST".to_string(),
-            AlignerInterface(aligner.request_channel(), aligner.status.clone()),
+            AlignerInterface(aligner.request_channel(), aligner.get_status()),
         )
     }
 

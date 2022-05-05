@@ -65,7 +65,7 @@ pub(crate) struct Aligner<D: Db> {
     /// Pubsub channel.
     pubsub: Arc<Mutex<PubSub>>,
     /// Align status. false => not aligned.
-    pub status: Arc<(StdMutex<bool>, Condvar)>,
+    status: Arc<(StdMutex<bool>, Condvar)>,
     /// Hash of local last block.
     db: Arc<RwLock<D>>,
     /// Outstanding blocks and transactions.
@@ -90,6 +90,10 @@ impl<D: Db> Aligner<D> {
             pool,
             missing_txs: Arc::new(Mutex::new(vec![])),
         }
+    }
+
+    pub fn get_status(&self) -> Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> {
+        self.status.clone()
     }
 
     fn find_trusted_peers(&self, cx: &mut Context) -> Poll<Option<Vec<(String, String, Block)>>> {

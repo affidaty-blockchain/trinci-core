@@ -99,10 +99,10 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             seed.clone(),
             p2p_id.clone(),
-            AlignerInterface(aligner.request_channel(), aligner.status.clone()),
+            AlignerInterface(aligner.request_channel(), aligner.get_status()),
         );
 
-        let aligner_status = aligner.status.clone();
+        let aligner_status = aligner.get_status();
 
         thread::spawn(move || aligner.run());
 
@@ -116,7 +116,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             seed,
             p2p_id,
         );
-        //let synchronizer = Synchronizer::new(pool, db.clone(), pubsub);
 
         let building = Arc::new(AtomicBool::new(false));
         let executing = Arc::new(AtomicBool::new(false));
