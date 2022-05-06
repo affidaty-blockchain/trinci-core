@@ -247,7 +247,12 @@ impl<D: Db> Aligner<D> {
                     self.missing_blocks.lock().push(req.clone());
                     for tx in txs_hashes {
                         debug!("[aligner] adding hash tx");
-                        self.missing_txs.lock().push(*tx);
+
+                        let pool = &*self.pool.read();
+
+                        if !pool.txs.contains_key(tx) || !pool.unconfirmed.contains(tx) {
+                            self.missing_txs.lock().push(*tx);
+                        }
                     }
 
                     // Check alignment status.
@@ -381,7 +386,6 @@ impl<D: Db> Aligner<D> {
         let mut over = false;
         let mut current_peer = initial_peer;
         let mut send_message = true;
-        debug!("[aligner] first requested tx: {:?}", requested_tx.unwrap());
 
         if requested_tx.is_some() {
             while !over && attempt < MAX_ATTEMPTS {
