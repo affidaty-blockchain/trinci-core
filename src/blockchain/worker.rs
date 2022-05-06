@@ -74,6 +74,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
 }
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
+    #[allow(clippy::mutex_atomic)]
     pub fn new(
         is_validator_closure: impl IsValidator,
         config: BlockConfig,

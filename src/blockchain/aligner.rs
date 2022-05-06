@@ -60,8 +60,8 @@ pub struct AlignerWorker<D: Db> {
     pub tx_chan: Arc<Mutex<BlockRequestSender>>,
 }
 
-#[allow(clippy::mutex_atomic)]
 impl<D: Db> AlignerWorker<D> {
+    #[allow(clippy::mutex_atomic)]
     pub fn run(&self) {
         loop {
             {
