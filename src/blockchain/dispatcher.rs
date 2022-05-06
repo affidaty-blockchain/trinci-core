@@ -48,7 +48,12 @@ use crate::{
     db::Db,
     Error, ErrorKind, Result, Transaction,
 };
-use std::sync::{Arc, Condvar, Mutex as StdMutex};
+use std::{
+    sync::{Arc, Condvar, Mutex as StdMutex},
+    thread,
+};
+
+use super::aligner::NodeAligner;
 
 pub(crate) struct AlignerInterface(
     pub Arc<Mutex<BlockRequestSender>>,
@@ -73,7 +78,7 @@ pub(crate) struct Dispatcher<D: Db> {
     /// P2P ID
     p2p_id: String,
     /// Aligner
-    aligner: AlignerInterface,
+    dispatcher_aligner: AlignerInterface,
 }
 
 impl<D: Db> Clone for Dispatcher<D> {
@@ -85,13 +90,18 @@ impl<D: Db> Clone for Dispatcher<D> {
             pubsub: self.pubsub.clone(),
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
-            aligner: AlignerInterface(self.aligner.0.clone(), self.aligner.1.clone()),
+            dispatcher_aligner: AlignerInterface(
+                self.dispatcher_aligner.0.clone(),
+                self.dispatcher_aligner.1.clone(),
+            ),
         }
     }
 }
 
 impl<D: Db> Dispatcher<D> {
     /// Constructs a new dispatcher.
+    // FIXME
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<Mutex<BlockConfig>>,
         pool: Arc<RwLock<Pool>>,
@@ -100,7 +110,11 @@ impl<D: Db> Dispatcher<D> {
         seed: Arc<SeedSource>,
         p2p_id: String,
         aligner: AlignerInterface,
+        mut node_aligner: NodeAligner<D>,
     ) -> Self {
+        // Starting the node aligner thread
+        thread::spawn(move || node_aligner.aligner_run());
+
         Dispatcher {
             config,
             pool,
@@ -108,7 +122,7 @@ impl<D: Db> Dispatcher<D> {
             pubsub,
             seed,
             p2p_id,
-            aligner,
+            dispatcher_aligner: aligner,
         }
     }
 
@@ -276,13 +290,13 @@ impl<D: Db> Dispatcher<D> {
         // if in alignment just send
         // an ACK to aligner, so that
         // it can ask for next TX
-        let aligner_status = self.aligner.1.clone();
+        let aligner_status = self.dispatcher_aligner.1.clone();
         if !*aligner_status.0.lock().unwrap() {
             let req = Message::GetTransactionResponse {
                 tx: transaction,
                 origin,
             };
-            self.aligner.0.lock().send_sync(req).unwrap();
+            self.dispatcher_aligner.0.lock().send_sync(req).unwrap();
         }
     }
 
@@ -311,7 +325,7 @@ impl<D: Db> Dispatcher<D> {
         // is the one expected, the node is aligned.
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)
-        let aligner_status = self.aligner.1.clone();
+        let aligner_status = self.dispatcher_aligner.1.clone();
         debug!(
             "[dispatcher] local last: {}\n received:\t{}\n status\t{}",
             missing_headers.end,
@@ -368,7 +382,7 @@ impl<D: Db> Dispatcher<D> {
                     txs: txs_hashes.to_owned(),
                     origin: origin.to_owned(),
                 };
-                self.aligner.0.lock().send_sync(req).unwrap();
+                self.dispatcher_aligner.0.lock().send_sync(req).unwrap();
             }
         }
     }
@@ -550,7 +564,6 @@ mod tests {
             },
             TransactionData,
         },
-        blockchain::aligner::Aligner,
         channel::simple_channel,
         db::*,
         Error, ErrorKind,
@@ -596,7 +609,9 @@ mod tests {
         );
         let seed = Arc::new(seed);
 
-        let aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
+        let (tx_chan, _rx_chan) = crate::channel::confirmed_channel();
+
+        let aligner_status = Arc::new((StdMutex::new(true), Condvar::new()));
 
         Dispatcher::new(
             config,
@@ -605,7 +620,10 @@ mod tests {
             pubsub,
             seed,
             "TEST".to_string(),
-            AlignerInterface(aligner.request_channel(), aligner.get_status()),
+            AlignerInterface(Arc::new(Mutex::new(tx_chan)), aligner_status),
+            NodeAligner {
+                aligner_worker: None,
+            },
         )
     }
 

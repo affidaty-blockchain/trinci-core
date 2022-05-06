@@ -22,7 +22,7 @@ use rand::prelude::SliceRandom;
 use crate::{
     base::{Mutex, RwLock},
     blockchain::pool::BlockInfo,
-    channel::confirmed_channel,
+    channel::RequestReceiver,
     crypto::{Hash, HashAlgorithm, Hashable},
     db::Db,
     Block,
@@ -35,6 +35,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Condvar, Mutex as StdMutex},
     task::{Context, Poll},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -44,6 +45,57 @@ const TIME_OUT_SEC: u64 = 5;
 const MAX_ATTEMPTS: u8 = 3;
 /// Most common blocks range.
 const LATEST_WINDOW: usize = 5;
+
+pub struct AlignerWorker<D: Db> {
+    pub status: Arc<(StdMutex<bool>, Condvar)>,
+    /// Pubsub channel.
+    pub pubsub: Arc<Mutex<PubSub>>,
+    /// Hash of local last block.
+    pub db: Arc<RwLock<D>>,
+    /// Outstanding blocks and transactions.
+    pub pool: Arc<RwLock<Pool>>,
+    /// Rx channel.
+    pub rx_chan: Arc<Mutex<BlockRequestReceiver>>,
+    /// Tx channel.
+    pub tx_chan: Arc<Mutex<BlockRequestSender>>,
+}
+
+impl<D: Db> AlignerWorker<D> {
+    pub fn run(&self) {
+        loop {
+            {
+                let _guard = self
+                    .status
+                    .1
+                    .wait_while(self.status.0.lock().unwrap(), |pending| *pending);
+            }
+
+            let mut aligner = Aligner::new(
+                self.pubsub.clone(),
+                self.db.clone(),
+                self.pool.clone(),
+                self.status.clone(),
+                self.rx_chan.clone(),
+            );
+            aligner.run();
+        }
+    }
+}
+
+pub struct NodeAligner<D: Db> {
+    pub aligner_worker: Option<AlignerWorker<D>>,
+}
+
+impl<D: Db> NodeAligner<D> {
+    pub fn aligner_run(&mut self) {
+        async_std::task::block_on(self.run_async());
+    }
+
+    async fn run_async(&mut self) {
+        let worker = self.aligner_worker.take().unwrap();
+        thread::spawn(move || worker.run());
+    }
+}
 
 /// Synchronization context data.
 pub(crate) struct Aligner<D: Db> {
@@ -60,8 +112,6 @@ pub(crate) struct Aligner<D: Db> {
     missing_txs: Arc<Mutex<Vec<Hash>>>,
     /// Rx channel.
     rx_chan: Arc<Mutex<BlockRequestReceiver>>,
-    /// Tx channel.
-    tx_chan: Arc<Mutex<BlockRequestSender>>,
     /// Pubsub channel.
     pubsub: Arc<Mutex<PubSub>>,
     /// Align status. false => not aligned.
@@ -74,26 +124,25 @@ pub(crate) struct Aligner<D: Db> {
 
 #[allow(clippy::mutex_atomic)]
 impl<D: Db> Aligner<D> {
-    pub fn new(pubsub: Arc<Mutex<PubSub>>, db: Arc<RwLock<D>>, pool: Arc<RwLock<Pool>>) -> Self {
-        let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
-
+    pub fn new(
+        pubsub: Arc<Mutex<PubSub>>,
+        db: Arc<RwLock<D>>,
+        pool: Arc<RwLock<Pool>>,
+        status: Arc<(StdMutex<bool>, Condvar)>,
+        rx_chan: Arc<Mutex<RequestReceiver<Message, Message>>>,
+    ) -> Self {
         Aligner {
             trusted_peers: Arc::new(Mutex::new(vec![])),
             missing_blocks: Arc::new(Mutex::new(vec![])),
             blacklist_blocks: Arc::new(Mutex::new(vec![])),
             unexpected_blocks: Arc::new(Mutex::new(vec![])),
-            rx_chan: Arc::new(Mutex::new(rx_chan)),
-            tx_chan: Arc::new(Mutex::new(tx_chan)),
+            rx_chan,
             pubsub,
-            status: Arc::new((StdMutex::new(true), Condvar::new())),
+            status,
             db,
             pool,
             missing_txs: Arc::new(Mutex::new(vec![])),
         }
-    }
-
-    pub fn get_status(&self) -> Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> {
-        self.status.clone()
     }
 
     fn find_trusted_peers(&self, cx: &mut Context) -> Poll<Option<Vec<(String, String, Block)>>> {
@@ -431,7 +480,7 @@ impl<D: Db> Aligner<D> {
         }
     }
 
-    fn add_txs_to_the_pool(&self, block: &Block, txs: &Option<Vec<Hash>>, unexpected: bool) {
+    fn add_txs_to_the_pool(&self, block: &Block, txs: &Option<Vec<Hash>>) {
         let mut pool = self.pool.write();
         if let Some(ref hashes) = txs {
             for hash in hashes {
@@ -452,11 +501,9 @@ impl<D: Db> Aligner<D> {
         };
         pool.confirmed.insert(block.data.height, blk_info);
 
-        // TMP only for early debug
-        let block_type = if unexpected { "unexpected " } else { "" };
         debug!(
-            "[aligner] {}block {} inserted in confirmed pool",
-            block_type, block.data.height
+            "[aligner] block {} inserted in confirmed pool",
+            block.data.height
         );
     }
 
@@ -469,7 +516,7 @@ impl<D: Db> Aligner<D> {
                 origin: _,
             } = msg
             {
-                self.add_txs_to_the_pool(block, txs, false);
+                self.add_txs_to_the_pool(block, txs);
             }
         }
 
@@ -484,7 +531,8 @@ impl<D: Db> Aligner<D> {
             .find_map(|msg| match msg {
                 Message::GetBlockResponse { block, txs, .. } => {
                     if block.data.height == last_block {
-                        self.add_txs_to_the_pool(block, txs, true);
+                        debug!("[aligner] unexpected block");
+                        self.add_txs_to_the_pool(block, txs);
                         Some(())
                     } else {
                         None
@@ -552,21 +600,6 @@ impl<D: Db> Aligner<D> {
     }
 
     fn reset(&self) {
-        //debug!("trusted peers: {}", self.trusted_peers.is_locked());
-        let mut trusted_peers = self.trusted_peers.lock();
-        let empty: Vec<(String, String, Block)> = vec![];
-        *trusted_peers = empty;
-
-        //debug!("missing blocks: {}", self.missing_blocks.is_locked());
-        let mut missing_blocks = self.missing_blocks.lock();
-        let empty: Vec<Message> = vec![];
-        *missing_blocks = empty;
-
-        //debug!("unexpected blocks: {}", self.unexpected_blocks.is_locked());
-        let mut unexpected_blocks = self.unexpected_blocks.lock();
-        let empty: Vec<Message> = vec![];
-        *unexpected_blocks = empty;
-
         //debug!("status: {}", self.status.0.is_poisoned());
         *self.status.0.lock().unwrap() = true;
         self.status.1.notify_all();
@@ -575,125 +608,109 @@ impl<D: Db> Aligner<D> {
     async fn run_async(&self) {
         debug!("[aligner] service up");
 
-        loop {
-            {
-                let _guard = self
-                    .status
-                    .1
-                    .wait_while(self.status.0.lock().unwrap(), |pending| *pending);
-            }
+        debug!("[aligner] new align instance initialized");
 
-            debug!("[aligner] new align instance initialized");
+        // Wait some time before collecting new peers in case of a flood of "new added peer" messages
+        let collection_time = Duration::from_secs(SLEEP_TIME);
+        let start = Instant::now();
+        while collection_time.checked_sub(start.elapsed()).is_some() {}
 
-            // Wait some time before collecting new peers in case of a flood of "new added peer" messages
-            let collection_time = Duration::from_secs(SLEEP_TIME);
-            let start = Instant::now();
-            while collection_time.checked_sub(start.elapsed()).is_some() {}
+        // Collect trusted peers.
+        let collected_peers_fut = future::poll_fn(
+            move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
+                self.find_trusted_peers(cx)
+            },
+        );
 
-            // Collect trusted peers.
-            let collected_peers_fut = future::poll_fn(
-                move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
-                    self.find_trusted_peers(cx)
-                },
-            );
+        let result = collected_peers_fut.await;
 
-            let result = collected_peers_fut.await;
+        debug!("[aligner] acquiring local last");
+        let local_last = self.db.read().load_block(u64::MAX);
 
-            debug!("[aligner] acquiring local last");
-            let local_last = self.db.read().load_block(u64::MAX);
+        if let (Some(collected_peers), Some(local_last)) = (result, local_last) {
+            // Once the collection task ended, to find the trusted peers,
+            // the peers with the most common last block are chosen.
+            // (occurrences, height)
+            let max_block_height = self.filter_peers(collected_peers, local_last.data.height);
 
-            if let (Some(collected_peers), Some(local_last)) = (result, local_last) {
-                // Once the collection task ended, to find the trusted peers,
-                // the peers with the most common last block are chosen.
-                // (occurrences, height)
-                let max_block_height = self.filter_peers(collected_peers, local_last.data.height);
+            debug!("[aligner] requesting last block to random trusted peer");
+            let peers = self.trusted_peers.lock().clone();
+            let peer = &peers.choose(&mut rand::thread_rng());
+            match peer {
+                Some((peer, ..)) => {
+                    let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
+                        self.collect_missing_blocks(max_block_height, peer, cx)
+                    });
 
-                debug!("[aligner] requesting last block to random trusted peer");
-                let peers = self.trusted_peers.lock().clone();
-                let peer = &peers.choose(&mut rand::thread_rng());
-                match peer {
-                    Some((peer, ..)) => {
+                    let outcome = future.await;
+
+                    // Only progress the procedure if the block
+                    // and transaction's hash collection ended successfully
+                    if outcome {
+                        debug!(
+                                "[aligner] requesting transactions from missing blocks to trusted peers");
                         let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
-                            self.collect_missing_blocks(max_block_height, peer, cx)
+                            self.collect_missing_txs(peer.clone(), max_block_height, cx)
                         });
 
                         let outcome = future.await;
 
-                        // Only progress the procedure if the block
-                        // and transaction's hash collection ended successfully
+                        // Only progress if previous tasks were successfully completed.
                         if outcome {
+                            // Update pools with the retrieved blocks.
+                            // Note: in the `missing_block` array blocks are collected
+                            //       from the most recent (first array element),
+                            //       to the least recent (last array element).
+                            debug!("[aligner] submitting alignment blocks to pool service");
+                            self.update_pool();
+                            // Wait until all blocks are executed.
+                            let mut executed_block = self.db.read().load_block(u64::MAX).unwrap();
+                            let most_common_block = self.trusted_peers.lock()[0].2.data.height;
+                            while executed_block.data.height < most_common_block {
+                                executed_block = self.db.read().load_block(u64::MAX).unwrap();
+                            }
+                        } else {
                             debug!(
-                                "[aligner] requesting transactions from missing blocks to trusted peers");
-                            let future =
-                                future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
-                                    self.collect_missing_txs(peer.clone(), max_block_height, cx)
-                                });
-
-                            let outcome = future.await;
-
-                            // Only progress if previous tasks were successfully completed.
-                            if outcome {
-                                // Update pools with the retrieved blocks.
-                                // Note: in the `missing_block` array blocks are collected
-                                //       from the most recent (first array element),
-                                //       to the least recent (last array element).
-                                debug!("[aligner] submitting alignment blocks to pool service");
-                                self.update_pool();
-                                // Wait until all blocks are executed.
-                                let mut executed_block =
-                                    self.db.read().load_block(u64::MAX).unwrap();
-                                let most_common_block = self.trusted_peers.lock()[0].2.data.height;
-                                while executed_block.data.height < most_common_block {
-                                    executed_block = self.db.read().load_block(u64::MAX).unwrap();
-                                }
-                            } else {
-                                debug!(
                                     "[aligner] unable to retrieve missing blocks and txs, aborting alignment"
                                 );
-                            }
                         }
                     }
-                    None => (), // If no trusted peers, complete alignment task.
-                };
-            } else {
-                debug!("[aligner] unable to find trusted peers, aborting alignment");
-            }
-
-            // Reinitialize aligner structures.
-            debug!("[aligner] reset aligner");
-            self.reset();
-
-            {
-                // It should be 0.
-                debug!(
-                    "[aligner] trusted_peers {}",
-                    self.trusted_peers.lock().len()
-                );
-                // It should be 0.
-                debug!(
-                    "[aligner] missing_blocks {}",
-                    self.missing_blocks.lock().len()
-                );
-                // It should be 0.
-                debug!(
-                    "[aligner] unexpected blocks {}",
-                    self.unexpected_blocks.lock().len()
-                );
-                // It should be true
-                debug!("[aligner] status {:?}", self.status.0.lock().unwrap());
-            }
-
-            debug!("[aligner] alignment task completed");
+                }
+                None => (), // If no trusted peers, complete alignment task.
+            };
+        } else {
+            debug!("[aligner] unable to find trusted peers, aborting alignment");
         }
+
+        // Reinitialize aligner structures.
+        debug!("[aligner] reset aligner");
+        self.reset();
+
+        {
+            // It should be 0.
+            error!(
+                "[aligner] trusted_peers {}",
+                self.trusted_peers.lock().len()
+            );
+            // It should be 0.
+            error!(
+                "[aligner] missing_blocks {}",
+                self.missing_blocks.lock().len()
+            );
+            // It should be 0.
+            error!(
+                "[aligner] unexpected blocks {}",
+                self.unexpected_blocks.lock().len()
+            );
+            // It should be true
+            error!("[aligner] status {:?}", self.status.0.lock().unwrap());
+        }
+
+        debug!("[aligner] alignment task completed");
     }
 
     pub fn run(&mut self) {
         let fut = self.run_async();
         async_std::task::block_on(fut);
-    }
-
-    /// Get a clone of block-service input channel.
-    pub fn request_channel(&self) -> Arc<Mutex<BlockRequestSender>> {
-        self.tx_chan.clone()
     }
 }

@@ -88,7 +88,8 @@ struct SubscriberInfo {
 }
 
 /// Blockchain events subscribers.
-pub(crate) struct PubSub {
+// FIXME pub(crate) struct PubSub
+pub struct PubSub {
     events_sub: HashMap<Event, HashMap<String, SubscriberInfo>>,
 }
 
@@ -119,7 +120,7 @@ impl PubSub {
     /// Subscribe to blockchain events.
     /// The `events` parameter is a bitflag, thus it is not limited to one
     /// single event and multiple kinds can be OR-ed together.
-    /// An identifier can be passed to track the subscriber behavior.
+    /// An identifier can be passed to track the subscriber behaviour.
     /// Events will be received from the receiver end of `chan`.
     pub fn subscribe(
         &mut self,

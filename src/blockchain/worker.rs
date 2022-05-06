@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::channel::confirmed_channel;
 use crate::crypto::drand::SeedSource;
 use crate::crypto::hash::Hashable;
 use crate::{
@@ -32,13 +33,12 @@ use async_std::task::{self, Context, Poll};
 use futures::future::FutureExt;
 use futures::{future, prelude::*};
 use std::sync::{Arc, Condvar, Mutex as StdMutex};
-use std::thread;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use super::aligner::Aligner;
+use super::aligner::{AlignerWorker, NodeAligner};
 use super::dispatcher::AlignerInterface;
 
 /// Closure trait to load a wasm binary.
@@ -90,7 +90,21 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         let db = Arc::new(RwLock::new(db));
         let wm = Arc::new(Mutex::new(wm));
 
-        let mut aligner = Aligner::new(pubsub.clone(), db.clone(), pool.clone());
+        let (aligner_tx_chan, aligner_rx_chan) = confirmed_channel::<Message, Message>();
+
+        let aligner_status = Arc::new((StdMutex::new(true), Condvar::new()));
+        let aligner_rx_chan = Arc::new(Mutex::new(aligner_rx_chan));
+        let aligner_tx_chan = Arc::new(Mutex::new(aligner_tx_chan));
+        let node_aligner = NodeAligner {
+            aligner_worker: Some(AlignerWorker {
+                status: aligner_status.clone(),
+                pubsub: pubsub.clone(),
+                db: db.clone(),
+                pool: pool.clone(),
+                rx_chan: aligner_rx_chan,
+                tx_chan: aligner_tx_chan.clone(),
+            }),
+        };
 
         let dispatcher = Dispatcher::new(
             config.clone(),
@@ -99,12 +113,9 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pubsub.clone(),
             seed.clone(),
             p2p_id.clone(),
-            AlignerInterface(aligner.request_channel(), aligner.get_status()),
+            AlignerInterface(aligner_tx_chan, aligner_status.clone()),
+            node_aligner,
         );
-
-        let aligner_status = aligner.get_status();
-
-        thread::spawn(move || aligner.run());
 
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
         let executor = Executor::new(
@@ -245,7 +256,6 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
                 if *self.is_validator && *self.aligner_status.0.lock().unwrap() {
                     self.try_build_block(1);
                 }
-
                 self.try_exec_block(*self.is_validator, self.is_validator_closure.clone());
                 exec_sleep = Box::pin(task::sleep(Duration::from_secs(exec_timeout)));
             }
