@@ -41,7 +41,7 @@ fn build_transport(keypair: &Keypair) -> Boxed<(PeerId, StreamMuxerBox)> {
     let tcp_config = TcpConfig::new();
 
     // TODO: use NOISE protocol for encrypted traffic.
-    // Currently is left as cleartext to allow traffic monitoring.
+    // Currently is left as clear text to allow traffic monitoring.
     // let noise_keys = libp2p::noise::Keypair::<libp2p::noise::X25519Spec>::new()
     //     .into_authentic(&keypair)
     //     .unwrap();
@@ -152,7 +152,7 @@ pub async fn run_async(config: Arc<PeerConfig>, block_tx: BlockRequestSender) {
                                         let peer = PeerId::from_str(&destination.clone()).unwrap();
                                         let buf = rmp_serialize(&msg).unwrap();
                                         let request = ReqUnicastMessage(buf);
-                                        debug!("[p2p] recieved an internal pubsub request, sended in unicast to {}", destination);
+                                        debug!("[p2p] received an internal pubsub request, sended in unicast to {}", destination);
                                         behavior.reqres.send_request(&peer, request);
                                     }
                                     None => {

@@ -134,7 +134,7 @@ fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fu
         }
     };
 
-    error!(
+    debug!(
         "\nTX: {:?}\n\taccount: {}\n\tmethod: {}\n\targs: {}{}\n\tburned_wt_fuel: {}\n",
         hash,
         account,

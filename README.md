@@ -45,7 +45,7 @@ in case of the optional feature for the TPM2 module is enabled, the following de
 
 - libtss2-dev
 
-#### Ubintu/Debian installation
+#### Ubuntu/Debian installation
 
 
 install the dependencies:
@@ -72,7 +72,7 @@ cargo build
 References
 ----------
 
-[Link to lightpaper](https://github.com/affidaty-blockchain/whitepaper) 
+[Link to the light-paper](https://github.com/affidaty-blockchain/whitepaper) 
 
 ## Schemas
 

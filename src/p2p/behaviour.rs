@@ -139,7 +139,7 @@ impl RequestResponseCodec for TrinciCodec {
     }
 }
 
-/// Network behavior for application level message processing.
+/// Network behaviour for application level message processing.
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "ComposedEvent")]
 pub(crate) struct Behavior {
@@ -401,7 +401,7 @@ impl Behavior {
                 for addr in addresses.iter() {
                     debug!("[kad] discovered: {} @ {}", peer, addr);
                 }
-                // probably it is not needed, actually it may be a problelm
+                // probably it is not needed, actually it may be a problem
                 // we add the peer already in identify event
                 //self.gossip.add_explicit_peer(&peer);
             }
@@ -507,17 +507,17 @@ impl Behavior {
                     },
             } => {
                 debug!(
-                    "[req-res](req) {} message recieved from: {}",
+                    "[req-res](req) {} message received from: {}",
                     request_id.to_string(),
                     peer.to_string()
                 );
-                // the message recieved is incapsulated in Message::Packed
+                // the message received is encapsulated in Message::Packed
                 let msg = Message::Packed { buf: buf.clone() };
-                // chech wether is:
+                // check whether is:
                 //  - GetTransactionRequest
                 //  - GetBlockRequest
                 //  - GetBlockResponse
-                // In case of *Request => ask localy to blockchain service and sand back a reqres.response.
+                // In case of *Request => ask locally to blockchain service and sand back a reqRes.response.
                 // In case of GetBlockResponse => submit last block to local blockchain service.
                 match rmp_deserialize(&buf) {
                     Ok(MultiMessage::Simple(req)) => match req {
@@ -625,16 +625,16 @@ impl Behavior {
                         //Message::GetTransactionResponse { tx: _, origin: _ } => {
                         //    match self.bc_chan.send_sync(req) {
                         //        Ok(_) => {
-                        //            debug!("[req-res](req) tx submited to blockchain service")
+                        //            debug!("[req-res](req) tx submitted to blockchain service")
                         //        }
                         //        Err(_err) => {
                         //            warn!("blockchain service seems down");
                         //        }
                         //    }
                         //}
-                        _ => error!("[reqres](req) unexpected blockchain message"),
+                        _ => error!("[req-res](req) unexpected blockchain message"),
                     },
-                    _ => error!("[reqres](req) error indeserialization"),
+                    _ => error!("[req-res](req) error indeserialization"),
                 };
             }
             RequestResponseEvent::Message {
@@ -649,7 +649,7 @@ impl Behavior {
                 //  - GetBlockResponse
                 //  - GetTransactionResponse
                 // this means that it is only needed to submit it to blockchain service.
-                debug!("[req-res](res) message recieved from: {}", peer.to_string());
+                debug!("[req-res](res) message received from: {}", peer.to_string());
 
                 let msg = Message::Packed { buf: buf.clone() };
 
@@ -659,11 +659,11 @@ impl Behavior {
                             match self.bc_chan.send_sync(msg) {
                                 Ok(res_chan) => match res_chan.recv_sync() {
                                     Ok(_) => {
-                                        debug!("[req-res](res) recieved GetTransactionResponse, submitted to blockchain service")
+                                        debug!("[req-res](res) received GetTransactionResponse, submitted to blockchain service")
                                     }
                                     Err(error) => {
                                         debug!(
-                                            "[req-res](res) error in submitig tx response in bc_chan: {}",
+                                            "[req-res](res) error in submitting tx response in bc_chan: {}",
                                             error
                                         )
                                     }
@@ -676,7 +676,7 @@ impl Behavior {
                         Message::GetBlockResponse { .. } => match self.bc_chan.send_sync(msg) {
                             Ok(res_chan) => match res_chan.recv_sync() {
                                 Ok(_) => {
-                                    debug!("[req-res](res) recieved GetBlockResponse, submitted to blockchain service")
+                                    debug!("[req-res](res) received GetBlockResponse, submitted to blockchain service")
                                 }
                                 Err(error) => {
                                     debug!("[req-res](res) error in submitig block response in bc_chan: {}", error)
@@ -687,7 +687,7 @@ impl Behavior {
                             }
                         },
                         Message::Ack => {
-                            debug!("[req-res](res) recieved ACK from {}", peer.to_string())
+                            debug!("[req-res](res) received ACK from {}", peer.to_string())
                         }
                         _ => (),
                     }

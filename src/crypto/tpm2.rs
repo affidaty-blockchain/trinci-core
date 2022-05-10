@@ -110,7 +110,7 @@ impl Tpm2 {
 
         match ecc_structure {
             Ok(ecc_structure) => {
-                // for now `onwer` auth_value, may be changed lately
+                // for now `Owner` auth_value, may be changed lately
                 let primary_handle = tss_esapi::interface_types::resource_handles::Hierarchy::Owner;
                 let key_handle =
                     context.create_primary(primary_handle, &ecc_structure, None, None, None, None);
@@ -145,7 +145,7 @@ impl Tpm2 {
         }
     }
 
-    /// It initialise the structure context, primary key and public key of the module passed as argument.
+    /// It initialize the structure context, primary key and public key of the module passed as argument.
     /// optional device: path to a tpm2 device. Expected format: /dir0/dir1/[...]/tpm1.
     /// If no path is declared the default path is used: /dev/tpm0.
     /// It returns a Tpm2 structure or an error in case something went wrong during the interaction with the module.
