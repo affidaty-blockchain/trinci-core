@@ -55,7 +55,7 @@ use crate::network_monitor::{
 };
 
 #[cfg(feature = "rt-monitor")]
-use base::schema::BlockchainSettings;
+use crate::base::schema::BlockchainSettings;
 
 /// Result struct for bulk transaction
 #[derive(Serialize, Deserialize)]
@@ -917,14 +917,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
         self.db.write().fork_merge(fork)?;
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
-            // Notify subscribers about block generation.
-            let msg = Message::GetBlockResponse {
-                block: block.clone(),
-                txs: Some(txs_hashes.to_owned()),
-                origin: None, // send it in gossip
-            };
-            self.pubsub.lock().publish(Event::BLOCK, msg);
-
             #[cfg(feature = "rt-monitor")]
             {
                 // Retrieve network name.
@@ -938,7 +930,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
 
                 // Sending produced block to network monitor.
-                let block_json = serde_json::to_string(&block).unwrap();
+                let block_json = serde_json::to_string(&block.clone()).unwrap();
                 let block_event = MonitorEvent {
                     peer_id: self.p2p_id.clone(),
                     action: Action::BlockProduced,
@@ -947,6 +939,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 };
                 send_update(block_event);
             }
+
+            // Notify subscribers about block generation.
+            let msg = Message::GetBlockResponse {
+                block,
+                txs: Some(txs_hashes.to_owned()),
+                origin: None, // send it in gossip
+            };
+            self.pubsub.lock().publish(Event::BLOCK, msg);
         }
 
         if is_validator {

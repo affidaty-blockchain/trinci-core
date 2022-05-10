@@ -197,8 +197,6 @@ impl<D: Db> Dispatcher<D> {
         let result = self.put_transaction_internal(tx.clone());
         match result {
             Ok(hash) => {
-                debug!("[dispatcher] PTI response OK");
-                self.broadcast_attempt(tx.clone());
                 #[cfg(feature = "rt-monitor")]
                 {
                     // Retrieve network name.
@@ -212,7 +210,7 @@ impl<D: Db> Dispatcher<D> {
                     let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
 
                     // Sending produced transaction to network monitor.
-                    let tx_json = serde_json::to_string(&tx).unwrap();
+                    let tx_json = serde_json::to_string(&tx.clone()).unwrap();
                     let tx_event = MonitorEvent {
                         peer_id: self.p2p_id.clone(),
                         action: Action::TransactionProduced,
@@ -221,6 +219,8 @@ impl<D: Db> Dispatcher<D> {
                     };
                     send_update(tx_event);
                 }
+                debug!("[dispatcher] PTI response OK");
+                self.broadcast_attempt(tx);
                 Message::PutTransactionResponse { hash }
             }
             Err(err) => {
