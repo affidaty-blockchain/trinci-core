@@ -159,6 +159,7 @@ pub(crate) struct Behavior {
     #[behaviour(ignore)]
     pub network_name: String,
     /// Local peer ID.
+    #[allow(dead_code)]
     #[behaviour(ignore)]
     pub peer_id: String,
 }

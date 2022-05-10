@@ -68,14 +68,7 @@ tempfile = "3.2.0"
 ureq = { version = "2.1.1", default-features = false }
 
 [features]
-default = [
-    "with-rocksdb",
-    "with-wasmtime",
-    "p2p",
-    "rest",
-    "bridge",
-    "rt-monitor",
-]
+default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
 with-rocksdb = ["merkledb"]
 with-wasmtime = ["wasmtime"]
 p2p = ["libp2p"]

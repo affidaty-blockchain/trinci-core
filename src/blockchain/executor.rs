@@ -39,25 +39,23 @@ use crate::{
             UnsignedTransaction,
         },
         serialize::{rmp_deserialize, rmp_serialize},
-        BlockchainSettings, Mutex, RwLock,
+        Mutex, RwLock,
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    network_monitor::{
-        tools::send_update,
-        types::{Action, Event as MonitorEvent},
-    }, // TODO add conditional
     wm::{CtxArgs, Wm, MAX_FUEL},
-    Error,
-    ErrorKind,
-    KeyPair,
-    PublicKey,
-    Receipt,
-    Result,
-    Transaction,
-    SERVICE_ACCOUNT_ID,
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
+
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{
+    tools::send_update,
+    types::{Action, Event as MonitorEvent},
+};
+
+#[cfg(feature = "rt-monitor")]
+use base::schema::BlockchainSettings;
 
 /// Result struct for bulk transaction
 #[derive(Serialize, Deserialize)]
