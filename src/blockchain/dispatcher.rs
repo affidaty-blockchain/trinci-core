@@ -327,7 +327,7 @@ impl<D: Db> Dispatcher<D> {
 
             let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
 
-            // Sending produced recieved to network monitor.
+            // Sending produced received to network monitor.
             let tx_json = serde_json::to_string(&transaction).unwrap();
             let tx_event = MonitorEvent {
                 peer_id: self.p2p_id.clone(),
@@ -371,7 +371,7 @@ impl<D: Db> Dispatcher<D> {
 
             let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
 
-            // Sending recived block to network monitor.
+            // Sending received block to network monitor.
             let block_json = serde_json::to_string(block).unwrap();
             let block_event = MonitorEvent {
                 peer_id: self.p2p_id.clone(),
