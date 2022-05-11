@@ -55,6 +55,12 @@ use std::{
 
 use super::aligner::NodeAligner;
 
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{
+    tools::send_update,
+    types::{Action, Event as MonitorEvent},
+};
+
 pub(crate) struct AlignerInterface(
     pub Arc<Mutex<BlockRequestSender>>,
     pub Arc<(StdMutex<bool>, Condvar)>,
@@ -205,6 +211,28 @@ impl<D: Db> Dispatcher<D> {
         let result = self.put_transaction_internal(tx.clone());
         match result {
             Ok(hash) => {
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Retrieve network name.
+                    let buf = self
+                        .db
+                        .read()
+                        .load_configuration("blockchain:settings")
+                        .unwrap(); // If this fails is at the very beginning
+                    let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                    let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+                    // Sending produced transaction to network monitor.
+                    let tx_json = serde_json::to_string(&tx.clone()).unwrap();
+                    let tx_event = MonitorEvent {
+                        peer_id: self.p2p_id.clone(),
+                        action: Action::TransactionProduced,
+                        payload: tx_json,
+                        network: network_name,
+                    };
+                    send_update(tx_event);
+                }
                 debug!("[dispatcher] PTI response OK");
                 self.broadcast_attempt(tx);
                 Message::PutTransactionResponse { hash }
@@ -287,6 +315,29 @@ impl<D: Db> Dispatcher<D> {
             "[dispatcher] put transaction internal result: {}",
             res.is_ok()
         );
+        #[cfg(feature = "rt-monitor")]
+        {
+            // Retrieve network name.
+            let buf = self
+                .db
+                .read()
+                .load_configuration("blockchain:settings")
+                .unwrap(); // If this fails is at the very beginning
+            let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+            let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+            // Sending produced recieved to network monitor.
+            let tx_json = serde_json::to_string(&transaction).unwrap();
+            let tx_event = MonitorEvent {
+                peer_id: self.p2p_id.clone(),
+                action: Action::TransactionRecieved,
+                payload: tx_json,
+                network: network_name,
+            };
+            send_update(tx_event);
+        }
+
         // if in alignment just send
         // an ACK to aligner, so that
         // it can ask for next TX
@@ -308,6 +359,29 @@ impl<D: Db> Dispatcher<D> {
         origin: &Option<String>,
         _req: Message,
     ) {
+        #[cfg(feature = "rt-monitor")]
+        {
+            // Retrieve network name.
+            let buf = self
+                .db
+                .read()
+                .load_configuration("blockchain:settings")
+                .unwrap(); // If this fails is at the very beginning
+            let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+            let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+            // Sending recived block to network monitor.
+            let block_json = serde_json::to_string(block).unwrap();
+            let block_event = MonitorEvent {
+                peer_id: self.p2p_id.clone(),
+                action: Action::BlockRecieved,
+                payload: block_json,
+                network: network_name,
+            };
+            send_update(block_event);
+        }
+
         // get local last block
         let opt = self.db.read().load_block(u64::MAX);
 

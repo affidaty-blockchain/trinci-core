@@ -48,6 +48,15 @@ use crate::{
 };
 use std::{collections::HashMap, sync::Arc};
 
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{
+    tools::send_update,
+    types::{Action, Event as MonitorEvent},
+};
+
+#[cfg(feature = "rt-monitor")]
+use crate::base::schema::BlockchainSettings;
+
 /// Result struct for bulk transaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
@@ -908,6 +917,29 @@ impl<D: Db, W: Wm> Executor<D, W> {
         self.db.write().fork_merge(fork)?;
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
+            #[cfg(feature = "rt-monitor")]
+            {
+                // Retrieve network name.
+                let buf = self
+                    .db
+                    .read()
+                    .load_configuration("blockchain:settings")
+                    .unwrap(); // If this fails is at the very beginning
+                let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+                // Sending produced block to network monitor.
+                let block_json = serde_json::to_string(&block.clone()).unwrap();
+                let block_event = MonitorEvent {
+                    peer_id: self.p2p_id.clone(),
+                    action: Action::BlockProduced,
+                    payload: block_json,
+                    network: network_name,
+                };
+                send_update(block_event);
+            }
+
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
                 block,

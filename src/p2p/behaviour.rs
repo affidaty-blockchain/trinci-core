@@ -51,6 +51,9 @@ use libp2p::{
 use std::{io, iter, str::FromStr};
 use tide::utils::async_trait;
 
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{tools::send_topology, types::NodeTopology};
+
 const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
 
 // Request-response protocol
@@ -155,6 +158,10 @@ pub(crate) struct Behavior {
     pub bc_chan: BlockRequestSender,
     #[behaviour(ignore)]
     pub network_name: String,
+    /// Local peer ID.
+    #[allow(dead_code)]
+    #[behaviour(ignore)]
+    pub peer_id: String,
 }
 
 #[derive(Debug)]
@@ -303,6 +310,7 @@ impl Behavior {
             bc_chan,
             reqres,
             network_name: format!("trinci/{}/1.0.0", nw_name),
+            peer_id: peer_id.to_string(),
         })
     }
 
@@ -367,6 +375,21 @@ impl Behavior {
                     debug!("[mdns] expired: {} @ {}", peer, addr);
                     self.gossip.remove_explicit_peer(&peer);
                     self.reqres.remove_address(&peer, &addr);
+                }
+
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
+                    send_topology(topology_update);
                 }
             }
         }
@@ -441,6 +464,20 @@ impl Behavior {
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 debug!("[gossip] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
+                    send_topology(topology_update);
+                }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 debug!(
