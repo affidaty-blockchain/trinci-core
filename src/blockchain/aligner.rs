@@ -603,6 +603,7 @@ impl<D: Db> Aligner<D> {
         }
     }
 
+    #[allow(clippy::mutex_atomic)]
     fn reset(&self) {
         //debug!("status: {}", self.status.0.is_poisoned());
         *self.status.0.lock().unwrap() = true;
@@ -689,26 +690,6 @@ impl<D: Db> Aligner<D> {
         // Reinitialize aligner structures.
         debug!("[aligner] reset aligner");
         self.reset();
-
-        {
-            // It should be 0.
-            error!(
-                "[aligner] trusted_peers {}",
-                self.trusted_peers.lock().len()
-            );
-            // It should be 0.
-            error!(
-                "[aligner] missing_blocks {}",
-                self.missing_blocks.lock().len()
-            );
-            // It should be 0.
-            error!(
-                "[aligner] unexpected blocks {}",
-                self.unexpected_blocks.lock().len()
-            );
-            // It should be true
-            error!("[aligner] status {:?}", self.status.0.lock().unwrap());
-        }
 
         debug!("[aligner] alignment task completed");
     }
