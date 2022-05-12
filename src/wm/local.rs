@@ -297,6 +297,24 @@ mod local_host_func {
         Ok(())
     }
 
+    /// Remove asset data
+    fn remove_asset(
+        mut caller: Caller<'_, CallContext>,
+        account_id_offset: i32,
+        account_id_length: i32,
+    ) -> std::result::Result<(), Trap> {
+        // Recover parameters from wasm memory.
+        let mem: Memory = mem_from(&mut caller)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let account_id = String::from_utf8_lossy(buf);
+
+        // Recover execution context.
+        let ctx = caller.data_mut();
+        // Invoke portable host function.
+        host_func::remove_asset(ctx, &account_id);
+        Ok(())
+    }
+
     /// Load asset from the account
     fn load_asset(
         mut caller: Caller<'_, CallContext>,
@@ -509,6 +527,7 @@ mod local_host_func {
                 "hf_is_callable" => Func::wrap(&mut store, is_callable),
                 "hf_load_asset" => Func::wrap(&mut store, load_asset),
                 "hf_store_asset" => Func::wrap(&mut store, store_asset),
+                "hf_remove_asset" => Func::wrap(&mut store, remove_asset),
                 "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
                 "hf_get_keys" => Func::wrap(&mut store, get_keys),
                 "hf_call" => Func::wrap(&mut store, call),

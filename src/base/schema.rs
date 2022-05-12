@@ -623,6 +623,11 @@ impl Account {
         let buf = ByteBuf::from(value);
         self.assets.insert(asset.to_string(), buf);
     }
+
+    /// Remove the given asset from the account.
+    pub fn remove_asset(&mut self, asset: &str) {
+        self.assets.remove(asset);
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1434,6 +1439,15 @@ pub mod tests {
         account.store_asset("BTC", &[3]);
 
         assert_eq!(account.load_asset("BTC"), [3]);
+    }
+
+    #[test]
+    fn account_remove_asset() {
+        let mut account = create_test_account();
+
+        account.remove_asset("BTC");
+
+        assert_eq!(account.load_asset("BTC"), Vec::<u8>::new());
     }
 
     #[test]

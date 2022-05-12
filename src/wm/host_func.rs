@@ -190,6 +190,15 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     ctx.db.store_account(account);
 }
 
+/// Remove the asset with key `asset_id` from assets entry
+pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
+    let mut account = ctx
+        .db
+        .load_account(account_id)
+        .unwrap_or_else(|| Account::new(account_id, None));
+    account.remove_asset(ctx.owner);
+    ctx.db.store_account(account);
+}
 /// Digital signature verification.
 pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i32 {
     pk.verify(data, sign) as i32
@@ -442,6 +451,20 @@ mod tests {
         let account = load_account(&target_account).unwrap();
         let amount = account.load_asset(ASSET_ACCOUNT);
         assert_eq!(amount, [42]);
+    }
+
+    #[test]
+    fn remove_asset_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        remove_asset(&mut ctx, &target_account);
+
+        let account = load_account(&target_account).unwrap();
+        let amount = account.load_asset(ASSET_ACCOUNT);
+        assert_eq!(amount, Vec::<u8>::new());
     }
 
     #[test]

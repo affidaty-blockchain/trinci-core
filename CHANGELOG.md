@@ -41,6 +41,7 @@ Changed
 
 Added
 * `secure_call` host function
+* `remove_asset` host function
 * Call to Service `contract_updatable`
 * NFA Non-Fungible Account
 * Added size limit on transaction that can be executed
