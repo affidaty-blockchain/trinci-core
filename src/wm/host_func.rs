@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use crate::{
-    base::schema::SmartContractEvent,
+    base::{schema::SmartContractEvent, serialize::rmp_serialize},
     crypto::{
         drand::{Drand, SeedSource},
         Hash, PublicKey,
@@ -58,6 +58,14 @@ pub struct CallContext<'a> {
     pub block_timestamp: u64,
 }
 
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+struct StoreAssetData<'a> {
+    account: &'a str,
+    #[serde(with = "serde_bytes")]
+    data: &'a [u8],
+}
+
 /// WASM logging facility.
 pub fn log(ctx: &CallContext, msg: &str) {
     debug!("{}: {}", ctx.owner, msg);
@@ -82,7 +90,6 @@ pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
     ctx.events.push(SmartContractEvent {
         event_tx: Hash::default(),
         emitter_account: ctx.owner.to_string(),
-        // TODO: add smart contract hash
         emitter_smart_contract: smart_contract_hash,
         event_name: event_name.to_string(),
         event_data: event_data.to_vec(),
@@ -172,7 +179,8 @@ pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
         .collect()
 }
 
-/// Returns an account asset field for a given `asset_id`
+/// Returns an account asset field for a given `account_id`
+/// The `asset_id` key is the ctx.caller
 pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     match ctx.db.load_account(account_id) {
         Some(account) => account.load_asset(ctx.owner),
@@ -180,7 +188,8 @@ pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     }
 }
 
-/// Store an asset as assets entry with key `asset_id`
+/// Store an asset as assets entry in the given account-id
+/// The `asset_id` key is the ctx.caller
 pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     let mut account = ctx
         .db
@@ -188,9 +197,20 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
         .unwrap_or_else(|| Account::new(account_id, None));
     account.store_asset(ctx.owner, value);
     ctx.db.store_account(account);
+
+    // Emit an event for each asset movement
+    let data = StoreAssetData {
+        account: account_id,
+        data: value,
+    };
+
+    let buf = rmp_serialize(&data).unwrap_or_default();
+
+    emit(ctx, "STORE_ASSET", &buf);
 }
 
-/// Remove the asset with key `asset_id` from assets entry
+/// Remove an asset from the given `account-id`
+/// The `asset_id` key is the ctx.caller
 pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
     let mut account = ctx
         .db
@@ -279,6 +299,7 @@ mod tests {
     use super::*;
 
     use crate::{
+        base::serialize::rmp_deserialize,
         crypto::{sign::tests::create_test_keypair, HashAlgorithm},
         db::*,
         wm::*,
@@ -288,6 +309,7 @@ mod tests {
     use std::sync::Mutex;
 
     const ASSET_ACCOUNT: &str = "QmamzDVuZqkUDwHikjHCkgJXhtgkbiVDTvTYb2aq6qfLbY";
+    const STORE_ASSET_DATA_HEX: &str = "92aa6d792d6163636f756e74c402002a";
 
     lazy_static! {
         static ref ACCOUNTS: Mutex<HashMap<String, Account>> = Mutex::new(HashMap::new());
@@ -572,5 +594,30 @@ mod tests {
         let random_number_dr = Drand::new(seed.clone()).rand(10);
 
         assert_eq!(random_number_hf, random_number_dr);
+    }
+
+    #[test]
+    fn store_asset_data_serialize() {
+        let data = StoreAssetData {
+            account: "my-account",
+            data: &[0, 42],
+        };
+
+        let buf = rmp_serialize(&data).unwrap();
+
+        assert_eq!(hex::encode(buf), STORE_ASSET_DATA_HEX);
+    }
+
+    #[test]
+    fn store_asset_data_deserialize() {
+        let expected = StoreAssetData {
+            account: "my-account",
+            data: &[0, 42],
+        };
+
+        let buf = hex::decode(STORE_ASSET_DATA_HEX).unwrap();
+        let val = rmp_deserialize::<StoreAssetData>(&buf).unwrap();
+
+        assert_eq!(val, expected);
     }
 }
