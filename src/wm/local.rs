@@ -504,9 +504,9 @@ mod local_host_func {
     }
 
     /// Return the transaction block timestamp creation.
-    fn get_time(mut caller: Caller<'_, CallContext>) -> std::result::Result<u64, Trap> {
+    fn get_block_time(mut caller: Caller<'_, CallContext>) -> std::result::Result<u64, Trap> {
         let ctx = caller.data_mut();
-        Ok(host_func::get_time(ctx))
+        Ok(host_func::get_block_time(ctx))
     }
 
     /// Register the required host functions using the same order as the wasm imports list.
@@ -535,7 +535,7 @@ mod local_host_func {
                 "hf_verify" => Func::wrap(&mut store, verify),
                 "hf_sha256" => Func::wrap(&mut store, sha256),
                 "hf_drand" => Func::wrap(&mut store, drand),
-                "hf_get_time" => Func::wrap(&mut store, get_time),
+                "hf_get_block_time" => Func::wrap(&mut store, get_block_time),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,

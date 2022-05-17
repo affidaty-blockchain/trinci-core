@@ -270,7 +270,7 @@ pub fn drand(ctx: &CallContext, max: u64) -> u64 {
 }
 
 /// Get block timestamp.
-pub fn get_time(ctx: &CallContext) -> u64 {
+pub fn get_block_time(ctx: &CallContext) -> u64 {
     ctx.block_timestamp
 }
 
