@@ -179,7 +179,8 @@ pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
         .collect()
 }
 
-/// Returns an account asset field for a given `asset_id`
+/// Returns an account asset field for a given `account_id`
+/// The `asset_id` key is the ctx.caller
 pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     match ctx.db.load_account(account_id) {
         Some(account) => account.load_asset(ctx.owner),
@@ -187,7 +188,8 @@ pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     }
 }
 
-/// Store an asset as assets entry with key `asset_id`
+/// Store an asset as assets entry in the given account-id
+/// The `asset_id` key is the ctx.caller
 pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     let mut account = ctx
         .db
@@ -197,7 +199,6 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     ctx.db.store_account(account);
 
     // Emit an event for each asset movement
-
     let data = StoreAssetData {
         account: account_id,
         data: value,
@@ -208,7 +209,8 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     emit(ctx, "STORE_ASSET", &buf);
 }
 
-/// Remove the asset with key `asset_id` from assets entry
+/// Remove an asset from the given `account-id`
+/// The `asset_id` key is the ctx.caller
 pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
     let mut account = ctx
         .db
