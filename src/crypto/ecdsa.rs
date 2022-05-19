@@ -57,7 +57,7 @@ pub struct KeyPair {
 }
 
 impl KeyPair {
-    /// Instantiante new keypair given its private and public components.
+    /// Instantiate new keypair given its private and public components.
     pub fn new(curve_id: CurveId, private_bytes: &[u8], public_bytes: &[u8]) -> Result<KeyPair> {
         let alg = Self::get_alg(curve_id);
         let imp =
@@ -197,12 +197,12 @@ fn add_asn1_x509_header(curve_id: CurveId, mut key_bytes: Vec<u8>) -> Vec<u8> {
     // Update oids length field
     res[3] = oids_len as u8;
 
-    // Append key bitstring type and length.
+    // Append key bit string type and length.
     let mut bitstring_type_len = vec![
         0x03, (key_bytes.len() + 1) as u8, 0x00,
     ];
     res.append(&mut bitstring_type_len);
-    // Append key bitstring.
+    // Append key bit string.
     res.append(&mut key_bytes);
     // Update overall length field.
     res[1] = (res.len() - 2) as u8;

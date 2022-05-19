@@ -21,16 +21,20 @@
 //! https://github.com/whereistejas/rust-libp2p/blob/4be8fcaf1f954599ff4c4428ab89ac79a9ccd0b9/examples/kademlia-example.rs
 
 use crate::{
-    base::serialize::rmp_serialize,
-    blockchain::{BlockRequestSender, Message},
+    base::serialize::{rmp_deserialize, rmp_serialize},
+    blockchain::{message::MultiMessage, BlockRequestSender, Message},
     Error, ErrorKind, Result,
 };
 use async_std::task;
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use libp2p::{
-    core::PublicKey,
+    core::{
+        upgrade::{read_length_prefixed, write_length_prefixed},
+        ProtocolName, PublicKey,
+    },
     gossipsub::{
-        error::PublishError, Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic,
-        MessageAuthenticity, ValidationMode,
+        Gossipsub, GossipsubConfigBuilder, GossipsubEvent, IdentTopic, MessageAuthenticity,
+        ValidationMode,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     kad::{
@@ -38,13 +42,106 @@ use libp2p::{
         KademliaConfig, KademliaEvent, QueryResult,
     },
     mdns::{Mdns, MdnsConfig, MdnsEvent},
-    swarm::NetworkBehaviourEventProcess,
+    request_response::{
+        ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseConfig,
+        RequestResponseEvent, RequestResponseMessage,
+    },
     Multiaddr, NetworkBehaviour, PeerId,
 };
-use std::str::FromStr;
+use std::{io, iter, str::FromStr};
+use tide::utils::async_trait;
 
-/// Network behavior for application level message processing.
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{tools::send_topology, types::NodeTopology};
+
+const MAX_TRANSMIT_SIZE: usize = crate::blockchain::dispatcher::MAX_TRANSACTION_SIZE;
+
+// Request-response protocol
+#[derive(Debug, Clone)]
+pub struct TrinciProtocol();
+#[derive(Clone)]
+pub struct TrinciCodec();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReqUnicastMessage(pub Vec<u8>);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResUnicastMessage(pub Vec<u8>);
+
+impl ProtocolName for TrinciProtocol {
+    fn protocol_name(&self) -> &[u8] {
+        "/trinci/1".as_bytes()
+    }
+}
+
+#[async_trait]
+impl RequestResponseCodec for TrinciCodec {
+    type Protocol = TrinciProtocol;
+    type Request = ReqUnicastMessage;
+    type Response = ResUnicastMessage;
+
+    async fn read_request<T>(&mut self, _: &TrinciProtocol, io: &mut T) -> io::Result<Self::Request>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let vec = read_length_prefixed(io, MAX_TRANSMIT_SIZE).await?;
+
+        if vec.is_empty() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        Ok(ReqUnicastMessage(vec))
+    }
+
+    async fn read_response<T>(
+        &mut self,
+        _: &TrinciProtocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let vec = read_length_prefixed(io, MAX_TRANSMIT_SIZE).await?;
+
+        if vec.is_empty() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        Ok(ResUnicastMessage(vec))
+    }
+
+    async fn write_request<T>(
+        &mut self,
+        _: &TrinciProtocol,
+        io: &mut T,
+        ReqUnicastMessage(data): ReqUnicastMessage,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, data).await?;
+        io.close().await?;
+
+        Ok(())
+    }
+
+    async fn write_response<T>(
+        &mut self,
+        _: &TrinciProtocol,
+        io: &mut T,
+        ResUnicastMessage(data): ResUnicastMessage,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, data).await?;
+        io.close().await?;
+
+        Ok(())
+    }
+}
+
+/// Network behaviour for application level message processing.
 #[derive(NetworkBehaviour)]
+#[behaviour(out_event = "ComposedEvent")]
 pub(crate) struct Behavior {
     /// Peer identification protocol.
     pub identify: Identify,
@@ -54,17 +151,62 @@ pub(crate) struct Behavior {
     pub mdns: Mdns,
     /// Kademlia for peer discovery.
     pub kad: Kademlia<MemoryStore>,
+    /// Request-response for unicast protocol.
+    pub reqres: RequestResponse<TrinciCodec>,
     /// To forward incoming messages to blockchain service.
     #[behaviour(ignore)]
     pub bc_chan: BlockRequestSender,
+    #[behaviour(ignore)]
+    pub network_name: String,
+    /// Local peer ID.
+    #[allow(dead_code)]
+    #[behaviour(ignore)]
+    pub peer_id: String,
 }
 
-const MAX_TRANSMIT_SIZE: usize = 524288;
+#[derive(Debug)]
+pub enum ComposedEvent {
+    Identify(IdentifyEvent),
+    Kademlia(KademliaEvent),
+    Gossip(GossipsubEvent),
+    Mdns(MdnsEvent),
+    ReqRes(RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>),
+}
+
+impl From<IdentifyEvent> for ComposedEvent {
+    fn from(event: IdentifyEvent) -> Self {
+        ComposedEvent::Identify(event)
+    }
+}
+
+impl From<KademliaEvent> for ComposedEvent {
+    fn from(event: KademliaEvent) -> Self {
+        ComposedEvent::Kademlia(event)
+    }
+}
+
+impl From<GossipsubEvent> for ComposedEvent {
+    fn from(event: GossipsubEvent) -> Self {
+        ComposedEvent::Gossip(event)
+    }
+}
+
+impl From<MdnsEvent> for ComposedEvent {
+    fn from(event: MdnsEvent) -> Self {
+        ComposedEvent::Mdns(event)
+    }
+}
+
+impl From<RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>> for ComposedEvent {
+    fn from(event: RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>) -> Self {
+        ComposedEvent::ReqRes(event)
+    }
+}
 
 impl Behavior {
-    fn identify_new(public_key: PublicKey) -> Result<Identify> {
+    fn identify_new(public_key: PublicKey, nw_name: String) -> Result<Identify> {
         debug!("[p2p] identify start");
-        let mut config = IdentifyConfig::new("trinci/1.0.0".to_owned(), public_key);
+        let mut config = IdentifyConfig::new(format!("trinci/{}/1.0.0", nw_name), public_key);
         config.push_listen_addr_updates = true;
         let identify = Identify::new(config);
 
@@ -73,7 +215,10 @@ impl Behavior {
 
     fn mdns_new() -> Result<Mdns> {
         debug!("[p2p] mdns start");
-        let fut = Mdns::new(MdnsConfig::default());
+        let config = MdnsConfig::default();
+
+        //config.ttl = Duration::from_secs_f64((60 * 15) as f64);
+        let fut = Mdns::new(config);
         let mdns = task::block_on(fut).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         Ok(mdns)
@@ -102,9 +247,9 @@ impl Behavior {
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
             let boot_addr = Multiaddr::from_str(boot_addr)
                 .map_err(|err| Error::new_ext(ErrorKind::MalformedData, err))?;
+
             kad.add_address(&boot_peer, boot_addr);
 
-            //kad.bootstrap().unwrap();
             let peer: PeerId = libp2p::identity::Keypair::generate_ed25519()
                 .public()
                 .into();
@@ -129,20 +274,33 @@ impl Behavior {
             .subscribe(&topic)
             .map_err(|err| Error::new_ext(ErrorKind::Other, format!("{:?}", err)))?;
 
+        debug!("[gossip] subscribed to {}", topic);
+
         Ok(gossip)
+    }
+
+    fn req_res_new() -> Result<RequestResponse<TrinciCodec>> {
+        debug!("[p2p] request-rsponse start");
+        let protocols = iter::once((TrinciProtocol(), ProtocolSupport::Full));
+        let config = RequestResponseConfig::default();
+        let reqres = RequestResponse::new(TrinciCodec(), protocols, config);
+
+        Ok(reqres)
     }
 
     pub fn new(
         peer_id: PeerId,
         public_key: PublicKey,
         topic: IdentTopic,
+        nw_name: String,
         bootaddr: Option<String>,
         bc_chan: BlockRequestSender,
     ) -> Result<Self> {
-        let identify = Self::identify_new(public_key)?;
+        let identify = Self::identify_new(public_key, nw_name.clone())?;
         let gossip = Self::gossip_new(peer_id, topic)?;
         let mdns = Self::mdns_new()?;
         let kad = Self::kad_new(peer_id, bootaddr)?;
+        let reqres = Self::req_res_new()?;
 
         Ok(Behavior {
             identify,
@@ -150,10 +308,410 @@ impl Behavior {
             mdns,
             kad,
             bc_chan,
+            reqres,
+            network_name: format!("trinci/{}/1.0.0", nw_name),
+            peer_id: peer_id.to_string(),
         })
     }
-}
 
+    pub fn identify_event_handler(&mut self, event: IdentifyEvent) {
+        match event {
+            IdentifyEvent::Received { peer_id, info } => {
+                if info.protocol_version == self.network_name {
+                    self.gossip.add_explicit_peer(&peer_id);
+
+                    for addr in info.listen_addrs {
+                        info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                        self.kad.add_address(&peer_id, addr.clone());
+                        info!(
+                            "[ident] adding {} to req-res routing table @ {}",
+                            peer_id, addr
+                        );
+                        self.reqres.add_address(&peer_id, addr);
+
+                        // Send last block to the new known peer.
+                        let last_block_req_msg = Message::GetBlockRequest {
+                            height: u64::MAX,
+                            txs: false,
+                            destination: Some(peer_id.to_string()),
+                        };
+
+                        match self.bc_chan.send_sync(last_block_req_msg) {
+                            Ok(res_chan) => match res_chan.recv_sync() {
+                                Ok(message) => {
+                                    if let Message::GetBlockResponse { .. } = message {
+                                        let last_block_message = ReqUnicastMessage(
+                                            rmp_serialize(&message).unwrap_or_default(),
+                                        );
+                                        self.reqres.send_request(&peer_id, last_block_message);
+                                        debug!(
+                                            "[ident] sending to new peer {} last local block",
+                                            peer_id.to_string()
+                                        );
+                                    }
+                                }
+                                Err(_) => warn!("blockchain service seems down"),
+                            },
+                            Err(_) => warn!("blockchain service seems down"),
+                        }
+                    }
+                }
+            }
+            _ => info!("[ident] event: {:?}", event),
+        }
+    }
+
+    pub fn mdsn_event_handler(&mut self, event: MdnsEvent) {
+        match event {
+            MdnsEvent::Discovered(nodes) => {
+                for (peer, addr) in nodes {
+                    debug!("[mdns] discovered: {} @ {}", peer, addr);
+                    self.gossip.add_explicit_peer(&peer);
+                    self.reqres.add_address(&peer, addr);
+                }
+            }
+            MdnsEvent::Expired(nodes) => {
+                for (peer, addr) in nodes {
+                    debug!("[mdns] expired: {} @ {}", peer, addr);
+                    self.gossip.remove_explicit_peer(&peer);
+                    self.reqres.remove_address(&peer, &addr);
+                }
+
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
+                    send_topology(topology_update);
+                }
+            }
+        }
+    }
+
+    pub fn kad_event_handler(&mut self, event: KademliaEvent) {
+        match event {
+            KademliaEvent::RoutingUpdated {
+                peer, addresses, ..
+            } => {
+                for addr in addresses.iter() {
+                    debug!("[kad] discovered: {} @ {}", peer, addr);
+                }
+            }
+            KademliaEvent::OutboundQueryCompleted {
+                result: QueryResult::GetClosestPeers(result),
+                ..
+            } => {
+                let peers = match result {
+                    Ok(GetClosestPeersOk { peers, .. }) => peers,
+                    Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
+                };
+                self.identify.push(peers);
+            }
+            _ => {
+                debug!("[kad] event: {:?}", event);
+            }
+        }
+    }
+
+    pub fn gossip_event_handler(&mut self, event: GossipsubEvent) {
+        match event {
+            GossipsubEvent::Message {
+                propagation_source: _,
+                message,
+                message_id: _,
+            } => {
+                match self
+                    .bc_chan
+                    .send_sync(Message::Packed { buf: message.data })
+                {
+                    Ok(res_chan) => {
+                        // Check if the blockchain has a response or if has dropped the response channel.
+                        if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
+                            // In case of TX or Block only execute it, response is not needed to be propagated (gossip will do it!)
+                            // In case of a *Request send back to the requester the *Response
+                            match rmp_deserialize(&buf) {
+                                Ok(MultiMessage::Simple(req)) => match req {
+                                    Message::GetTransactionResponse { .. } => {
+                                        self.reqres.send_request(
+                                            &message.source.unwrap(),
+                                            ReqUnicastMessage(buf),
+                                        );
+                                    }
+                                    Message::GetBlockResponse { .. } => {
+                                        self.reqres.send_request(
+                                            &message.source.unwrap(),
+                                            ReqUnicastMessage(buf),
+                                        );
+                                    }
+                                    _ => (),
+                                },
+                                Err(_) => warn!("blockchain service seems down"),
+                                _ => (),
+                            }
+                        }
+                    }
+                    Err(_err) => {
+                        warn!("blockchain service seems down");
+                    }
+                }
+            }
+            GossipsubEvent::Subscribed { peer_id, topic } => {
+                debug!("[gossip] subscribed peer-id: {}, topic: {}", peer_id, topic);
+                #[cfg(feature = "rt-monitor")]
+                {
+                    // Sending topology update to network monitor.
+                    let mut neighbours: Vec<String> = vec![];
+                    for neighbour in self.gossip.all_peers() {
+                        neighbours.push(neighbour.0.to_string());
+                    }
+                    let topology_update = NodeTopology {
+                        peer_id: self.peer_id.clone(),
+                        neighbours,
+                        network: self.network_name.clone(),
+                    };
+                    send_topology(topology_update);
+                }
+            }
+            GossipsubEvent::Unsubscribed { peer_id, topic } => {
+                debug!(
+                    "[gossip] unsubscribed peer-id: {}, topic: {}",
+                    peer_id, topic
+                );
+            }
+            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+                debug!("[gossip] peer-id: {} don't support pubsub", peer_id);
+            }
+        }
+    }
+
+    pub fn reqres_event_handler(
+        &mut self,
+        event: RequestResponseEvent<ReqUnicastMessage, ResUnicastMessage>,
+    ) {
+        match event {
+            RequestResponseEvent::Message {
+                peer,
+                message:
+                    RequestResponseMessage::Request {
+                        request: ReqUnicastMessage(buf),
+                        request_id,
+                        channel,
+                    },
+            } => {
+                debug!(
+                    "[req-res](req) {} message received from: {}",
+                    request_id.to_string(),
+                    peer.to_string()
+                );
+
+                let original_message = rmp_deserialize(&buf);
+
+                // the message received is encapsulated in Message::Packed
+                let msg = Message::Packed { buf };
+
+                // check whether is:
+                //  - GetTransactionRequest
+                //  - GetBlockRequest
+                //  - GetBlockResponse
+                // In case of *Request => ask locally to blockchain service and sand back a reqRes.response.
+                // In case of GetBlockResponse => submit last block to local blockchain service.
+                match original_message {
+                    Ok(MultiMessage::Simple(req)) => match req {
+                        Message::GetTransactionRequest {
+                            hash: _,
+                            destination: _,
+                        } => match self.bc_chan.send_sync(msg) {
+                            Ok(res_chan) => {
+                                if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
+                                    if self
+                                        .reqres
+                                        .send_response(channel, ResUnicastMessage(buf))
+                                        .is_ok()
+                                    {
+                                        debug!(
+                                            "[req-res] message (res) {} containing tx sended",
+                                            request_id.to_string(),
+                                        );
+                                    } else {
+                                        debug!(
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
+                                                request_id.to_string(),
+                                            );
+                                    }
+                                }
+                            }
+                            Err(_err) => {
+                                warn!("blockchain service seems down");
+                            }
+                        },
+                        Message::GetBlockRequest {
+                            height,
+                            txs,
+                            destination,
+                        } => {
+                            let msg = Message::GetBlockRequest {
+                                height,
+                                txs,
+                                destination,
+                            };
+                            match self.bc_chan.send_sync(msg) {
+                                Ok(res_chan) => {
+                                    if let Ok(Message::GetBlockResponse { block, txs, origin }) =
+                                        res_chan.recv_sync()
+                                    {
+                                        let msg = Message::GetBlockResponse { block, txs, origin };
+                                        let buf = rmp_serialize(&msg).unwrap_or_default();
+                                        if self
+                                            .reqres
+                                            .send_response(channel, ResUnicastMessage(buf))
+                                            .is_ok()
+                                        {
+                                            debug!(
+                                                "[req-res] message (res) {} containing block sended",
+                                                request_id.to_string(),
+                                            );
+                                        } else {
+                                            debug!(
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
+                                                request_id.to_string(),
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
+                            }
+                        }
+                        Message::GetBlockResponse { .. } => {
+                            // this is only possible when peer just subscribed to new topic
+                            // collect blocks and peer id in a time window
+                            // select a group of trusted peers
+                            // submit block to blockchain service
+                            // from now on if it has to ask for blocks and block it asks to the trusted peers
+                            match self.bc_chan.send_sync(msg) {
+                                Ok(_) => {
+                                    debug!("[req-res](req) block submited to blockchain service");
+                                    let buf = rmp_serialize(&Message::Ack).unwrap_or_default();
+                                    if self
+                                        .reqres
+                                        .send_response(channel, ResUnicastMessage(buf))
+                                        .is_ok()
+                                    {
+                                        debug!(
+                                            "[req-res] message (res) {} containing ACK",
+                                            request_id.to_string(),
+                                        );
+                                    } else {
+                                        debug!(
+                                                "[req-res] message (res) {} error, caused by TO or unreachable peer",
+                                                request_id.to_string(),
+                                            );
+                                    }
+                                }
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
+                            }
+                        }
+                        _ => error!("[req-res](req) unexpected blockchain message"),
+                    },
+                    _ => error!("[req-res](req) error indeserialization"),
+                };
+            }
+            RequestResponseEvent::Message {
+                peer: _,
+                message:
+                    RequestResponseMessage::Response {
+                        request_id: _,
+                        response: ResUnicastMessage(buf),
+                    },
+            } => {
+                // In this scenario only response from blockchain are expected:
+                //  - GetBlockResponse
+                //  - GetTransactionResponse
+                // this means that it is only needed to submit it to blockchain service.
+
+                if let Ok(MultiMessage::Simple(req)) = rmp_deserialize(&buf) {
+                    let msg = Message::Packed { buf };
+                    match req {
+                        Message::GetTransactionResponse { .. } => {
+                            match self.bc_chan.send_sync(msg) {
+                                Ok(res_chan) => match res_chan.recv_sync() {
+                                    Ok(_) => {
+                                        debug!("[req-res](res) received GetTransactionResponse, submitted to blockchain service")
+                                    }
+                                    Err(error) => {
+                                        debug!(
+                                            "[req-res](res) error in submitting tx response in bc_chan: {}",
+                                            error
+                                        )
+                                    }
+                                },
+                                Err(_err) => {
+                                    warn!("blockchain service seems down");
+                                }
+                            }
+                        }
+                        Message::GetBlockResponse { .. } => match self.bc_chan.send_sync(msg) {
+                            Ok(res_chan) => match res_chan.recv_sync() {
+                                Ok(_) => {
+                                    debug!("[req-res](res) received GetBlockResponse, submitted to blockchain service")
+                                }
+                                Err(error) => {
+                                    debug!("[req-res](res) error in submitting block response in bc_chan: {}", error)
+                                }
+                            },
+                            Err(_err) => {
+                                warn!("blockchain service seems down");
+                            }
+                        },
+                        _ => (),
+                    }
+                }
+            }
+            RequestResponseEvent::OutboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(
+                    "[req-res] {} failed {}: {}",
+                    peer.to_string(),
+                    request_id.to_string(),
+                    error.to_string()
+                );
+            }
+            RequestResponseEvent::InboundFailure {
+                peer,
+                request_id,
+                error,
+            } => {
+                debug!(
+                    "[req-res] failed {} for {} : {}",
+                    request_id.to_string(),
+                    peer.to_string(),
+                    error.to_string()
+                );
+            }
+            RequestResponseEvent::ResponseSent { peer, request_id } => {
+                debug!(
+                    "[req-res] response sent to {} for request {}",
+                    peer.to_string(),
+                    request_id.to_string()
+                );
+            }
+        }
+    }
+}
+/* cSpell::disable */
 // Received {
 //     peer_id: PeerId("12D3KooWFmmKJ7jXhTfoYDvKkPqe7s9pHH42iZdf2xRdM5ykma1p"),
 //     info: IdentifyInfo {
@@ -176,120 +734,4 @@ impl Behavior {
 //         observed_addr: "/ip4/192.168.1.116/tcp/54612"
 //     }
 // }
-impl NetworkBehaviourEventProcess<IdentifyEvent> for Behavior {
-    fn inject_event(&mut self, event: IdentifyEvent) {
-        match event {
-            IdentifyEvent::Received { peer_id, info } => {
-                // TODO: may be a good idea to eventually discard peers not supporting pubsub or kad protocols.
-                self.gossip.add_explicit_peer(&peer_id);
-                for addr in info.listen_addrs {
-                    info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
-                    // TODO kad address
-                    self.kad.add_address(&peer_id, addr);
-                }
-            }
-            _ => info!("[ident] event: {:?}", event),
-        }
-    }
-}
-
-impl NetworkBehaviourEventProcess<MdnsEvent> for Behavior {
-    fn inject_event(&mut self, event: MdnsEvent) {
-        match event {
-            MdnsEvent::Discovered(nodes) => {
-                for (peer, addr) in nodes {
-                    debug!("[mdns] discovered: {} @ {}", peer, addr);
-                    self.gossip.add_explicit_peer(&peer);
-                }
-            }
-            MdnsEvent::Expired(nodes) => {
-                for (peer, addr) in nodes {
-                    debug!("[mdns] expired: {} @ {}", peer, addr);
-                    self.gossip.remove_explicit_peer(&peer);
-                }
-            }
-        }
-    }
-}
-
-impl NetworkBehaviourEventProcess<KademliaEvent> for Behavior {
-    fn inject_event(&mut self, event: KademliaEvent) {
-        #[allow(clippy::match_single_binding)]
-        match event {
-            KademliaEvent::RoutingUpdated {
-                peer, addresses, ..
-            } => {
-                for addr in addresses.iter() {
-                    debug!("[kad] discovered: {} @ {}", peer, addr);
-                }
-                self.gossip.add_explicit_peer(&peer);
-            }
-            KademliaEvent::OutboundQueryCompleted {
-                result: QueryResult::GetClosestPeers(result),
-                ..
-            } => {
-                let peers = match result {
-                    Ok(GetClosestPeersOk { peers, .. }) => peers,
-                    Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
-                };
-                self.identify.push(peers);
-            }
-            _ => {
-                debug!("[kad] event: {:?}", event);
-            }
-        }
-    }
-}
-
-impl NetworkBehaviourEventProcess<GossipsubEvent> for Behavior {
-    fn inject_event(&mut self, event: GossipsubEvent) {
-        match event {
-            GossipsubEvent::Message {
-                propagation_source: _,
-                message,
-                message_id: _,
-            } => {
-                //error!("SOURCE: {}", propagation_source);
-                //error!("DATA: {}", hex::encode(&message.data));
-                match self
-                    .bc_chan
-                    .send_sync(Message::Packed { buf: message.data })
-                {
-                    Ok(res_chan) => {
-                        // Check if the blockchain has a response of if has dropped the response channel.
-                        if let Ok(Message::Packed { buf }) = res_chan.recv_sync() {
-                            let topic = IdentTopic::new(message.topic.as_str());
-                            // TODO: maybe this should be sent in unicast only to the sender.
-                            if let Err(err) = self.gossip.publish(topic, buf) {
-                                if !matches!(err, PublishError::InsufficientPeers) {
-                                    error!("publish error: {:?}", err);
-                                }
-                            }
-                        }
-                    }
-                    Err(_err) => {
-                        warn!("blockchain service seems down");
-                    }
-                }
-            }
-            GossipsubEvent::Subscribed { peer_id, topic } => {
-                debug!("[pubsub] subscribed peer-id: {}, topic: {}", peer_id, topic);
-                let msg = Message::GetBlockRequest {
-                    height: u64::MAX,
-                    txs: false,
-                };
-                let topic = IdentTopic::new(topic.as_str());
-                let buf = rmp_serialize(&msg).unwrap_or_default();
-                if let Err(err) = self.gossip.publish(topic, buf) {
-                    error!("publishing announcement message {:?}", err);
-                }
-            }
-            GossipsubEvent::Unsubscribed { peer_id, topic } => {
-                debug!(
-                    "[pubsub] unsubscribed peer-id: {}, topic: {}",
-                    peer_id, topic
-                );
-            }
-        }
-    }
-}
+/* cSpell::enable */

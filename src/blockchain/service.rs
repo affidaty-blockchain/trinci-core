@@ -130,7 +130,7 @@ impl<D: Db, W: Wm> BlockService<D, W> {
 
     /// Check if service is running.
     pub fn is_running(&self) -> bool {
-        // Hack to intercept crashed subthreads.
+        // Hack to intercept crashed sub threads.
         Arc::strong_count(&self.canary) == 2 && self.worker.is_none()
     }
 

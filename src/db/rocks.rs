@@ -204,7 +204,7 @@ impl Db for RocksDb {
     }
 
     /// Create a fork.
-    /// A fork is a set of uncommited modifications to the database.
+    /// A fork is a set of uncommitted modifications to the database.
     fn fork_create(&mut self) -> RocksDbFork {
         RocksDbFork(self.backend.fork())
     }

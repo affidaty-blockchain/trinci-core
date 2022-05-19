@@ -29,7 +29,7 @@ use crate::{
     blockchain::pool::{BlockInfo, Pool},
     db::Db,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 /// Builder context data.
 pub(crate) struct Builder<D: Db> {
@@ -104,11 +104,20 @@ impl<D: Db> Builder<D> {
                 }
                 count = count.checked_sub(txs_hashes.len()).unwrap_or_default();
 
+                // If the node is the validator,
+                // the block is created,
+                // than a timestamp is needed.
+                let timestamp = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
                 let blk_info = BlockInfo {
                     hash: None,
                     validator: None,
                     signature: None,
                     txs_hashes: Some(txs_hashes),
+                    timestamp,
                 };
                 pool.confirmed.insert(height, blk_info);
                 height += 1;

@@ -34,10 +34,12 @@ pub enum ErrorKind {
     InvalidSignature,
     DuplicatedUnconfirmedTx,
     DuplicatedConfirmedTx,
+    TooLargeTx,
     DatabaseFault,
     WasmMachineFault,
     SmartContractFault,
     ResourceNotFound,
+    InvalidContract,
     NotImplemented,
     Tpm2Error,
     WrongTxType,
@@ -53,6 +55,7 @@ pub(super) mod error_kind_str {
     pub const INVALID_SIGNATURE: &str = "invalid signature";
     pub const DUPLICATED_UNCONFIRMED_TX: &str = "duplicated unconfirmed transaction";
     pub const DUPLICATED_CONFIRMED_TX: &str = "duplicated confirmed transaction";
+    pub const TOO_LARGE_TX: &str = "transaction too large";
     pub const RESOURCE_NOT_FOUND: &str = "resource not found";
     pub const DATABASE_FAULT: &str = "database fault";
     pub const WASM_MACHINE_FAULT: &str = "wasm machine fault";
@@ -60,9 +63,10 @@ pub(super) mod error_kind_str {
     pub const NOT_IMPLEMENTED: &str = "not implemented";
     pub const TPM2_ERROR: &str = "tpm interaction error";
     pub const WRONG_TX_TYPE: &str = "this tx type is not implemented or malformed";
-    pub const BROKEN_INTEGRITY: &str = "the integtiry of the node is invalid";
+    pub const BROKEN_INTEGRITY: &str = "the integrity of the node is invalid";
     pub const FUEL_ERROR: &str = "burning fuel error";
     pub const OTHER: &str = "other";
+    pub const INVALID_CONTRACT: &str = "invalid contract hash";
 }
 
 impl Display for ErrorKind {
@@ -84,6 +88,8 @@ impl Display for ErrorKind {
             BrokenIntegrity => error_kind_str::BROKEN_INTEGRITY,
             FuelError => error_kind_str::FUEL_ERROR,
             Other => error_kind_str::OTHER,
+            InvalidContract => error_kind_str::INVALID_CONTRACT,
+            TooLargeTx => error_kind_str::TOO_LARGE_TX,
         };
         write!(f, "{}", kind_str)
     }
@@ -140,7 +146,7 @@ impl<'de> Deserialize<'de> for ErrorKind {
 
 /// Project-wide error type.
 /// Contains a kind enumerate and a `source` to identify the subsystem that may
-/// have propageted the error.
+/// have propagated the error.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Error {
     /// Error kind.

@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use crate::{
-    base::schema::SmartContractEvent,
+    base::{schema::SmartContractEvent, serialize::rmp_serialize},
     crypto::{
         drand::{Drand, SeedSource},
         Hash, PublicKey,
@@ -29,6 +29,8 @@ use crate::{
     Account, Error, ErrorKind, Result,
 };
 use ring::digest;
+
+use super::CtxArgs;
 
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
@@ -50,6 +52,18 @@ pub struct CallContext<'a> {
     pub events: &'a mut Vec<SmartContractEvent>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
+    /// Initial fuel
+    pub initial_fuel: u64,
+    /// Timestamp block creation.
+    pub block_timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+struct StoreAssetData<'a> {
+    account: &'a str,
+    #[serde(with = "serde_bytes")]
+    data: &'a [u8],
 }
 
 /// WASM logging facility.
@@ -76,7 +90,6 @@ pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
     ctx.events.push(SmartContractEvent {
         event_tx: Hash::default(),
         emitter_account: ctx.owner.to_string(),
-        // TODO: add smart contract hash
         emitter_smart_contract: smart_contract_hash,
         event_name: event_name.to_string(),
         event_data: event_data.to_vec(),
@@ -102,13 +115,56 @@ pub fn remove_data(ctx: &mut CallContext, key: &str) {
 
 /// Checks if an account has a callable method
 /// Returns:
-///  - 0 the account has no contract
-///  - 1 the account has a contract but we are not sure that `method` is callable
-///  - 2 the account has a contract with a callable `method`
-pub fn is_callable(ctx: &CallContext, account: &str, _method: &str) -> i32 {
-    match get_account_contract(ctx, account) {
-        Some(_) => 1, // TODO - verify that method is really callable
-        None => 0,
+///  - 0 the account has no callable method
+///  - 1 the account has a callable method
+// ///  - 2 the account has a contract with a callable `method`
+pub fn is_callable(
+    ctx: &mut CallContext,
+    account: &str,
+    method: &str,
+    initial_fuel: u64,
+) -> (u64, Result<i32>) {
+    let hash = match get_account_contract(ctx, account) {
+        Some(hash) => hash,
+        None => return (0, Ok(0)), // FIXME should we charge something?
+    };
+
+    match ctx.wm {
+        Some(ref mut wm) => {
+            let ctx_args = CtxArgs {
+                origin: ctx.origin,
+                owner: account,
+                caller: ctx.owner,
+            };
+            let app_hash = unwrap_or_return!(wm.app_hash_check(
+                ctx.db,
+                Some(hash),
+                ctx_args,
+                ctx.seed.clone(),
+                ctx.block_timestamp
+            ));
+            wm.callable_call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                account,
+                ctx.owner,
+                app_hash,
+                method.as_bytes(),
+                ctx.seed.clone(),
+                ctx.events,
+                initial_fuel,
+                ctx.block_timestamp,
+            )
+        }
+        None => (
+            1000, // FIXME * should pay for this?
+            Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "is_callable not implemented",
+            )),
+        ),
     }
 }
 
@@ -123,7 +179,8 @@ pub fn get_keys(ctx: &mut CallContext, pattern: &str) -> Vec<String> {
         .collect()
 }
 
-/// Returns an account asset field for a given `asset_id`
+/// Returns an account asset field for a given `account_id`
+/// The `asset_id` key is the ctx.caller
 pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     match ctx.db.load_account(account_id) {
         Some(account) => account.load_asset(ctx.owner),
@@ -131,7 +188,8 @@ pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
     }
 }
 
-/// Store an asset as assets entry with key `asset_id`
+/// Store an asset as assets entry in the given account-id
+/// The `asset_id` key is the ctx.caller
 pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     let mut account = ctx
         .db
@@ -139,8 +197,28 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
         .unwrap_or_else(|| Account::new(account_id, None));
     account.store_asset(ctx.owner, value);
     ctx.db.store_account(account);
+
+    // Emit an event for each asset movement
+    let data = StoreAssetData {
+        account: account_id,
+        data: value,
+    };
+
+    let buf = rmp_serialize(&data).unwrap_or_default();
+
+    emit(ctx, "STORE_ASSET", &buf);
 }
 
+/// Remove an asset from the given `account-id`
+/// The `asset_id` key is the ctx.caller
+pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
+    let mut account = ctx
+        .db
+        .load_account(account_id)
+        .unwrap_or_else(|| Account::new(account_id, None));
+    account.remove_asset(ctx.owner);
+    ctx.db.store_account(account);
+}
 /// Digital signature verification.
 pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i32 {
     pk.verify(data, sign) as i32
@@ -163,24 +241,45 @@ pub fn call(
     contract: Option<Hash>,
     method: &str,
     data: &[u8],
-) -> Result<Vec<u8>> {
+    initial_fuel: u64,
+) -> (u64, Result<Vec<u8>>) {
     match ctx.wm {
-        Some(ref mut wm) => wm.call(
-            ctx.db,
-            ctx.depth + 1,
-            ctx.network,
-            ctx.origin,
-            owner,
-            ctx.owner,
-            contract,
-            method,
-            data,
-            ctx.events,
+        Some(ref mut wm) => {
+            let ctx_args = CtxArgs {
+                origin: ctx.origin,
+                owner,
+                caller: ctx.owner,
+            };
+            let app_hash = unwrap_or_return!(wm.app_hash_check(
+                ctx.db,
+                contract,
+                ctx_args,
+                ctx.seed.clone(),
+                ctx.block_timestamp
+            ));
+            wm.call(
+                ctx.db,
+                ctx.depth + 1,
+                ctx.network,
+                ctx.origin,
+                owner,
+                ctx.owner,
+                app_hash,
+                method,
+                data,
+                ctx.seed.clone(),
+                ctx.events,
+                initial_fuel,
+                ctx.block_timestamp,
+            )
+        }
+        None => (
+            1000, // FIXME * should pay for this?
+            Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "nested calls not implemented",
+            )),
         ),
-        None => Err(Error::new_ext(
-            ErrorKind::WasmMachineFault,
-            "nested calls not implemented",
-        )),
     }
 }
 
@@ -190,11 +289,17 @@ pub fn drand(ctx: &CallContext, max: u64) -> u64 {
     drand.rand(max)
 }
 
+/// Get block timestamp.
+pub fn get_block_time(ctx: &CallContext) -> u64 {
+    ctx.block_timestamp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::{
+        base::serialize::rmp_deserialize,
         crypto::{sign::tests::create_test_keypair, HashAlgorithm},
         db::*,
         wm::*,
@@ -204,6 +309,7 @@ mod tests {
     use std::sync::Mutex;
 
     const ASSET_ACCOUNT: &str = "QmamzDVuZqkUDwHikjHCkgJXhtgkbiVDTvTYb2aq6qfLbY";
+    const STORE_ASSET_DATA_HEX: &str = "92aa6d792d6163636f756e74c402002a";
 
     lazy_static! {
         static ref ACCOUNTS: Mutex<HashMap<String, Account>> = Mutex::new(HashMap::new());
@@ -247,8 +353,31 @@ mod tests {
              _app_hash,
              _method,
              _args,
-             _events| Ok(vec![]),
+             _seed,
+             _events,
+             _initial_fuel,
+             _block_timestamp| (0, Ok(vec![])),
         );
+        wm.expect_callable_call().returning(
+            |_db,
+             _depth,
+             _network,
+             origin,
+             _owner,
+             _caller,
+             _app_hash,
+             _args,
+             _seed,
+             _events,
+             _initial_fuel,
+             _block_timestamp| {
+                let val = if origin == "0" { 0 } else { 1 };
+                (0, Ok(val))
+            },
+        );
+        wm.expect_app_hash_check()
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, &[0, 1, 2])));
+
         wm
     }
 
@@ -307,6 +436,8 @@ mod tests {
                 origin: &self.owner,
                 events: &mut self.events,
                 seed,
+                initial_fuel: 0,
+                block_timestamp: 0,
             }
         }
     }
@@ -345,6 +476,20 @@ mod tests {
     }
 
     #[test]
+    fn remove_asset_test() {
+        let mut ctx = prepare_env();
+        let mut ctx = ctx.as_wm_context();
+        ctx.owner = ASSET_ACCOUNT;
+        let target_account = account_id(0);
+
+        remove_asset(&mut ctx, &target_account);
+
+        let account = load_account(&target_account).unwrap();
+        let amount = account.load_asset(ASSET_ACCOUNT);
+        assert_eq!(amount, Vec::<u8>::new());
+    }
+
+    #[test]
     fn verify_success() {
         let mut ctx = prepare_env();
         let ctx = ctx.as_wm_context();
@@ -376,9 +521,12 @@ mod tests {
         ctx.owner = ASSET_ACCOUNT;
         let target_account = account_id(0);
 
-        let result = is_callable(&ctx, &target_account, "some_method");
+        ctx.owner = "#test_account";
+        ctx.origin = "1";
 
-        assert_eq!(result, 1);
+        let (_, result) = is_callable(&mut ctx, &target_account, "some_method", MAX_FUEL);
+
+        assert_eq!(result, Ok(1));
     }
 
     #[test]
@@ -386,11 +534,14 @@ mod tests {
         let mut ctx = prepare_env();
         let mut ctx = ctx.as_wm_context();
         ctx.owner = ASSET_ACCOUNT;
-        let target_account = account_id(2); // This account has no contract
+        let target_account = account_id(0);
 
-        let result = is_callable(&ctx, &target_account, "some_method");
+        ctx.owner = "#test_account";
+        ctx.origin = "0";
 
-        assert_eq!(result, 0);
+        let (_, result) = is_callable(&mut ctx, &target_account, "some_method", MAX_FUEL);
+
+        assert_eq!(result, Ok(0));
     }
 
     #[test]
@@ -442,8 +593,31 @@ mod tests {
         let seed = Arc::new(seed);
         let random_number_dr = Drand::new(seed.clone()).rand(10);
 
-        println!("{}", random_number_hf);
-
         assert_eq!(random_number_hf, random_number_dr);
+    }
+
+    #[test]
+    fn store_asset_data_serialize() {
+        let data = StoreAssetData {
+            account: "my-account",
+            data: &[0, 42],
+        };
+
+        let buf = rmp_serialize(&data).unwrap();
+
+        assert_eq!(hex::encode(buf), STORE_ASSET_DATA_HEX);
+    }
+
+    #[test]
+    fn store_asset_data_deserialize() {
+        let expected = StoreAssetData {
+            account: "my-account",
+            data: &[0, 42],
+        };
+
+        let buf = hex::decode(STORE_ASSET_DATA_HEX).unwrap();
+        let val = rmp_deserialize::<StoreAssetData>(&buf).unwrap();
+
+        assert_eq!(val, expected);
     }
 }

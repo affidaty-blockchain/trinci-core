@@ -26,20 +26,39 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.7-rc1 - 16-02-2022
+0.2.7 19-05-2022
 ------------------
 Changed
-* BlockchainSettings struct
+* BlockchainSettings structure
 * Test/Production flag
+* Improved `is_callable` host_function
+* Improved `p2p` module, introduced reqres layer and reduced gossip messages
+* Added message fields:
+  * GetTransactionRequest: `destination: Option<String>`
+  * GetTransactionresponse: `origin: Option<String>`
+  * GetBlockRequest: `destination: Option<String>`
+  * GetBlockResponse: `origin: Option<String>`
 
 Added
 * `secure_call` host function
-* fuel consumption 
+* `remove_asset` host function
+* `get_block_time` host function (returns the next block timestamp )
+* Call to Service `contract_updatable`
+* NFA Non-Fungible Account
+* Added size limit on transaction that can be executed
+* Fuel consumption
+* is_callable direct wasm call
+* Aligner module
+* Message::Ack for reqres interaction
+
+Removed
+* Synchronizer removed, now replaced by aligner
+
 
 0.2.6 - 08-02-2022
 ------------------
 Changed
-* removed wasm loader from closure
+* Removed wasm loader from closure
 
 0.2.5 - 02-02-2022
 ------------------
@@ -48,7 +67,7 @@ Added
 * Drand implementation
 * get_account_contract host function
 * is_callable host function
-* test mode to p2p module (prevent it from start)
+* Offline mode for p2p module (prevent it from start)
 
 0.2.4 - release skipped
 ------------------
@@ -63,6 +82,7 @@ Added
 * Bootstrap from wasm or wasm+txs
 * Config from bootstrap
 * Network name from bootstrap hash
+
 
 
 0.2.3 - 25-11-2021
@@ -112,7 +132,7 @@ Changed
 
 Fixed
 
-* Binary portability issues due to an issue in exonum-merkledb dependendencies.
+* Binary portability issues due to an issue in exonum-merkledb dependencies.
   In particular the project was forcing max optimizations to libsodium build.
   This was causing the inclusion of non-portable cpu instructions within the
   binary.
@@ -192,7 +212,7 @@ Changed
 
 * Removed all but one transactions submission from node boot sequence. The
   blockchain node now boots in vanilla state. The node wasm loader is set to
-  the "bootstrap-loader" unitl the node has not produced the genesis block.
+  the "bootstrap-loader" until the node has not produced the genesis block.
 
 
 0.1.2 - 15-06-2021
@@ -256,7 +276,7 @@ Added
 * REST web service for new transactions submission and read access to core
   structures using "rocket" v0.4.10.
 * Sandboxed execution of arbitrary smart contracts using "wasmtime" v0.27.0.
-* Project-specific error type with capablity to propagate subsystems errors.
+* Project-specific error type with capability to propagate subsystems errors.
 * Support for ecdsa secp384r1 digital signature using "ring" v0.16.20.
 * Account id generation as a function of ecdsa public key.
 * Rust smart contracts sdk for third-party developers.

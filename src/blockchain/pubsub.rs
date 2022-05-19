@@ -36,14 +36,16 @@ bitflags::bitflags! {
         const TRANSACTION = 1 << 0;
         /// New block has been executed.
         const BLOCK = 1 << 1;
-        /// Any unsolicited request from the blockchain.
-        const REQUEST = 1 << 2;
+        /// Any unsolicited gossip request from the blockchain.
+        const GOSSIP_REQUEST = 1 << 2;
         /// Contracts events
         const CONTRACT_EVENTS = 1 << 3;
+        /// Any unsolicited unicast request from the blockchain.
+        const UNICAST_REQUEST = 1 << 4;
     }
 }
 
-const EVENTS_NUM: usize = 4;
+const EVENTS_NUM: usize = 5;
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -86,7 +88,8 @@ struct SubscriberInfo {
 }
 
 /// Blockchain events subscribers.
-pub(crate) struct PubSub {
+// FIXME pub(crate) struct PubSub
+pub struct PubSub {
     events_sub: HashMap<Event, HashMap<String, SubscriberInfo>>,
 }
 
@@ -117,7 +120,7 @@ impl PubSub {
     /// Subscribe to blockchain events.
     /// The `events` parameter is a bitflag, thus it is not limited to one
     /// single event and multiple kinds can be OR-ed together.
-    /// An identifier can be passed to track the subscriber behavior.
+    /// An identifier can be passed to track the subscriber behaviour.
     /// Events will be received from the receiver end of `chan`.
     pub fn subscribe(
         &mut self,
@@ -235,6 +238,7 @@ mod tests {
 
         assert!(pubsub.has_subscribers(Event::BLOCK));
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
+        println!("{:?}", pubsub.has_subscribers(Event::CONTRACT_EVENTS));
         assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
     }
 
@@ -279,6 +283,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         // This also forces the thread termination so that we can join it below...
@@ -305,6 +310,7 @@ mod tests {
         let msg = Message::GetBlockResponse {
             block: create_test_block(),
             txs: None,
+            origin: None,
         };
 
         pubsub.publish(Event::BLOCK, msg);

@@ -286,7 +286,7 @@ impl TransactionDataBulkV1 {
     }
 
     /// Transaction data signature verification.
-    // it sould take the public key of the first tx
+    // it should take the public key of the first tx
     // check sign
     pub fn verify(&self, public_key: &PublicKey, sig: &[u8]) -> Result<()> {
         let data = self.serialize();
@@ -316,7 +316,7 @@ impl TransactionDataBulkV1 {
         let network = self.txs.root.data.get_network();
         match &self.txs.nodes {
             Some(nodes) => {
-                // check depens on
+                // check depends on
                 // check nws all equals && != none
                 for node in nodes {
                     // check depends_on filed
@@ -367,7 +367,7 @@ pub struct UnsignedTransaction {
 }
 
 /// Bulk Transaction
-// it might not be needed, just use signed transaction, where data == transaction data::bulkdata
+// it might not be needed, just use signed transaction, where data == transaction Data::BulkData
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BulkTransaction {
     /// Transaction payload.
@@ -542,7 +542,7 @@ pub struct Block {
 pub struct BlockData {
     /// Block Validator public key
     pub validator: Option<PublicKey>,
-    /// Index in the blockhain, which is also the number of ancestors blocks.
+    /// Index in the blockchain, which is also the number of ancestors blocks.
     pub height: u64,
     /// Number of transactions in this block.
     pub size: u32,
@@ -554,10 +554,13 @@ pub struct BlockData {
     pub rxs_hash: Hash,
     /// Root of accounts state after applying the block transactions.
     pub state_hash: Hash,
+    /// Timestamp in which the block was created by validator.
+    pub timestamp: u64,
 }
 
 impl BlockData {
     /// Instance a new block structure.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validator: Option<PublicKey>,
         height: u64,
@@ -566,6 +569,7 @@ impl BlockData {
         txs_hash: Hash,
         rxs_hash: Hash,
         state_hash: Hash,
+        timestamp: u64,
     ) -> Self {
         BlockData {
             validator,
@@ -575,6 +579,7 @@ impl BlockData {
             txs_hash,
             rxs_hash,
             state_hash,
+            timestamp,
         }
     }
 }
@@ -618,6 +623,11 @@ impl Account {
         let buf = ByteBuf::from(value);
         self.assets.insert(asset.to_string(), buf);
     }
+
+    /// Remove the given asset from the account.
+    pub fn remove_asset(&mut self, asset: &str) {
+        self.assets.remove(asset);
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -633,8 +643,8 @@ pub struct BlockchainSettings {
     /// Name of the blockchain network
     pub network_name: Option<String>,
     /// Flag that identify a production environment
-    pub is_production: bool,
-    /// Compatibility of the boostrap.bin
+    pub is_production: bool, // DELETE ME at soon will be deleted in the service contract BlockchainSettings
+    /// Compatibility of the bootstrap.bin
     pub min_node_version: String,
 }
 
@@ -676,13 +686,13 @@ pub mod tests {
     const RECEIPT_HASH_HEX: &str =
         "12202da9df047846a2c30866388c0650a1b126c421f4f3b55bea254edc1b4281cac3";
 
-    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
+    const BLOCK_HEX: &str = "929893a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d00c403000102";
     const BLOCK_HASH_HEX: &str =
-        "12202c3335759727ae3a703b9a802e034d241367e592b4483f40a5e4a7795a9f4135";
+        "122089d787c8ad06a874ef107dc811cd767d4d991a46f5adac5c934ea6d3dc575f39";
 
-    const BLOCK_DATA_HEX: &str = "9793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d";
+    const BLOCK_DATA_HEX: &str = "9893a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d00";
     const BLOCK_DATA_HASH_HEX: &str =
-        "12202fe0c444af3f02334b22ced012016406eaf520e04e9820042726995d88ad1512";
+        "122059c1f128b6e58f7d5ae040ca2f4a2c803ea60e574e0e1420e7945be513c5e7bf";
 
     const ACCOUNT_CONTRACT_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c422122087b6239079719fc7e4349ec54baac9e04c20c48cf0c6a9d2b29b0ccf7c31c727c0";
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
@@ -979,6 +989,7 @@ pub mod tests {
             txs_hash,
             rxs_hash: res_hash,
             state_hash,
+            timestamp: 0,
         }
     }
 
@@ -1428,6 +1439,15 @@ pub mod tests {
         account.store_asset("BTC", &[3]);
 
         assert_eq!(account.load_asset("BTC"), [3]);
+    }
+
+    #[test]
+    fn account_remove_asset() {
+        let mut account = create_test_account();
+
+        account.remove_asset("BTC");
+
+        assert_eq!(account.load_asset("BTC"), Vec::<u8>::new());
     }
 
     #[test]

@@ -20,7 +20,14 @@
 //! The module provides a generic WM trait plus a local implementation
 //! using wasmtime.
 
-use crate::{base::schema::SmartContractEvent, crypto::Hash, db::DbFork, Result};
+use std::sync::Arc;
+
+use crate::{
+    base::schema::SmartContractEvent,
+    crypto::{drand::SeedSource, Hash},
+    db::DbFork,
+    Result,
+};
 
 pub mod host_func;
 #[cfg(feature = "with-wasmtime")]
@@ -46,12 +53,66 @@ pub trait Wm: Send + 'static {
         origin: &str,
         owner: &str,
         caller: &str,
-        contract: Option<Hash>,
+        contract: Hash,
         method: &str,
         args: &[u8],
+        seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
-    ) -> Result<Vec<u8>>;
+        initial_fuel: u64,
+        block_timestamp: u64,
+    ) -> (u64, Result<Vec<u8>>);
+
+    /// Execute the smart contract `is_callable` method
+    /// It is required to pass the database to contextualize the operations.
+    #[allow(clippy::too_many_arguments)]
+    fn callable_call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        contract: Hash,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        initial_fuel: u64,
+        block_timestamp: u64,
+    ) -> (u64, Result<i32>);
+
+    fn app_hash_check<'a>(
+        &mut self,
+        db: &mut dyn DbFork,
+        app_hash: Option<Hash>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+        block_timestamp: u64,
+    ) -> Result<Hash>;
+
+    fn contract_updatable<'a>(
+        &mut self,
+        fork: &mut dyn DbFork,
+        hash_args: CheckHashArgs<'a>,
+        ctx_args: CtxArgs<'a>,
+        seed: Arc<SeedSource>,
+        block_timestamp: u64,
+    ) -> bool;
 }
+
+pub struct CheckHashArgs<'a> {
+    pub account: &'a str,
+    pub current_hash: Option<Hash>,
+    pub new_hash: Option<Hash>,
+}
+
+pub struct CtxArgs<'a> {
+    pub origin: &'a str,
+    pub owner: &'a str,
+    pub caller: &'a str,
+}
+
+pub const MAX_FUEL: u64 = 1_000_000_000; // Internal wm fuel units
 
 /// Structure passed from the host to the wasm smart contracts.
 /// WARNING: ANY MODIFICATION CAN BREAK COMPATIBILITY WITH THE CORE

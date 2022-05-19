@@ -1,3 +1,20 @@
+// This file is part of TRINCI.
+//
+// Copyright (C) 2021 Affidaty Spa.
+//
+// TRINCI is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the
+// Free Software Foundation, either version 3 of the License, or (at your
+// option) any later version.
+//
+// TRINCI is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
+// for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
+
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -9,11 +26,11 @@ use crate::crypto::Hash;
 
 #[derive(Debug)]
 pub struct SeedSource {
-    /// Nerwork name
+    /// Network name
     pub nw_name: Vec<u8>,
     /// Nonce (8 Bytes)
     pub nonce: Mutex<Vec<u8>>,
-    /// Db hash
+    /// Database hashes
     pub prev_hash: Mutex<Hash>,
     pub txs_hash: Mutex<Hash>,
     pub rxs_hash: Mutex<Hash>,
@@ -42,11 +59,9 @@ impl SeedSource {
 
     /// It returns the seed based on the structure sources
     pub fn get_seed(&self) -> u64 {
-        // generate a Vec<u8> for each attribute of lenght
+        // generate a Vec<u8> for each attribute of length
         // of the biggest between them
-        let size_vec: Vec<usize>;
-
-        size_vec = vec![
+        let size_vec: Vec<usize> = vec![
             self.nw_name.len(),
             self.nonce.lock().len(),
             self.prev_hash.lock().to_bytes().len(),
@@ -54,7 +69,7 @@ impl SeedSource {
             self.rxs_hash.lock().to_bytes().len(),
         ];
 
-        let size = size_vec.iter().max().unwrap(); // unwrap beacause it's secure to assume that the vector is not empty
+        let size = size_vec.iter().max().unwrap(); // unwrap because it's secure to assume that the vector is not empty
 
         let mut nw_name: Vec<u8> = vec![0; *size];
         let mut nonce: Vec<u8> = vec![0; *size];
@@ -91,9 +106,9 @@ impl SeedSource {
             .map(|(&x1, &x2)| x1 ^ x2)
             .collect();
 
-        // calcualte how many u64 are present in xor_result
+        // Calculates how many u64 are present in xor_result
         let reminder_of_u64 = xor_result.len() % std::mem::size_of::<u64>();
-        // if rest is present do padding to have last u64
+        // if reminder is present do padding to have last u64
         if reminder_of_u64 > 0 {
             let mut reminder_vec: Vec<u8> = vec![0; std::mem::size_of::<u64>() - reminder_of_u64];
             xor_result.append(&mut reminder_vec);

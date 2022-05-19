@@ -22,7 +22,7 @@
 //!
 //! When the confirmed block contains a block-header hash the executor checks
 //! that the hash resulting from the local execution is equal to the expected
-//! one before commiting the execution changes.
+//! one before committing the execution changes.
 
 use serde_value::value;
 
@@ -34,22 +34,35 @@ use super::{
 };
 use crate::{
     base::{
-        schema::{Block, BlockData, SmartContractEvent},
+        schema::{
+            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
+            UnsignedTransaction,
+        },
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    wm::Wm,
-    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction,
+    wm::{CtxArgs, Wm, MAX_FUEL},
+    Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
 
-/// result struct for bulk trasnsaction
+#[cfg(feature = "rt-monitor")]
+use crate::network_monitor::{
+    tools::send_update,
+    types::{Action, Event as MonitorEvent},
+};
+
+#[cfg(feature = "rt-monitor")]
+use crate::base::schema::BlockchainSettings;
+
+/// Result struct for bulk transaction
 #[derive(Serialize, Deserialize)]
 pub struct BulkResult {
     success: bool,
     result: Vec<u8>,
+    fuel_consumed: u64,
 }
 
 /// Block values when a block is executed to sync
@@ -57,6 +70,7 @@ struct BlockValues {
     exp_hash: Option<Hash>,
     signature: Option<Vec<u8>>,
     validator: Option<PublicKey>,
+    timestamp: u64,
 }
 
 // Struct that holds the consume fuel return value
@@ -64,6 +78,12 @@ struct BlockValues {
 struct ConsumeFuelReturns {
     success: bool,
     units: u64,
+}
+
+struct BurnFuelArgs {
+    account: String,
+    fuel_to_burn: u64,
+    fuel_limit: u64,
 }
 
 /// Executor context data.
@@ -82,6 +102,10 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     burn_fuel_method: String,
     /// Drand Seed
     seed: Arc<SeedSource>,
+    /// P2P peer id
+    p2p_id: String,
+    /// Validator flag
+    is_validator: Arc<bool>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -94,8 +118,53 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             keypair: self.keypair.clone(),
             burn_fuel_method: self.burn_fuel_method.clone(),
             seed: self.seed.clone(),
+            p2p_id: self.p2p_id.clone(),
+            is_validator: self.is_validator.clone(),
         }
     }
+}
+
+// DELETE
+fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fuel_consumed: u64) {
+    let (data, data_suffix) = {
+        if data.len() > 250 {
+            (&data[0..250], format!("...{}", data.len()))
+        } else {
+            (data, "".to_string())
+        }
+    };
+
+    debug!(
+        "\nTX: {:?}\n\taccount: {}\n\tmethod: {}\n\targs: {}{}\n\tburned_wt_fuel: {}\n",
+        hash,
+        account,
+        method,
+        hex::encode(&data),
+        data_suffix,
+        fuel_consumed
+    );
+}
+
+// DELETE
+fn log_wm_fuel_consumed_st(tx: &SignedTransaction, fuel_consumed: u64) {
+    log_wm_fuel_consumed(
+        &hex::encode(tx.data.primary_hash().as_bytes()),
+        tx.data.get_account(),
+        tx.data.get_method(),
+        tx.data.get_args(),
+        fuel_consumed,
+    )
+}
+
+// DELETE
+fn log_wm_fuel_consumed_bt(tx: &UnsignedTransaction, fuel_consumed: u64) {
+    log_wm_fuel_consumed(
+        &hex::encode(tx.data.primary_hash().as_bytes()),
+        tx.data.get_account(),
+        tx.data.get_method(),
+        tx.data.get_args(),
+        fuel_consumed,
+    )
 }
 
 impl<D: Db, W: Wm> Executor<D, W> {
@@ -107,6 +176,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         pubsub: Arc<Mutex<PubSub>>,
         keypair: Arc<KeyPair>,
         seed: Arc<SeedSource>,
+        p2p_id: String,
     ) -> Self {
         Executor {
             pool,
@@ -116,6 +186,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             keypair,
             burn_fuel_method: String::new(),
             seed,
+            p2p_id,
+            is_validator: Arc::new(false),
         }
     }
 
@@ -125,8 +197,23 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     // Calculates the fuel consumed by the transaction execution
-    fn calculate_burned_fuel(&self) -> u64 {
-        // TODO
+    fn calculate_burned_fuel(&self, wm_fuel: u64) -> u64 {
+        // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
+        warn!("calculate_burned_fuel::{}", wm_fuel);
+        // wm_fuel
+        1000
+    }
+
+    // Calculated the max fuel allow to spend
+    // from the tx fuel_limit field
+    fn calculate_internal_fuel_limit(&self, _fuel_limit: u64) -> u64 {
+        // TODO create a method the get the fuel_limit
+        MAX_FUEL
+    }
+
+    // Get the fuel spent when the tx generates an internal error
+    fn get_fuel_consumed_for_error(&self) -> u64 {
+        // TODO create a method the get the fuel_limit
         1000
     }
 
@@ -136,7 +223,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         burn_fuel_method: &str,
         origin: &str,
         fuel: u64,
-    ) -> Result<Vec<u8>> {
+        block_timestamp: u64,
+    ) -> (u64, Result<Vec<u8>>) {
         let args = value!({
             "from": origin,
             "units": fuel
@@ -149,18 +237,39 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 panic!();
             }
         };
+        let account = match fork.load_account(SERVICE_ACCOUNT_ID) {
+            Some(acc) => acc,
+            None => {
+                return (
+                    0,
+                    Err(Error::new_ext(ErrorKind::Other, "Service not found")),
+                )
+            }
+        };
+        let service_app_hash = match account.contract {
+            Some(contract) => contract,
+            None => {
+                return (
+                    0,
+                    Err(Error::new_ext(ErrorKind::Other, "Service has no contract")),
+                )
+            }
+        };
 
         self.wm.lock().call(
             fork,
             0,
-            "TRINCI",
-            "TRINCI",
-            "TRINCI",
-            "TRINCI",
-            None,
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
+            SERVICE_ACCOUNT_ID,
+            service_app_hash,
             burn_fuel_method,
             &args,
+            self.seed.clone(),
             &mut vec![],
+            MAX_FUEL,
+            block_timestamp,
         )
     }
 
@@ -169,58 +278,90 @@ impl<D: Db, W: Wm> Executor<D, W> {
         &self,
         fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
-        origin: &str,
-        mut fuel: u64,
-        max_fuel: u64,
+        burn_fuel_args_array: Vec<BurnFuelArgs>,
+        block_timestamp: u64,
     ) -> (bool, u64) {
-        let mut max_fuel_result = true;
+        let mut global_result: bool = true;
+        let mut global_burned_fuel = 0;
 
-        if burn_fuel_method.is_empty() {
-            return (true, 0);
-        }
+        for burn_fuel_args in burn_fuel_args_array {
+            let mut max_fuel_result = true;
 
-        if fuel > max_fuel {
-            fuel = max_fuel;
-            max_fuel_result = false;
-        }
+            if burn_fuel_method.is_empty() {
+                return (true, 0);
+            }
 
-        // Call to consume fuel
-        match self.call_burn_fuel(fork, burn_fuel_method, origin, fuel) {
-            Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
-                Ok(res) => (res.success & max_fuel_result, res.units),
-                Err(_) => (false, 0),
-            },
-            Err(_) => (false, 0),
+            let fuel = if burn_fuel_args.fuel_to_burn > burn_fuel_args.fuel_limit {
+                max_fuel_result = false;
+                burn_fuel_args.fuel_limit
+            } else {
+                burn_fuel_args.fuel_to_burn
+            };
+
+            // Call to consume fuel
+            let (_, result) = self.call_burn_fuel(
+                fork,
+                burn_fuel_method,
+                &burn_fuel_args.account,
+                fuel,
+                block_timestamp,
+            );
+            match result {
+                Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
+                    Ok(res) => {
+                        global_result &= res.success & max_fuel_result;
+                        global_burned_fuel += res.units;
+                    }
+                    Err(_) => {
+                        global_result = false;
+                    }
+                },
+                Err(_) => global_result = false,
+            }
         }
+        (global_result, global_burned_fuel)
     }
 
-    fn exec_transaction(
+    fn handle_unit_transaction(
         &mut self,
-        tx: &Transaction,
+        tx: &SignedTransaction,
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         index: u32,
-        burn_fuel_method: &str,
-    ) -> Receipt {
-        fork.flush();
+        mut events: Vec<SmartContractEvent>,
+        block_timestamp: u64,
+    ) -> (Vec<BurnFuelArgs>, Receipt) {
+        let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
 
-        let fuel_willing_to_spend = tx.get_fuel_limit();
+        let ctx_args = CtxArgs {
+            origin: &tx.data.get_caller().to_account_id(),
+            owner: tx.data.get_account(),
+            caller: &tx.data.get_caller().to_account_id(),
+        };
+        let app_hash = self.wm.lock().app_hash_check(
+            fork,
+            *tx.data.get_contract(),
+            ctx_args,
+            self.seed.clone(),
+            block_timestamp,
+        );
 
-        let mut events: Vec<SmartContractEvent> = vec![];
-
-        let mut receipt = match tx {
-            Transaction::UnitTransaction(tx) => {
-                let result = self.wm.lock().call(
+        match app_hash {
+            Ok(app_hash) => {
+                let (fuel_consumed, result) = self.wm.lock().call(
                     fork,
                     0,
                     tx.data.get_network(),
                     &tx.data.get_caller().to_account_id(),
                     tx.data.get_account(),
                     &tx.data.get_caller().to_account_id(),
-                    *tx.data.get_contract(),
+                    app_hash,
                     tx.data.get_method(),
                     tx.data.get_args(),
+                    self.seed.clone(),
                     &mut events,
+                    initial_fuel,
+                    block_timestamp,
                 );
 
                 let event_tx = tx.data.primary_hash();
@@ -261,199 +402,349 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     }
                 };
 
-                let burned_fuel = self.calculate_burned_fuel();
+                // FIXME LOG REAL CONSUMPTION
+                log_wm_fuel_consumed_st(tx, fuel_consumed);
 
+                // Total fuel burned
+                let burned_fuel = self.calculate_burned_fuel(fuel_consumed);
+
+                (
+                    vec![BurnFuelArgs {
+                        account: tx.data.get_caller().to_account_id(),
+                        fuel_to_burn: burned_fuel,
+                        fuel_limit: tx.data.get_fuel_limit(),
+                    }],
+                    Receipt {
+                        height,
+                        burned_fuel,
+                        index: index as u32,
+                        success,
+                        returns,
+                        events,
+                    },
+                )
+            }
+            Err(e) => (
+                vec![BurnFuelArgs {
+                    account: tx.data.get_caller().to_account_id(),
+                    fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                    fuel_limit: tx.data.get_fuel_limit(),
+                }],
                 Receipt {
                     height,
-                    burned_fuel,
+                    burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     index: index as u32,
-                    success,
-                    returns,
-                    events,
-                }
-            }
-            Transaction::BulkTransaction(tx) => {
-                let mut results = HashMap::new();
-                let mut execution_fail = false;
+                    success: false,
+                    returns: e.to_string().as_bytes().to_vec(),
+                    events: None,
+                },
+            ),
+        }
+    }
 
-                let (events, results) = match &tx.data {
-                    crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
-                        let root_tx = &bulk_tx.txs.root;
-                        let hash = root_tx.data.primary_hash();
-                        let mut bulk_events: Vec<SmartContractEvent> = vec![];
+    fn handle_bulk_transaction(
+        &mut self,
+        tx: &BulkTransaction,
+        fork: &mut <D as Db>::DbForkType,
+        height: u64,
+        index: u32,
+        mut events: Vec<SmartContractEvent>,
+        block_timestamp: u64,
+    ) -> (Vec<BurnFuelArgs>, Receipt) {
+        let mut results = HashMap::new();
+        let mut execution_fail = false;
+        let mut burned_fuel = 0;
 
-                        let result = self.wm.lock().call(
-                            fork,
-                            0,
-                            root_tx.data.get_network(),
-                            &root_tx.data.get_caller().to_account_id(),
-                            root_tx.data.get_account(),
-                            &root_tx.data.get_caller().to_account_id(),
-                            *root_tx.data.get_contract(),
-                            root_tx.data.get_method(),
-                            root_tx.data.get_args(),
-                            &mut bulk_events,
+        let mut burn_fuel_args = Vec::<BurnFuelArgs>::new();
+
+        let (events, results) = match &tx.data {
+            crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
+                let root_tx = &bulk_tx.txs.root;
+                let hash = root_tx.data.primary_hash();
+                let mut bulk_events: Vec<SmartContractEvent> = vec![];
+
+                let initial_fuel =
+                    self.calculate_internal_fuel_limit(root_tx.data.get_fuel_limit());
+
+                let ctx_args = CtxArgs {
+                    origin: &root_tx.data.get_caller().to_account_id(),
+                    owner: root_tx.data.get_account(),
+                    caller: &root_tx.data.get_caller().to_account_id(),
+                };
+
+                let app_hash = match self.wm.lock().app_hash_check(
+                    fork,
+                    *root_tx.data.get_contract(),
+                    ctx_args,
+                    self.seed.clone(),
+                    block_timestamp,
+                ) {
+                    Ok(app_hash) => app_hash,
+                    Err(e) => {
+                        let root_fuel = BurnFuelArgs {
+                            account: root_tx.data.get_caller().to_account_id(),
+                            fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                            fuel_limit: root_tx.data.get_fuel_limit(),
+                        };
+
+                        return (
+                            vec![root_fuel],
+                            Receipt {
+                                height,
+                                index,
+                                burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                success: false,
+                                returns: e.to_string().as_bytes().to_vec(),
+                                events: None,
+                            },
+                        );
+                    }
+                };
+
+                let (fuel_consumed, result) = self.wm.lock().call(
+                    fork,
+                    0,
+                    root_tx.data.get_network(),
+                    &root_tx.data.get_caller().to_account_id(),
+                    root_tx.data.get_account(),
+                    &root_tx.data.get_caller().to_account_id(),
+                    app_hash,
+                    root_tx.data.get_method(),
+                    root_tx.data.get_args(),
+                    self.seed.clone(),
+                    &mut bulk_events,
+                    initial_fuel,
+                    block_timestamp,
+                );
+
+                burn_fuel_args.push(BurnFuelArgs {
+                    account: root_tx.data.get_caller().to_account_id(),
+                    fuel_to_burn: fuel_consumed,
+                    fuel_limit: root_tx.data.get_fuel_limit(),
+                });
+
+                // FIXME * LOG REAL CONSUMPTION
+                log_wm_fuel_consumed_bt(root_tx, fuel_consumed);
+
+                // Convert wm fuel in TRINCI
+                let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
+
+                burned_fuel += fuel_consumed;
+
+                match result {
+                    Ok(rcpt) => {
+                        results.insert(
+                            hex::encode(hash),
+                            BulkResult {
+                                success: true,
+                                result: rcpt,
+                                fuel_consumed,
+                            },
                         );
 
-                        match result {
-                            Ok(rcpt) => {
-                                results.insert(
-                                    hex::encode(hash),
-                                    BulkResult {
-                                        success: true,
-                                        result: rcpt,
-                                    },
-                                );
+                        let event_tx = hash;
+                        bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                                let event_tx = hash;
-                                bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
+                        if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+                            bulk_events.iter().for_each(|bulk_event| {
+                                // Notify subscribers about contract events
+                                let msg = Message::GetContractEvent {
+                                    event: bulk_event.clone(),
+                                };
 
-                                if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
-                                    bulk_events.iter().for_each(|bulk_event| {
-                                        // Notify subscribers about contract events
-                                        let msg = Message::GetContractEvent {
-                                            event: bulk_event.clone(),
-                                        };
-
-                                        self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
-                                    });
-                                }
-
-                                events.append(&mut bulk_events);
-                            }
-                            Err(error) => {
-                                execution_fail = true;
-                                results.insert(
-                                    hex::encode(hash),
-                                    BulkResult {
-                                        success: false,
-                                        result: error.to_string().as_bytes().to_vec(),
-                                    },
-                                );
-                            }
+                                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+                            });
                         }
 
-                        match &bulk_tx.txs.nodes {
-                            Some(nodes) => {
-                                for node in nodes {
-                                    let mut bulk_events: Vec<SmartContractEvent> = vec![];
+                        events.append(&mut bulk_events);
+                    }
+                    Err(error) => {
+                        execution_fail = true;
+                        results.insert(
+                            hex::encode(hash),
+                            BulkResult {
+                                success: false,
+                                result: error.to_string().as_bytes().to_vec(),
+                                fuel_consumed,
+                            },
+                        );
+                    }
+                }
+                if !execution_fail {
+                    if let Some(nodes) = &bulk_tx.txs.nodes {
+                        for node in nodes {
+                            let mut bulk_events: Vec<SmartContractEvent> = vec![];
 
-                                    if execution_fail {
-                                        results.insert(
-                                            hex::encode(node.data.primary_hash()),
-                                            BulkResult {
-                                                success: false,
-                                                result: "error".as_bytes().to_vec(),
-                                            },
-                                        );
-                                    } else {
-                                        let result = self.wm.lock().call(
-                                            fork,
-                                            0,
-                                            node.data.get_network(),
-                                            &node.data.get_caller().to_account_id(),
-                                            node.data.get_account(),
-                                            &node.data.get_caller().to_account_id(),
-                                            *node.data.get_contract(),
-                                            node.data.get_method(),
-                                            node.data.get_args(),
-                                            &mut bulk_events,
-                                        );
-                                        match result {
-                                            Ok(rcpt) => {
-                                                results.insert(
-                                                    hex::encode(node.data.primary_hash()),
-                                                    BulkResult {
-                                                        success: true,
-                                                        result: rcpt,
-                                                    },
-                                                );
+                            let initial_fuel =
+                                self.calculate_internal_fuel_limit(node.data.get_fuel_limit());
+                            let ctx_args = CtxArgs {
+                                origin: &node.data.get_caller().to_account_id(),
+                                owner: node.data.get_account(),
+                                caller: &node.data.get_caller().to_account_id(),
+                            };
 
-                                                let event_tx = node.data.primary_hash();
-                                                bulk_events
-                                                    .iter_mut()
-                                                    .for_each(|e| e.event_tx = event_tx);
+                            let mut t_wm = self.wm.lock();
 
-                                                if self
-                                                    .pubsub
-                                                    .lock()
-                                                    .has_subscribers(Event::CONTRACT_EVENTS)
-                                                {
-                                                    bulk_events.iter().for_each(|bulk_event| {
-                                                        // Notify subscribers about contract events
-                                                        let msg = Message::GetContractEvent {
-                                                            event: bulk_event.clone(),
-                                                        };
+                            match t_wm.app_hash_check(
+                                fork,
+                                *node.data.get_contract(),
+                                ctx_args,
+                                self.seed.clone(),
+                                block_timestamp,
+                            ) {
+                                Ok(app_hash) => {
+                                    let (fuel_consumed, result) = t_wm.call(
+                                        fork,
+                                        0,
+                                        node.data.get_network(),
+                                        &node.data.get_caller().to_account_id(),
+                                        node.data.get_account(),
+                                        &node.data.get_caller().to_account_id(),
+                                        app_hash,
+                                        node.data.get_method(),
+                                        node.data.get_args(),
+                                        self.seed.clone(),
+                                        &mut bulk_events,
+                                        initial_fuel,
+                                        block_timestamp,
+                                    );
+                                    burn_fuel_args.push(BurnFuelArgs {
+                                        account: node.data.get_caller().to_account_id(),
+                                        fuel_to_burn: fuel_consumed,
+                                        fuel_limit: node.data.get_fuel_limit(),
+                                    });
+                                    // FIXME * LOG REAL CONSUMPTION
+                                    log_wm_fuel_consumed_st(node, fuel_consumed);
 
-                                                        self.pubsub
-                                                            .lock()
-                                                            .publish(Event::CONTRACT_EVENTS, msg);
-                                                    });
-                                                }
+                                    // Convert wm fuel in TRINCI
+                                    let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
 
-                                                events.append(&mut bulk_events);
+                                    burned_fuel += fuel_consumed;
+
+                                    match result {
+                                        Ok(rcpt) => {
+                                            results.insert(
+                                                hex::encode(node.data.primary_hash()),
+                                                BulkResult {
+                                                    success: true,
+                                                    result: rcpt,
+                                                    fuel_consumed,
+                                                },
+                                            );
+
+                                            let event_tx = node.data.primary_hash();
+                                            bulk_events
+                                                .iter_mut()
+                                                .for_each(|e| e.event_tx = event_tx);
+
+                                            if self
+                                                .pubsub
+                                                .lock()
+                                                .has_subscribers(Event::CONTRACT_EVENTS)
+                                            {
+                                                bulk_events.iter().for_each(|bulk_event| {
+                                                    // Notify subscribers about contract events
+                                                    let msg = Message::GetContractEvent {
+                                                        event: bulk_event.clone(),
+                                                    };
+
+                                                    self.pubsub
+                                                        .lock()
+                                                        .publish(Event::CONTRACT_EVENTS, msg);
+                                                });
                                             }
-                                            Err(error) => {
-                                                results.insert(
-                                                    hex::encode(node.data.primary_hash()),
-                                                    BulkResult {
-                                                        success: false,
-                                                        result: error
-                                                            .to_string()
-                                                            .as_bytes()
-                                                            .to_vec(),
-                                                    },
-                                                );
-                                                execution_fail = true;
-                                            }
+
+                                            events.append(&mut bulk_events);
+                                        }
+                                        Err(error) => {
+                                            results.insert(
+                                                hex::encode(node.data.primary_hash()),
+                                                BulkResult {
+                                                    success: false,
+                                                    result: error.to_string().as_bytes().to_vec(),
+                                                    fuel_consumed,
+                                                },
+                                            );
+                                            execution_fail = true;
+                                            break;
                                         }
                                     }
                                 }
+                                Err(e) => {
+                                    results.insert(
+                                        hex::encode(node.data.primary_hash()),
+                                        BulkResult {
+                                            success: false,
+                                            result: e.to_string().as_bytes().to_vec(),
+                                            fuel_consumed: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                        },
+                                    );
+                                    execution_fail = true;
+                                }
                             }
-                            None => (),
                         }
-
-                        if execution_fail {
-                            fork.rollback();
-                        }
-
-                        let events = if events.is_empty() {
-                            None
-                        } else {
-                            Some(events)
-                        };
-
-                        (events, rmp_serialize(&results))
                     }
-                    // this hould never happen because previous controls
-                    // mabye warn
-                    _ => {
-                        fork.rollback();
-
-                        (None, rmp_serialize(&results))
-                    } // Receipt should be empty?
-                };
-                let burned_fuel = self.calculate_burned_fuel();
-
-                Receipt {
-                    height,
-                    index,
-                    burned_fuel,
-                    success: !execution_fail,
-                    returns: results.unwrap(), //mabye handle unwrap
-                    events,
                 }
+                if execution_fail {
+                    fork.rollback();
+                }
+
+                let events = if events.is_empty() {
+                    None
+                } else {
+                    Some(events)
+                };
+
+                (events, rmp_serialize(&results))
+            }
+            // This should never happen because previous controls
+            // maybe warn
+            _ => {
+                fork.rollback();
+
+                (None, rmp_serialize(&results))
+            } // Receipt should be empty?
+        };
+        let burned_fuel = self.calculate_burned_fuel(burned_fuel);
+
+        (
+            burn_fuel_args,
+            Receipt {
+                height,
+                index,
+                burned_fuel,
+                success: !execution_fail,
+                returns: results.unwrap_or_default(),
+                events,
+            },
+        )
+    }
+
+    fn exec_transaction(
+        &mut self,
+        tx: &Transaction,
+        fork: &mut <D as Db>::DbForkType,
+        height: u64,
+        index: u32,
+        burn_fuel_method: &str,
+        block_timestamp: u64,
+    ) -> Receipt {
+        fork.flush();
+
+        let events: Vec<SmartContractEvent> = vec![];
+
+        let (fuel_to_burn, mut receipt) = match tx {
+            Transaction::UnitTransaction(tx) => {
+                self.handle_unit_transaction(tx, fork, height, index, events, block_timestamp)
+            }
+            Transaction::BulkTransaction(tx) => {
+                self.handle_bulk_transaction(tx, fork, height, index, events, block_timestamp)
             }
         };
 
         // Try to burn fuel from the caller account
-        let (res_burning, mut burned) = self.try_burn_fuel(
-            fork,
-            burn_fuel_method,
-            &tx.get_caller().to_account_id(),
-            receipt.burned_fuel,
-            fuel_willing_to_spend,
-        );
+        let (res_burning, mut burned) =
+            self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn, block_timestamp);
         if res_burning {
             receipt.burned_fuel = burned;
             receipt
@@ -467,7 +758,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     burn_fuel_method,
                     &tx.get_caller().to_account_id(),
                     burned,
+                    block_timestamp,
                 )
+                .1
                 .is_err()
             {
                 burned = 0;
@@ -490,6 +783,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         txs_hashes: &[Hash],
+        block_timestamp: u64,
     ) -> Vec<Hash> {
         let mut rxs_hashes = vec![];
 
@@ -511,6 +805,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 height,
                 index as u32,
                 &self.burn_fuel_method.clone(),
+                block_timestamp,
             );
 
             rxs_hashes.push(rx.primary_hash());
@@ -534,11 +829,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
         is_validator: bool,
         is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
+        debug!("Executing block: {}", height);
         // Write on a fork.
         let mut fork = self.db.write().fork_create();
 
         // Get a vector of executed transactions hashes.
-        let rxs_hashes = self.exec_transactions(&mut fork, height, txs_hashes);
+        let rxs_hashes =
+            self.exec_transactions(&mut fork, height, txs_hashes, block_info.timestamp);
 
         let txs_hash = fork.store_transactions_hashes(height, txs_hashes.to_owned());
         let rxs_hash = fork.store_receipts_hashes(height, rxs_hashes);
@@ -563,6 +860,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             txs_hash,
             rxs_hash,
             fork.state_hash(""),
+            block_info.timestamp,
         );
 
         // Verify the block signature
@@ -608,7 +906,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         if let Some(exp_hash) = block_info.exp_hash {
             if exp_hash != block_hash {
-                // Somethig has gone wrong.
+                // Something has gone wrong.
                 return Err(Error::new_ext(ErrorKind::Other, "unexpected block hash"));
             }
         }
@@ -619,12 +917,44 @@ impl<D: Db, W: Wm> Executor<D, W> {
         self.db.write().fork_merge(fork)?;
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
+            #[cfg(feature = "rt-monitor")]
+            {
+                if height > 0 {
+                    // Retrieve network name.
+                    let buf = self
+                        .db
+                        .read()
+                        .load_configuration("blockchain:settings")
+                        .unwrap(); // If this fails is at the very beginning
+                    let config = rmp_deserialize::<BlockchainSettings>(&buf).unwrap(); // If this fails is at the very beginning
+
+                    let network_name = config.network_name.unwrap(); // If this fails is at the very beginning
+
+                    // Sending produced block to network monitor.
+                    let block_json = serde_json::to_string(&block.clone()).unwrap();
+                    let block_event = MonitorEvent {
+                        peer_id: self.p2p_id.clone(),
+                        action: Action::BlockProduced,
+                        payload: block_json,
+                        network: network_name,
+                    };
+                    send_update(block_event);
+                }
+            }
+
             // Notify subscribers about block generation.
             let msg = Message::GetBlockResponse {
                 block,
                 txs: Some(txs_hashes.to_owned()),
+                origin: None, // send it in gossip
             };
             self.pubsub.lock().publish(Event::BLOCK, msg);
+        }
+
+        if is_validator {
+            let node_account_id = self.keypair.public_key().to_account_id();
+            let valid = (*is_validator_closure)(node_account_id).unwrap_or_default();
+            self.is_validator = Arc::new(valid);
         }
 
         Ok(block_hash)
@@ -645,24 +975,28 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let pool = self.pool.read();
         match pool.confirmed.get(&height) {
             Some(BlockInfo {
-                hash: _,
-                signature: _,
-                validator: _,
                 txs_hashes: Some(hashes),
-            }) => hashes
-                .iter()
-                .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))),
+                ..
+            }) => {
+                hashes
+                    .iter()
+                    .all(|hash| matches!(pool.txs.get(hash), Some(Some(_)))) // it might not put tcx in pool
+            }
             _ => false,
         }
     }
 
     pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
-        let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
-            Some(block) => (block.data.primary_hash(), block.data.height + 1),
-            None => (Hash::default(), 0),
+        let (mut prev_hash, mut height, timestamp) = match self.db.read().load_block(u64::MAX) {
+            Some(block) => (
+                block.data.primary_hash(),
+                block.data.height + 1,
+                block.data.timestamp,
+            ),
+            None => (Hash::default(), 0, 0),
         };
 
-        // mabye change seed here? TODo
+        // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
@@ -673,6 +1007,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature,
                         validator,
                         txs_hashes: Some(hashes),
+                        timestamp: _,
                     }) => (
                         *hash,
                         std::mem::take(signature),
@@ -682,7 +1017,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     _ => break,
                 };
 
-            debug!("Executing block {}", height);
             match self.exec_block(
                 height,
                 &txs_hashes,
@@ -691,6 +1025,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     exp_hash: block_hash,
                     signature: block_signature.clone(),
                     validator: block_validator.clone(),
+                    timestamp,
                 },
                 is_validator,
                 is_validator_closure.clone(),
@@ -710,6 +1045,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature: block_signature,
                         validator: block_validator,
                         txs_hashes: Some(txs_hashes),
+                        timestamp,
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
                     error!("Block execution error: {}", err.to_string_full());
@@ -749,7 +1085,7 @@ mod tests {
 
     use serde_value::{value, Value};
 
-    const BLOCK_HEX: &str = "929793a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7dc403000102";
+    const BLOCK_HEX: &str = "929893a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d00c403000102";
 
     const TEST_WASM: &[u8] = include_bytes!("../wm/test.wasm");
 
@@ -775,7 +1111,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        let mut executor = Executor::new(pool, db, wm, sub, keypair, seed.clone());
+        let mut executor = Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        );
 
         if fuel_limit < FUEL_LIMIT {
             executor.set_burn_fuel_method(String::from("burn_fuel_method"));
@@ -805,7 +1149,15 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
-        Executor::new(pool, db, wm, sub, keypair, seed.clone())
+        Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed.clone(),
+            "test_id".to_string(),
+        )
     }
 
     fn create_executor_drand(db_fail: bool, seed: Arc<SeedSource>) -> Executor<MockDb, MockWm> {
@@ -816,7 +1168,7 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair, seed)
+        Executor::new(pool, db, wm, sub, keypair, seed, "test_id".to_string())
     }
 
     fn create_db_mock(fail: bool) -> MockDb {
@@ -855,48 +1207,68 @@ mod tests {
     fn create_wm_mock() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call().returning(
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
                         // Dummy opaque information returned the the smart contract.
-                        Ok(hex::decode("4f706171756544617461").unwrap())
+                        (0, Ok(hex::decode("4f706171756544617461").unwrap()))
                     }
-                    2 => Err(Error::new_ext(
-                        ErrorKind::SmartContractFault,
-                        "bad contract args",
-                    )),
-                    _ => Err(Error::new_ext(
-                        ErrorKind::WasmMachineFault,
-                        "internal error",
-                    )),
+                    2 => (
+                        0,
+                        Err(Error::new_ext(
+                            ErrorKind::SmartContractFault,
+                            "bad contract args",
+                        )),
+                    ),
+                    _ => (
+                        0,
+                        Err(Error::new_ext(
+                            ErrorKind::WasmMachineFault,
+                            "internal error",
+                        )),
+                    ),
                 }
-            });
+            },
+        );
+        wm.expect_app_hash_check()
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+
         wm
     }
 
     fn create_wm_mock_bulk() -> MockWm {
         let mut wm = MockWm::new();
         let mut count = 0;
-        wm.expect_call()
-            .returning(move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _| {
+        wm.expect_call().returning(
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
                         // Dummy opaque information returned the the smart contract.
-                        Ok(hex::decode("4f706171756544617461").unwrap())
+                        (0, Ok(hex::decode("4f706171756544617461").unwrap()))
                     }
-                    4 => Err(Error::new_ext(
-                        ErrorKind::SmartContractFault,
-                        "bad contract args",
-                    )),
-                    _ => Err(Error::new_ext(
-                        ErrorKind::WasmMachineFault,
-                        "internal error",
-                    )),
+                    4 => (
+                        0,
+                        Err(Error::new_ext(
+                            ErrorKind::SmartContractFault,
+                            "bad contract args",
+                        )),
+                    ),
+                    _ => (
+                        0,
+                        Err(Error::new_ext(
+                            ErrorKind::WasmMachineFault,
+                            "internal error",
+                        )),
+                    ),
                 }
-            });
+            },
+        );
+        wm.expect_app_hash_check()
+            .returning(move |_, _, _, _, _| Ok(Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)));
+
         wm
     }
 
@@ -994,7 +1366,7 @@ mod tests {
 
         let tx = create_bulk_tx();
 
-        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new());
+        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new(), 0);
 
         assert!(rcpt.success);
     }
@@ -1077,6 +1449,7 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1085,7 +1458,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(hash),
-            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
+            "12204c76c7c1bf84ec8cd759ca013c7c24d5d5b907cc28f8fd0878afb4b8efcf2588"
         );
     }
 
@@ -1113,6 +1486,7 @@ mod tests {
                     exp_hash: Some(Hash::default()),
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1146,6 +1520,7 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1182,6 +1557,7 @@ mod tests {
                     exp_hash: Some(Hash::default()),
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
@@ -1205,6 +1581,7 @@ mod tests {
         let seed = SeedSource::new(nw_name, nonce, prev_hash, txs_hash, rxs_hash);
         let seed = Arc::new(seed);
 
+        /* cSpell:disable */
         //let drand = Drand::new(seed.clone());
 
         //let seed_test = seed.clone();
@@ -1226,6 +1603,7 @@ mod tests {
         //    seed_test.rxs_hash.lock(),
         //    seed_test.previous_seed.lock(),
         //);
+        /* cSpell:enable */
 
         let mut executor = create_executor_drand(false, seed.clone());
 
@@ -1250,11 +1628,14 @@ mod tests {
                     exp_hash: None,
                     signature: None,
                     validator: None,
+                    timestamp: 0,
                 },
                 true,
                 Arc::new(is_validator_closure),
             )
             .unwrap();
+
+        /* cSpell:disable */
 
         //println!(
         //    "AFTER BLOCK GEN\nprev_hash: {:?}\ntxs_hash: {:?}\nrxs_hash: {:?}\nprev seed:{:?}\n---",
@@ -1273,10 +1654,11 @@ mod tests {
         //    seed_test.rxs_hash.lock(),
         //    seed_test.previous_seed.lock(),
         //);
+        /* cSpell:enable */
 
         assert_eq!(
             hex::encode(hash),
-            "1220bdf5305a19f7561132693e57ffd30015311d372568879727a1577d8773ceb48d"
+            "12204c76c7c1bf84ec8cd759ca013c7c24d5d5b907cc28f8fd0878afb4b8efcf2588"
         );
     }
 }

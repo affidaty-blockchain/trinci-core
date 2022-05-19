@@ -1,6 +1,6 @@
 [package]
 name = "trinci-core"
-version = "0.2.7-rc1"
+version = "0.2.7"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2021"
 description = "TRINCI Blockchain Core"
@@ -22,6 +22,7 @@ serde = { version = "1.0.136", features = ["derive"] }
 serde_bytes = "0.11.5"
 rmp-serde = "1.0.0"
 serde-value = { git = "https://github.com/affidaty-blockchain/serde-value", branch = "helper_macro" }
+serde_json = { version = "1.0", optional = true }
 # Cryptography primitives
 ring = { version = "0.16.20", default-features = false, features = ["std"] }
 ed25519-dalek = "1.0.1"
@@ -32,12 +33,12 @@ merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-fe
 ], optional = true }
 
 # WasmTime
-wasmtime = { version = "0.34.0", default-features = false, features = [
+wasmtime = { version = "0.35.1", default-features = false, features = [
     "parallel-compilation",
     "cranelift",
 ], optional = true }
 # P2P framework
-libp2p = { version = "0.39.1", default-features = false, features = [
+libp2p = { version = "0.44.0", default-features = false, features = [
     "tcp-async-io",
     "mplex",
     "plaintext",
@@ -45,6 +46,7 @@ libp2p = { version = "0.39.1", default-features = false, features = [
     "kad",
     "gossipsub",
     "identify",
+    "request-response",
 ], optional = true }
 # HTTP framework
 tide = { version = "0.16", default-features = false, features = [
@@ -56,6 +58,8 @@ tss-esapi-sys = { version = "0.2.0", default-features = false, optional = true }
 # Drand 
 rand_pcg = "0.3.1"
 rand_core = "0.6.3"
+# POST
+isahc = { version = "1.6.0", optional = true }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
@@ -71,3 +75,4 @@ p2p = ["libp2p"]
 rest = ["tide"]
 bridge = []
 tpm2 = ["tss-esapi", "tss-esapi-sys"]
+rt-monitor = ["serde_json", "isahc"]
