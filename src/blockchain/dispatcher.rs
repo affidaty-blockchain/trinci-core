@@ -634,9 +634,9 @@ mod tests {
         base::schema::{
             tests::{
                 create_test_account, create_test_block, create_test_bulk_tx,
-                create_test_bulk_tx_alt, create_test_unit_tx, FUEL_LIMIT,
+                create_test_bulk_tx_alt, create_test_unit_tx,
             },
-            TransactionData,
+            TransactionData, FUEL_LIMIT,
         },
         channel::simple_channel,
         db::*,

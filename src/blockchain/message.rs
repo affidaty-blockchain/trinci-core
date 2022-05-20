@@ -220,7 +220,10 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::tests::{create_test_contract_event, create_test_unit_tx, FUEL_LIMIT},
+            schema::{
+                tests::{create_test_contract_event, create_test_unit_tx},
+                FUEL_LIMIT,
+            },
             serialize::{rmp_deserialize, rmp_serialize},
         },
         error::ErrorKind,

@@ -23,7 +23,7 @@
 use std::sync::Arc;
 
 use crate::{
-    base::schema::SmartContractEvent,
+    base::schema::{SmartContractEvent, FUEL_LIMIT},
     crypto::{drand::SeedSource, Hash},
     db::DbFork,
     Result,
@@ -143,4 +143,10 @@ pub struct AppOutput<'a> {
     /// Execution result data of success. Error string on failure.
     #[serde(with = "serde_bytes")]
     pub data: &'a [u8],
+}
+
+// Get the fuel spent when the tx generates an internal error
+pub fn get_fuel_consumed_for_error() -> u64 {
+    // TODO create a method the get the fuel_limit
+    FUEL_LIMIT
 }

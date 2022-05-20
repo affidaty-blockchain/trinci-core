@@ -23,6 +23,8 @@ use crate::{
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
 
+pub const FUEL_LIMIT: u64 = 1000;
+
 /// Transaction payload.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct TransactionDataV1 {
@@ -698,8 +700,6 @@ pub mod tests {
     const ACCOUNT_NCONTRAC_HEX: &str = "94d92e516d4e4c656937387a576d7a556462655242334369556641697a5755726265655a68354b31726841514b4368353181a3534b59c40103c0c0";
 
     const CONTRACT_EVENT_HEX: &str = "95c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aeae6f726967696e5f6163636f756e74c4221220a4cea0f0f6e4ac6865fd6092a319ccc6d2387cd8bb65e64bdc486f1a9a998569ab636f6f6c5f6d6574686f64c403010203";
-
-    pub(crate) const FUEL_LIMIT: u64 = 1000;
 
     fn create_test_data_unit(fuel_limit: u64) -> TransactionData {
         // Opaque information returned by the smart contract.

@@ -36,14 +36,14 @@ use crate::{
     base::{
         schema::{
             Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
-            UnsignedTransaction,
+            UnsignedTransaction, FUEL_LIMIT,
         },
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
     },
     crypto::{drand::SeedSource, Hash, Hashable},
     db::{Db, DbFork},
-    wm::{CtxArgs, Wm, MAX_FUEL},
+    wm::{get_fuel_consumed_for_error, CtxArgs, Wm, MAX_FUEL},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -201,7 +201,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
         warn!("calculate_burned_fuel::{}", wm_fuel);
         // wm_fuel
-        1000
+        FUEL_LIMIT
     }
 
     // Calculated the max fuel allow to spend
@@ -209,12 +209,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
     fn calculate_internal_fuel_limit(&self, _fuel_limit: u64) -> u64 {
         // TODO create a method the get the fuel_limit
         MAX_FUEL
-    }
-
-    // Get the fuel spent when the tx generates an internal error
-    fn get_fuel_consumed_for_error(&self) -> u64 {
-        // TODO create a method the get the fuel_limit
-        1000
     }
 
     fn call_burn_fuel(
@@ -427,12 +421,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
             Err(e) => (
                 vec![BurnFuelArgs {
                     account: tx.data.get_caller().to_account_id(),
-                    fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                    fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     fuel_limit: tx.data.get_fuel_limit(),
                 }],
                 Receipt {
                     height,
-                    burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                    burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     index: index as u32,
                     success: false,
                     returns: e.to_string().as_bytes().to_vec(),
@@ -483,7 +477,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     Err(e) => {
                         let root_fuel = BurnFuelArgs {
                             account: root_tx.data.get_caller().to_account_id(),
-                            fuel_to_burn: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                            fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                             fuel_limit: root_tx.data.get_fuel_limit(),
                         };
 
@@ -492,7 +486,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             Receipt {
                                 height,
                                 index,
-                                burned_fuel: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                 success: false,
                                 returns: e.to_string().as_bytes().to_vec(),
                                 events: None,
@@ -676,7 +670,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         BulkResult {
                                             success: false,
                                             result: e.to_string().as_bytes().to_vec(),
-                                            fuel_consumed: self.get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                            fuel_consumed: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                         },
                                     );
                                     execution_fail = true;
@@ -1066,9 +1060,8 @@ mod tests {
     use crate::{
         base::{
             schema::{
-                tests::FUEL_LIMIT, BulkTransaction, BulkTransactions, SignedTransaction,
-                TransactionData, TransactionDataBulkNodeV1, TransactionDataBulkV1,
-                UnsignedTransaction,
+                BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
+                TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -1284,7 +1277,7 @@ mod tests {
 
         let data_tx0 = TransactionData::BulkRootV1(TransactionDataV1 {
             account: id,
-            fuel_limit: 1000,
+            fuel_limit: FUEL_LIMIT,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
             network: "arya".to_string(),
             contract: Some(contract_hash), // Smart contract HASH
@@ -1299,7 +1292,7 @@ mod tests {
 
         let data_tx1 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
             account: id,
-            fuel_limit: 1000,
+            fuel_limit: FUEL_LIMIT,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
             network: "arya".to_string(),
             contract: Some(contract_hash), // Smart contract HASH
@@ -1316,7 +1309,7 @@ mod tests {
 
         let data_tx2 = TransactionData::BulkNodeV1(TransactionDataBulkNodeV1 {
             account: id,
-            fuel_limit: 1000,
+            fuel_limit: FUEL_LIMIT,
             nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
             network: "arya".to_string(),
             contract: Some(contract_hash), // Smart contract HASH
