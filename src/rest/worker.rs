@@ -216,8 +216,11 @@ mod tests {
     use super::*;
     use crate::{
         base::{
-            schema::tests::{
-                create_test_account, create_test_block, create_test_receipt, create_test_unit_tx,
+            schema::{
+                tests::{
+                    create_test_account, create_test_block, create_test_receipt,
+                    create_test_unit_tx,
+                },
                 FUEL_LIMIT,
             },
             serialize::{rmp_deserialize, rmp_serialize},

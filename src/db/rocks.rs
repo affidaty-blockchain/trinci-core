@@ -337,10 +337,11 @@ impl DbFork for RocksDbFork {
 mod tests {
     use super::*;
     use crate::{
-        base::schema::tests::{
-            create_test_account, create_test_block, create_test_unit_tx, FUEL_LIMIT,
-        },
         base::schema::Account,
+        base::schema::{
+            tests::{create_test_account, create_test_block, create_test_unit_tx},
+            FUEL_LIMIT,
+        },
         crypto::Hashable,
     };
     use std::{

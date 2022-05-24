@@ -30,7 +30,7 @@ use crate::{
 };
 use ring::digest;
 
-use super::CtxArgs;
+use super::{get_fuel_consumed_for_error, CtxArgs};
 
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
@@ -159,7 +159,7 @@ pub fn is_callable(
             )
         }
         None => (
-            1000, // FIXME * should pay for this?
+            get_fuel_consumed_for_error(), // FIXME * should pay for this?
             Err(Error::new_ext(
                 ErrorKind::WasmMachineFault,
                 "is_callable not implemented",
@@ -274,7 +274,7 @@ pub fn call(
             )
         }
         None => (
-            1000, // FIXME * should pay for this?
+            get_fuel_consumed_for_error(), // FIXME * should pay for this?
             Err(Error::new_ext(
                 ErrorKind::WasmMachineFault,
                 "nested calls not implemented",
