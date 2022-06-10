@@ -429,7 +429,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     index: index as u32,
                     success: false,
-                    returns: e.to_string().as_bytes().to_vec(),
+                    returns: e.to_string_full().as_bytes().to_vec(),
                     events: None,
                 },
             ),
@@ -488,7 +488,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 index,
                                 burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                 success: false,
-                                returns: e.to_string().as_bytes().to_vec(),
+                                returns: e.to_string_full().as_bytes().to_vec(),
                                 events: None,
                             },
                         );
@@ -558,7 +558,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             hex::encode(hash),
                             BulkResult {
                                 success: false,
-                                result: error.to_string().as_bytes().to_vec(),
+                                result: error.to_string_full().as_bytes().to_vec(),
                                 fuel_consumed,
                             },
                         );
@@ -655,7 +655,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 hex::encode(node.data.primary_hash()),
                                                 BulkResult {
                                                     success: false,
-                                                    result: error.to_string().as_bytes().to_vec(),
+                                                    result: error
+                                                        .to_string_full()
+                                                        .as_bytes()
+                                                        .to_vec(),
                                                     fuel_consumed,
                                                 },
                                             );
@@ -669,7 +672,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         hex::encode(node.data.primary_hash()),
                                         BulkResult {
                                             success: false,
-                                            result: e.to_string().as_bytes().to_vec(),
+                                            result: e.to_string_full().as_bytes().to_vec(),
                                             fuel_consumed: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                         },
                                     );
