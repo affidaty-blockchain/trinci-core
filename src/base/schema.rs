@@ -47,6 +47,19 @@ pub struct TransactionDataV1 {
     #[serde(with = "serde_bytes")]
     pub args: Vec<u8>,
 }
+/// Empty Transaction payload.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct EmptyTransactionDataV1 {
+    /// Max allowed blockchain asset units for fee.
+    pub fuel_limit: u64,
+    /// Nonce to differentiate different transactions with same payload.
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+    /// Network identifier.
+    pub network: String,
+    /// Submitter public key.
+    pub caller: PublicKey,
+}
 
 /// Transaction payload for bulk node tx.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -98,6 +111,8 @@ pub enum TransactionData {
     BulkRootV1(TransactionDataV1),
     #[serde(rename = "0ec3469e3509682d7599797a9d1c5cdf56b2d9bd435f853a3b999cbb717e0337")]
     BulkV1(TransactionDataBulkV1),
+    #[serde(rename = "bulk_empty_root")] // FIXME calculate the hash like the others
+    BulkEmpyRoot(EmptyTransactionDataV1),
 }
 
 impl TransactionData {
@@ -143,6 +158,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.caller,
             TransactionData::BulkRootV1(tx_data) => &tx_data.caller,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_caller(),
+            TransactionData::BulkEmpyRoot(tx_data) => &tx_data.caller,
         }
     }
     pub fn get_network(&self) -> &str {
@@ -151,6 +167,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.network,
             TransactionData::BulkRootV1(tx_data) => &tx_data.network,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_network(),
+            TransactionData::BulkEmpyRoot(tx_data) => &tx_data.network,
         }
     }
     pub fn get_account(&self) -> &str {
@@ -159,6 +176,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.account,
             TransactionData::BulkRootV1(tx_data) => &tx_data.account,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_account(),
+            TransactionData::BulkEmpyRoot(_) => "", // This should not happen
         }
     }
     pub fn get_method(&self) -> &str {
@@ -167,6 +185,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.method,
             TransactionData::BulkRootV1(tx_data) => &tx_data.method,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_method(),
+            TransactionData::BulkEmpyRoot(_) => "", // This should not happen
         }
     }
     pub fn get_args(&self) -> &[u8] {
@@ -175,6 +194,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.args,
             TransactionData::BulkRootV1(tx_data) => &tx_data.args,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_args(),
+            TransactionData::BulkEmpyRoot(_) => &[], // This should not happen
         }
     }
     pub fn get_fuel_limit(&self) -> u64 {
@@ -182,9 +202,14 @@ impl TransactionData {
             TransactionData::V1(tx_data) => tx_data.fuel_limit,
             TransactionData::BulkV1(tx_data) => match &tx_data.txs.root.data {
                 TransactionData::BulkRootV1(tx_data_v1) => tx_data_v1.fuel_limit,
-                _ => 0,
+                TransactionData::BulkEmpyRoot(empty_tx_data) => empty_tx_data.fuel_limit,
+                TransactionData::V1(_)
+                | TransactionData::BulkNodeV1(_)
+                | TransactionData::BulkV1(_) => 0,
             },
-            _ => 0,
+            TransactionData::BulkNodeV1(_)
+            | TransactionData::BulkRootV1(_)
+            | TransactionData::BulkEmpyRoot(_) => 0,
         }
     }
     pub fn get_contract(&self) -> &Option<Hash> {
@@ -193,6 +218,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => &tx_data.contract,
             TransactionData::BulkRootV1(tx_data) => &tx_data.contract,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.get_contract(),
+            TransactionData::BulkEmpyRoot(_) => &None, // This should not happen
         }
     }
     pub fn get_dependency(&self) -> Result<Hash> {
@@ -210,6 +236,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => tx_data.contract = contract,
             TransactionData::BulkRootV1(tx_data) => tx_data.contract = contract,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_contract(contract),
+            TransactionData::BulkEmpyRoot(_) => {} // This should not happen
         }
     }
     pub fn set_account(&mut self, account: String) {
@@ -218,6 +245,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => tx_data.account = account,
             TransactionData::BulkRootV1(tx_data) => tx_data.account = account,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_account(account),
+            TransactionData::BulkEmpyRoot(_) => {} // This should not happen
         }
     }
     pub fn set_nonce(&mut self, nonce: Vec<u8>) {
@@ -226,6 +254,7 @@ impl TransactionData {
             TransactionData::BulkNodeV1(tx_data) => tx_data.nonce = nonce,
             TransactionData::BulkRootV1(tx_data) => tx_data.nonce = nonce,
             TransactionData::BulkV1(tx_data) => tx_data.txs.root.data.set_nonce(nonce),
+            TransactionData::BulkEmpyRoot(tx_data) => tx_data.nonce = nonce,
         }
     }
 }
@@ -681,6 +710,8 @@ pub mod tests {
     const BULK_WITHOUT_NODES_TRANSACTION_SIGN: &str = "19f3a5d479c463569346078e52bc57d76201232eaaea083b54777086732e5f4a47bc3d8eee4e5af46eee211e40fac6502a1a0710161865a6abd13f1528ff0e4611d3af2d0b89e57ce3b2af0d283252aec2ecca5c5317cf7b98bdad96c9099299";
     const BULK_WITH_NODES_TRANSACTION_SIGN_ALT: &str = "c814893010201f45925d4118fdc5beabc7cb1d6cf58c9e44521a31f01d62ee445bf15729b304f9b32f4e6531c092f3b3fa3f893504dbd18c5f39c6ebb5a16a0584fd811dd43ca661dba909f0ee75965d8f6642a76b1c254514166f0cd4a78269";
     const BULK_WITH_NODES_TRANSACTION_SIGN: &str = "b0315a41eac7178b2b5a06b8faf9e19647086e34c789a0fbc87134350392b093942cf5de7a557a23c8397b60fb0a5c14a3970beac5db1c30bd97caa4e63c99861b5db79769f6e497d28b4cd1f862d7512f6f7702810f9e361386db6c91158d84";
+    const BULK_EMPTY_ROOT_TRANSACTION_HEX: &str = "93a762756c6b5f747892d94030656333343639653335303936383264373539393739376139643163356364663536623264396264343335663835336133623939396362623731376530333337929195af62756c6b5f656d7074795f726f6f74cd03e8c408ab82b741e023a412a6736b796e657493a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc192929ad94030393765356635353263373964346636346531356638353361643139643031333937333334336165613535376435633134383264396365663731393135646238d92e516d56513965715a4d33686f5463597a4366365241585078715368583163396a4d48445659444875707862575232cd03e8c403000102a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea86d6574686f645f3193a56563647361a9736563703338347231c461044717583406373a9b47f564e6af4c28d9bc45b11da5de0fdfcd9928dab12eaacaedfabc7357565f2ecfa222f4b4e654a727397c3cad00a2af4c21defe5a0b403d3e62390b71633b203c268fd35ffe2e83fc7c602c2ae19274707a96f579e5439ec403000102c4221220f8205c663eadca67b0ceb135b0511ec40e6aa3fd4c99e915a648247adcd1316fc4604e6cd1e8faa7ee88b3fe2d347868f1a05bd53f0e53df49c14ddaffd4ddddd4137b357a6a2ada7c6eda03a5a8ea8bafe61fed8e70775f767d242056f8a5cb1ebffd45b6a7466cf92b7263950e7be6544fc4fa070599f7a8c6c76643c2549c30c8929ad94030393765356635353263373964346636346531356638353361643139643031333937333334336165613535376435633134383264396365663731393135646238d92e516d63326d383963624d6d5956516156484c64336655365a6766646d46316d3775537538643246584c35697a745acd03e8c403000102a6736b796e6574c42212202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7aea86d6574686f645f3293a56563647361a9736563703338347231c461048295bf9d82b141177ebc03002000573f556bf40bfbd9b70e20c92c45374ed87cdd099759a019dc8665114ab60c83052c37fa99ac6cd933dc635e690d616d42874114dce3b1f41f5fc9b563679e50b0cb5f9295ce8fbaaa812ef69fef6b9b6100c403000102c4221220f8205c663eadca67b0ceb135b0511ec40e6aa3fd4c99e915a648247adcd1316fc4601efbe815b6c0076a90998e7e72ae27bba5e73288fc51595cc595706e00a708d6a0b268de02353165a204e90343737e4d586fdb00144fba8263a6a0e4dfda4b836a91833df0fee3e267b7dfdebb994e2ad009aa7c9e1e0fc9cac8be78bd485728c4602afdbbd8a5c196b90521057b6f7e8eb95266be28534934d6236b5f563c96ca8dddb62ec0f0889f58ca6ea5e2cdc70191dc57d61116e8b630be2ffadb069085b2876f45b1a3539ec22a11ef775ccd52362db00656ca033925b87f67b99b6be610";
+    const BULK_EMPTY_ROOT_TRANSACTION_SIGN: &str = "2afdbbd8a5c196b90521057b6f7e8eb95266be28534934d6236b5f563c96ca8dddb62ec0f0889f58ca6ea5e2cdc70191dc57d61116e8b630be2ffadb069085b2876f45b1a3539ec22a11ef775ccd52362db00656ca033925b87f67b99b6be610";
 
     const RECEIPT_HEX: &str = "960309cd03e7c3c40a4f70617175654461746190";
     const RECEIPT_HASH_HEX: &str =
@@ -762,7 +793,12 @@ pub mod tests {
         SignedTransaction { data, signature }
     }
 
-    fn create_bulk_node_transaction(root_hash: Hash, key: u8, method: String) -> SignedTransaction {
+    fn create_bulk_node_transaction(
+        empty_root: bool,
+        root_hash: Hash,
+        key: u8,
+        method: String,
+    ) -> SignedTransaction {
         let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(key));
         let contract =
             Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
@@ -771,18 +807,29 @@ pub mod tests {
         let data =
             create_transactiondata_bulk_node_v1(keypair.public_key(), contract, method, root_hash);
 
-        let signature = data.sign(&keypair).unwrap();
-        //let signature = match key{
-        //    // This guarantees a fix signature for tests
-        //    1 => hex::decode("c7e0cf6099d3cc1f6cd81fcf75c12af8a378c9433299938f15d3ebeee07a9756546420d9a63a83abe4d52dc41b2ab1487d22f54cc5a713daf9cde22341c5fecd24108a73ea2d77bca871e7e16cbe4f07b427db94d4b4ea0051c829b474402d8a").unwrap(),
-        //    2 => hex::decode("5365838d6ea99075b7b08c9186ddd28656b18fa9e975acb5f1bc48b99f46848044a2ab506ebf5da5cdc9e9bd4525751cb537eb30d5d984aca6bd30c2416363b26ce25ca78c33091e7482d150777a69dd082a9b68656c4bc6b5fdd198e86ece53").unwrap(),
-        //    _ => panic!()
-        //};
+        let signature = match key {
+            // This guarantees a fix signature for tests
+            1 => {
+                if empty_root {
+                    hex::decode("4e6cd1e8faa7ee88b3fe2d347868f1a05bd53f0e53df49c14ddaffd4ddddd4137b357a6a2ada7c6eda03a5a8ea8bafe61fed8e70775f767d242056f8a5cb1ebffd45b6a7466cf92b7263950e7be6544fc4fa070599f7a8c6c76643c2549c30c8").unwrap()
+                } else {
+                    hex::decode("c7e0cf6099d3cc1f6cd81fcf75c12af8a378c9433299938f15d3ebeee07a9756546420d9a63a83abe4d52dc41b2ab1487d22f54cc5a713daf9cde22341c5fecd24108a73ea2d77bca871e7e16cbe4f07b427db94d4b4ea0051c829b474402d8a").unwrap()
+                }
+            }
+            2 => {
+                if empty_root {
+                    hex::decode("1efbe815b6c0076a90998e7e72ae27bba5e73288fc51595cc595706e00a708d6a0b268de02353165a204e90343737e4d586fdb00144fba8263a6a0e4dfda4b836a91833df0fee3e267b7dfdebb994e2ad009aa7c9e1e0fc9cac8be78bd485728").unwrap()
+                } else {
+                    hex::decode("5365838d6ea99075b7b08c9186ddd28656b18fa9e975acb5f1bc48b99f46848044a2ab506ebf5da5cdc9e9bd4525751cb537eb30d5d984aca6bd30c2416363b26ce25ca78c33091e7482d150777a69dd082a9b68656c4bc6b5fdd198e86ece53").unwrap()
+                }
+            }
+            _ => panic!(),
+        };
 
         SignedTransaction { data, signature }
     }
 
-    fn create_test_data_bulk(with_nodes: bool) -> TransactionData {
+    fn create_test_data_bulk(empty_root: bool, with_nodes: bool) -> TransactionData {
         // Opaque information returned by the smart contract.
         let args = hex::decode("4f706171756544617461").unwrap();
         let public_key = PublicKey::Ecdsa(ecdsa_secp384_test_public_key(0));
@@ -791,16 +838,25 @@ pub mod tests {
             Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
                 .unwrap();
 
-        let root_data = TransactionData::BulkRootV1(TransactionDataV1 {
-            account,
-            fuel_limit: FUEL_LIMIT,
-            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
-            network: "skynet".to_string(),
-            contract: Some(contract),
-            method: "terminate".to_string(),
-            caller: public_key,
-            args,
-        });
+        let root_data = if empty_root {
+            TransactionData::BulkEmpyRoot(EmptyTransactionDataV1 {
+                fuel_limit: FUEL_LIMIT,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "skynet".to_string(),
+                caller: public_key,
+            })
+        } else {
+            TransactionData::BulkRootV1(TransactionDataV1 {
+                account,
+                fuel_limit: FUEL_LIMIT,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "skynet".to_string(),
+                contract: Some(contract),
+                method: "terminate".to_string(),
+                caller: public_key,
+                args,
+            })
+        };
 
         let root = UnsignedTransaction { data: root_data };
 
@@ -808,8 +864,8 @@ pub mod tests {
 
         let nodes = if with_nodes {
             let nodes = vec![
-                create_bulk_node_transaction(root_hash, 1, String::from("method_1")),
-                create_bulk_node_transaction(root_hash, 2, String::from("method_2")),
+                create_bulk_node_transaction(empty_root, root_hash, 1, String::from("method_1")),
+                create_bulk_node_transaction(empty_root, root_hash, 2, String::from("method_2")),
             ];
 
             Some(nodes)
@@ -884,21 +940,25 @@ pub mod tests {
         })
     }
 
-    pub fn create_test_bulk_tx(with_nodes: bool) -> Transaction {
+    pub fn create_test_bulk_tx(empty_root: bool, with_nodes: bool) -> Transaction {
         // UNCOMMENT THIS to create a new signature
-        //let keypair = crate::crypto::sign::tests::create_test_keypair();
-        //let data = create_test_data_bulk(with_nodes);
-        //let data = crate::base::serialize::rmp_serialize(&data).unwrap();
-        //let signature = keypair.sign(&data).unwrap();
-        //println!("bulk_sign: {}", hex::encode(&signature));
+        // let keypair = crate::crypto::sign::tests::create_test_keypair();
+        // let data = create_test_data_bulk(empty_root, with_nodes);
+        // let data = crate::base::serialize::rmp_serialize(&data).unwrap();
+        // let signature = keypair.sign(&data).unwrap();
+        // println!("bulk_sign: {}", hex::encode(&signature));
 
         let signature = if with_nodes {
-            hex::decode(BULK_WITH_NODES_TRANSACTION_SIGN).unwrap()
+            if empty_root {
+                hex::decode(BULK_EMPTY_ROOT_TRANSACTION_SIGN).unwrap()
+            } else {
+                hex::decode(BULK_WITH_NODES_TRANSACTION_SIGN).unwrap()
+            }
         } else {
             hex::decode(BULK_WITHOUT_NODES_TRANSACTION_SIGN).unwrap()
         };
         Transaction::BulkTransaction(BulkTransaction {
-            data: create_test_data_bulk(with_nodes),
+            data: create_test_data_bulk(empty_root, with_nodes),
             signature,
         })
     }
@@ -1022,7 +1082,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_serialize() {
-        let data = create_test_data_bulk(false);
+        let data = create_test_data_bulk(false, false);
 
         let buf = data.serialize();
 
@@ -1031,7 +1091,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_deserialize() {
-        let expected = create_test_data_bulk(false);
+        let expected = create_test_data_bulk(false, false);
 
         let buf = hex::decode(BULK_TRANSACTION_DATA_HEX).unwrap();
 
@@ -1101,7 +1161,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_serialize() {
-        let tx = create_test_bulk_tx(false);
+        let tx = create_test_bulk_tx(false, false);
 
         let buf = tx.serialize();
 
@@ -1110,8 +1170,27 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_deserialize() {
-        let expected = create_test_bulk_tx(false);
+        let expected = create_test_bulk_tx(false, false);
         let buf = hex::decode(BULK_WITHOUT_NODES_TRANSACTION_HEX).unwrap();
+
+        let tx = Transaction::deserialize(&buf).unwrap();
+
+        assert_eq!(expected, tx);
+    }
+
+    #[test]
+    fn empty_root_bulk_transaction_serialize() {
+        let tx = create_test_bulk_tx(true, true);
+
+        let buf = tx.serialize();
+
+        assert_eq!(BULK_EMPTY_ROOT_TRANSACTION_HEX, hex::encode(buf));
+    }
+
+    #[test]
+    fn empty_root_bulk_transaction_deserialize() {
+        let expected = create_test_bulk_tx(true, true);
+        let buf = hex::decode(BULK_EMPTY_ROOT_TRANSACTION_HEX).unwrap();
 
         let tx = Transaction::deserialize(&buf).unwrap();
 
@@ -1147,7 +1226,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_hash() {
-        let tx = create_test_bulk_tx(false);
+        let tx = create_test_bulk_tx(false, false);
         let hash = match tx {
             Transaction::BulkTransaction(tx) => tx.data.primary_hash(),
             _ => panic!(),
@@ -1174,7 +1253,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_verify() {
-        let tx = create_test_bulk_tx(false);
+        let tx = create_test_bulk_tx(false, false);
         let result = tx.verify(tx.get_caller(), tx.get_signature());
         assert!(result.is_ok());
     }
@@ -1199,7 +1278,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_sign_verify() {
-        let data = create_test_data_bulk(false);
+        let data = create_test_data_bulk(false, false);
         let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
 
         let signature = data.sign(&keypair).unwrap();
@@ -1210,7 +1289,7 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_with_nodes_sign_verify() {
-        let data = create_test_data_bulk(true);
+        let data = create_test_data_bulk(false, true);
         let keypair = KeyPair::Ecdsa(ecdsa_secp384_test_keypair(0));
 
         let signature = data.sign(&keypair).unwrap();
@@ -1235,14 +1314,14 @@ pub mod tests {
 
     #[test]
     fn bulk_transaction_data_check_integrity() {
-        let data = create_test_data_bulk(true);
+        let data = create_test_data_bulk(false, true);
 
         assert!(data.check_integrity().is_ok());
     }
 
     #[test]
     fn bulk_transaction_data_with_nodes_check_integrity() {
-        let data = create_test_data_bulk(true);
+        let data = create_test_data_bulk(false, true);
 
         assert!(data.check_integrity().is_ok());
     }

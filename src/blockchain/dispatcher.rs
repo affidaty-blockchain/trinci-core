@@ -783,7 +783,7 @@ mod tests {
         let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_bulk_tx(false),
+            tx: create_test_bulk_tx(false, false),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
@@ -851,7 +851,7 @@ mod tests {
     #[test]
     fn put_bad_signature_bulk_transaction() {
         let mut dispatcher = create_dispatcher(false);
-        let mut tx = create_test_bulk_tx(false);
+        let mut tx = create_test_bulk_tx(false, false);
 
         match tx {
             Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,

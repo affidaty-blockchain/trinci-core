@@ -36,7 +36,7 @@ use crate::{
     base::{
         schema::{
             Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
-            UnsignedTransaction, FUEL_LIMIT,
+            TransactionData, UnsignedTransaction, FUEL_LIMIT,
         },
         serialize::{rmp_deserialize, rmp_serialize},
         Mutex, RwLock,
@@ -452,7 +452,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut burn_fuel_args = Vec::<BurnFuelArgs>::new();
 
         let (events, results) = match &tx.data {
-            crate::base::schema::TransactionData::BulkV1(bulk_tx) => {
+            TransactionData::BulkV1(bulk_tx) => {
                 let root_tx = &bulk_tx.txs.root;
                 let hash = root_tx.data.primary_hash();
                 let mut bulk_events: Vec<SmartContractEvent> = vec![];
@@ -466,15 +466,55 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     caller: &root_tx.data.get_caller().to_account_id(),
                 };
 
-                let app_hash = match self.wm.lock().app_hash_check(
-                    fork,
-                    *root_tx.data.get_contract(),
-                    ctx_args,
-                    self.seed.clone(),
-                    block_timestamp,
-                ) {
-                    Ok(app_hash) => app_hash,
-                    Err(e) => {
+                let (fuel_consumed, result) = match &root_tx.data {
+                    TransactionData::BulkRootV1(tx_data) => {
+                        let app_hash = match self.wm.lock().app_hash_check(
+                            fork,
+                            tx_data.contract,
+                            ctx_args,
+                            self.seed.clone(),
+                            block_timestamp,
+                        ) {
+                            Ok(app_hash) => app_hash,
+                            Err(e) => {
+                                let root_fuel = BurnFuelArgs {
+                                    account: tx_data.caller.to_account_id(),
+                                    fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                    fuel_limit: tx_data.fuel_limit,
+                                };
+
+                                return (
+                                    vec![root_fuel],
+                                    Receipt {
+                                        height,
+                                        index,
+                                        burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
+                                        success: false,
+                                        returns: e.to_string_full().as_bytes().to_vec(),
+                                        events: None,
+                                    },
+                                );
+                            }
+                        };
+
+                        self.wm.lock().call(
+                            fork,
+                            0,
+                            &tx_data.network,
+                            &tx_data.caller.to_account_id(),
+                            &tx_data.account,
+                            &tx_data.caller.to_account_id(),
+                            app_hash,
+                            &tx_data.method,
+                            &tx_data.args,
+                            self.seed.clone(),
+                            &mut bulk_events,
+                            initial_fuel,
+                            block_timestamp,
+                        )
+                    }
+                    TransactionData::BulkEmpyRoot(_) => (0u64, Ok(vec![192u8])),
+                    _ => {
                         let root_fuel = BurnFuelArgs {
                             account: root_tx.data.get_caller().to_account_id(),
                             fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
@@ -488,28 +528,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 index,
                                 burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                 success: false,
-                                returns: e.to_string_full().as_bytes().to_vec(),
+                                returns: "wrong transaction schema".as_bytes().to_vec(),
                                 events: None,
                             },
                         );
                     }
                 };
-
-                let (fuel_consumed, result) = self.wm.lock().call(
-                    fork,
-                    0,
-                    root_tx.data.get_network(),
-                    &root_tx.data.get_caller().to_account_id(),
-                    root_tx.data.get_account(),
-                    &root_tx.data.get_caller().to_account_id(),
-                    app_hash,
-                    root_tx.data.get_method(),
-                    root_tx.data.get_args(),
-                    self.seed.clone(),
-                    &mut bulk_events,
-                    initial_fuel,
-                    block_timestamp,
-                );
 
                 burn_fuel_args.push(BurnFuelArgs {
                     account: root_tx.data.get_caller().to_account_id(),
@@ -1063,8 +1087,9 @@ mod tests {
     use crate::{
         base::{
             schema::{
-                BulkTransaction, BulkTransactions, SignedTransaction, TransactionData,
-                TransactionDataBulkNodeV1, TransactionDataBulkV1, UnsignedTransaction,
+                BulkTransaction, BulkTransactions, EmptyTransactionDataV1, SignedTransaction,
+                TransactionData, TransactionDataBulkNodeV1, TransactionDataBulkV1,
+                UnsignedTransaction,
             },
             serialize::{rmp_deserialize, rmp_serialize},
         },
@@ -1272,22 +1297,31 @@ mod tests {
         Hash::from_data(HashAlgorithm::Sha256, TEST_WASM)
     }
 
-    fn create_test_bulk_data(method: &str, args: Value) -> TransactionData {
+    fn create_test_bulk_data(empty_root: bool, method: &str, args: Value) -> TransactionData {
         let contract_hash = test_contract_hash();
         let public_key = create_test_public_key();
         let keypair = create_test_keypair();
         let id = public_key.to_account_id();
 
-        let data_tx0 = TransactionData::BulkRootV1(TransactionDataV1 {
-            account: id,
-            fuel_limit: FUEL_LIMIT,
-            nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
-            network: "arya".to_string(),
-            contract: Some(contract_hash), // Smart contract HASH
-            method: method.to_string(),
-            caller: public_key,
-            args: rmp_serialize(&args).unwrap(),
-        });
+        let data_tx0 = if empty_root {
+            TransactionData::BulkEmpyRoot(EmptyTransactionDataV1 {
+                fuel_limit: FUEL_LIMIT,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "arya".to_string(),
+                caller: public_key,
+            })
+        } else {
+            TransactionData::BulkRootV1(TransactionDataV1 {
+                account: id,
+                fuel_limit: FUEL_LIMIT,
+                nonce: [0xab, 0x82, 0xb7, 0x41, 0xe0, 0x23, 0xa4, 0x12].to_vec(),
+                network: "arya".to_string(),
+                contract: Some(contract_hash), // Smart contract HASH
+                method: method.to_string(),
+                caller: public_key,
+                args: rmp_serialize(&args).unwrap(),
+            })
+        };
 
         let contract_hash = test_contract_hash();
         let public_key = create_test_public_key();
@@ -1343,10 +1377,10 @@ mod tests {
         })
     }
 
-    fn create_bulk_tx() -> Transaction {
+    fn create_bulk_tx(empty_root: bool) -> Transaction {
         let keypair = create_test_keypair();
 
-        let data = create_test_bulk_data("get_random_sequence", value!(null));
+        let data = create_test_bulk_data(empty_root, "get_random_sequence", value!(null));
         let signature = data.sign(&keypair).unwrap();
         Transaction::BulkTransaction(BulkTransaction { data, signature })
     }
@@ -1356,11 +1390,22 @@ mod tests {
     }
 
     #[test]
+    fn test_bulk_empty_root() {
+        let mut executor = create_executor_bulk(false, FUEL_LIMIT);
+        let mut fork = executor.db.write().fork_create();
+
+        let tx = create_bulk_tx(true);
+
+        let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new(), 0);
+
+        assert!(rcpt.success);
+    }
+    #[test]
     fn test_bulk() {
         let mut executor = create_executor_bulk(false, FUEL_LIMIT);
         let mut fork = executor.db.write().fork_create();
 
-        let tx = create_bulk_tx();
+        let tx = create_bulk_tx(false);
 
         let rcpt = executor.exec_transaction(&tx, &mut fork, 0, 0, &String::new(), 0);
 
