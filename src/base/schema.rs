@@ -807,20 +807,24 @@ pub mod tests {
         let data =
             create_transactiondata_bulk_node_v1(keypair.public_key(), contract, method, root_hash);
 
+        // Uncomment to update the signature
+        // let signature = data.sign(&keypair).unwrap();
+        // println!("key: {} : {}", key, hex::encode(&signature));
+
         let signature = match key {
             // This guarantees a fix signature for tests
             1 => {
                 if empty_root {
                     hex::decode("4e6cd1e8faa7ee88b3fe2d347868f1a05bd53f0e53df49c14ddaffd4ddddd4137b357a6a2ada7c6eda03a5a8ea8bafe61fed8e70775f767d242056f8a5cb1ebffd45b6a7466cf92b7263950e7be6544fc4fa070599f7a8c6c76643c2549c30c8").unwrap()
                 } else {
-                    hex::decode("c7e0cf6099d3cc1f6cd81fcf75c12af8a378c9433299938f15d3ebeee07a9756546420d9a63a83abe4d52dc41b2ab1487d22f54cc5a713daf9cde22341c5fecd24108a73ea2d77bca871e7e16cbe4f07b427db94d4b4ea0051c829b474402d8a").unwrap()
+                    hex::decode("1b8222efa50baaf42fa443a7a2ea2fdbc31280bc7119f5c9ece210ed89c58b873d649b23c50cfc838fb9858fefa2f1295f42055b8edb43183e4c21abff38225fd3017af02face26357d83ffd20b5ccfc4cf846e9e659333a125ce2be44ddc6f8").unwrap()
                 }
             }
             2 => {
                 if empty_root {
                     hex::decode("1efbe815b6c0076a90998e7e72ae27bba5e73288fc51595cc595706e00a708d6a0b268de02353165a204e90343737e4d586fdb00144fba8263a6a0e4dfda4b836a91833df0fee3e267b7dfdebb994e2ad009aa7c9e1e0fc9cac8be78bd485728").unwrap()
                 } else {
-                    hex::decode("5365838d6ea99075b7b08c9186ddd28656b18fa9e975acb5f1bc48b99f46848044a2ab506ebf5da5cdc9e9bd4525751cb537eb30d5d984aca6bd30c2416363b26ce25ca78c33091e7482d150777a69dd082a9b68656c4bc6b5fdd198e86ece53").unwrap()
+                    hex::decode("2e4bb377c7debf2ce2d5039e6fa10a75b63a5a77f26d702dda2b4f3b0d515cd0115ff4564038437abfd880c8f2021a63d7ab274817bfc2ab33858279c5e3eba8e36fd87d186bcde213a988f708cedb9a49e57d26e8f9e095823e21e512c46113").unwrap()
                 }
             }
             _ => panic!(),
