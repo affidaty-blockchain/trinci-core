@@ -644,8 +644,6 @@ pub struct BlockchainSettings {
     pub burning_fuel_method: String,
     /// Name of the blockchain network
     pub network_name: Option<String>,
-    /// Flag that identify a production environment
-    pub is_production: bool, // DELETE ME at soon will be deleted in the service contract BlockchainSettings
     /// Compatibility of the bootstrap.bin
     pub min_node_version: String,
 }
