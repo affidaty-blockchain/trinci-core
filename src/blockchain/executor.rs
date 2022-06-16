@@ -1008,7 +1008,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
-        let (mut prev_hash, mut height, timestamp) = match self.db.read().load_block(u64::MAX) {
+        let (mut prev_hash, mut height, prev_timestamp) = match self.db.read().load_block(u64::MAX)
+        {
             Some(block) => (
                 block.data.primary_hash(),
                 block.data.height + 1,
@@ -1021,19 +1022,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
-            let (block_hash, block_signature, block_validator, txs_hashes) =
+            let (block_hash, block_signature, block_validator, txs_hashes, block_timestamp) =
                 match self.pool.write().confirmed.get_mut(&height) {
                     Some(BlockInfo {
                         hash,
                         signature,
                         validator,
                         txs_hashes: Some(hashes),
-                        timestamp: _,
+                        timestamp,
                     }) => (
                         *hash,
                         std::mem::take(signature),
                         std::mem::take(validator),
                         std::mem::take(hashes),
+                        std::mem::take(timestamp),
                     ),
                     _ => break,
                 };
@@ -1046,7 +1048,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     exp_hash: block_hash,
                     signature: block_signature.clone(),
                     validator: block_validator.clone(),
-                    timestamp,
+                    timestamp: block_timestamp,
                 },
                 is_validator,
                 is_validator_closure.clone(),
@@ -1066,7 +1068,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature: block_signature,
                         validator: block_validator,
                         txs_hashes: Some(txs_hashes),
-                        timestamp,
+                        timestamp: prev_timestamp,
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
                     error!("Block execution error: {}", err.to_string_full());
