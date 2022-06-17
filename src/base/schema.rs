@@ -347,6 +347,13 @@ impl TransactionDataBulkV1 {
         let network = self.txs.root.data.get_network();
         match &self.txs.nodes {
             Some(nodes) => {
+                if nodes.is_empty() {
+                    return Err(Error::new_ext(
+                        ErrorKind::BrokenIntegrity,
+                        "The bulk has no nodes",
+                    ));
+                }
+
                 // check depends on
                 // check nws all equals && != none
                 for node in nodes {
@@ -375,7 +382,11 @@ impl TransactionDataBulkV1 {
 
                 Ok(())
             }
-            None => Ok(()),
+
+            None => Err(Error::new_ext(
+                ErrorKind::BrokenIntegrity,
+                "The bulk has no nodes",
+            )),
         }
     }
 }
