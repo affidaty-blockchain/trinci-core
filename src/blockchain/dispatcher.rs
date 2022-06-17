@@ -628,8 +628,6 @@ mod tests {
     };
 
     const ACCOUNT_ID: &str = "AccountId";
-    const BULK_TX_DATA_HASH_HEX: &str =
-        "1220cb7525e6f80b116271e6fc4bbf99b3a10815b3380fc32be2c990a0b2c547bbad";
     const BULK_WITH_NODES_TX_DATA_HASH_HEX: &str =
         "1220656ec5443f3eb0cb47507a858ab0e0e025c9d0d99b167c012d95886c2aa9c508";
     const TX_DATA_HASH_HEX: &str =
@@ -763,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn put_bulk_transaction() {
+    fn put_bulk_transaction_without_nodes() {
         let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
@@ -772,18 +770,16 @@ mod tests {
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
-        // Uncomment if hash update needed
-        //match res {
-        //    Message::PutTransactionResponse { hash } => {
-        //        println!("{}", hex::encode(hash));
-        //    }
-        //    _ => (),
-        //}
-
-        let exp_res = Message::PutTransactionResponse {
-            hash: Hash::from_hex(BULK_TX_DATA_HASH_HEX).unwrap(),
-        };
-        assert_eq!(res, exp_res);
+        match res {
+            Message::Exception(err) => {
+                assert_eq!(err.kind, ErrorKind::BrokenIntegrity);
+                assert_eq!(
+                    err.to_string_full(),
+                    "the integrity of the node is invalid: The bulk has no nodes"
+                )
+            }
+            _ => panic!("Unexpected response"),
+        }
     }
 
     #[test]
