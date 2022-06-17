@@ -201,7 +201,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
         warn!("calculate_burned_fuel::{}", wm_fuel);
         // wm_fuel
-        FUEL_LIMIT
+        if wm_fuel == 0 {
+            0
+        } else {
+            FUEL_LIMIT
+        }
     }
 
     // Calculated the max fuel allow to spend
@@ -272,47 +276,46 @@ impl<D: Db, W: Wm> Executor<D, W> {
         &self,
         fork: &mut <D as Db>::DbForkType,
         burn_fuel_method: &str,
-        burn_fuel_args_array: Vec<BurnFuelArgs>,
+        burn_fuel_args: BurnFuelArgs,
         block_timestamp: u64,
     ) -> (bool, u64) {
         let mut global_result: bool = true;
         let mut global_burned_fuel = 0;
 
-        for burn_fuel_args in burn_fuel_args_array {
-            let mut max_fuel_result = true;
+        let mut max_fuel_result = true;
 
-            if burn_fuel_method.is_empty() {
-                return (true, 0);
-            }
-
-            let fuel = if burn_fuel_args.fuel_to_burn > burn_fuel_args.fuel_limit {
-                max_fuel_result = false;
-                burn_fuel_args.fuel_limit
-            } else {
-                burn_fuel_args.fuel_to_burn
-            };
-
-            // Call to consume fuel
-            let (_, result) = self.call_burn_fuel(
-                fork,
-                burn_fuel_method,
-                &burn_fuel_args.account,
-                fuel,
-                block_timestamp,
-            );
-            match result {
-                Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
-                    Ok(res) => {
-                        global_result &= res.success & max_fuel_result;
-                        global_burned_fuel += res.units;
-                    }
-                    Err(_) => {
-                        global_result = false;
-                    }
-                },
-                Err(_) => global_result = false,
-            }
+        if burn_fuel_method.is_empty() {
+            return (true, 0);
         }
+
+        let fuel = if burn_fuel_args.fuel_to_burn > burn_fuel_args.fuel_limit {
+            max_fuel_result = false;
+            burn_fuel_args.fuel_limit
+        } else {
+            burn_fuel_args.fuel_to_burn
+        };
+
+        // Call to consume fuel
+        let (_, result) = self.call_burn_fuel(
+            fork,
+            burn_fuel_method,
+            &burn_fuel_args.account,
+            fuel,
+            block_timestamp,
+        );
+        match result {
+            Ok(value) => match rmp_deserialize::<ConsumeFuelReturns>(&value) {
+                Ok(res) => {
+                    global_result &= res.success & max_fuel_result;
+                    global_burned_fuel += res.units;
+                }
+                Err(_) => {
+                    global_result = false;
+                }
+            },
+            Err(_) => global_result = false,
+        }
+
         (global_result, global_burned_fuel)
     }
 
@@ -324,7 +327,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
         mut events: Vec<SmartContractEvent>,
         block_timestamp: u64,
-    ) -> (Vec<BurnFuelArgs>, Receipt) {
+    ) -> (BurnFuelArgs, Receipt) {
         let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
 
         let ctx_args = CtxArgs {
@@ -403,11 +406,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 let burned_fuel = self.calculate_burned_fuel(fuel_consumed);
 
                 (
-                    vec![BurnFuelArgs {
+                    BurnFuelArgs {
                         account: tx.data.get_caller().to_account_id(),
                         fuel_to_burn: burned_fuel,
                         fuel_limit: tx.data.get_fuel_limit(),
-                    }],
+                    },
                     Receipt {
                         height,
                         burned_fuel,
@@ -419,11 +422,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 )
             }
             Err(e) => (
-                vec![BurnFuelArgs {
+                BurnFuelArgs {
                     account: tx.data.get_caller().to_account_id(),
                     fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     fuel_limit: tx.data.get_fuel_limit(),
-                }],
+                },
                 Receipt {
                     height,
                     burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
@@ -444,12 +447,16 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
         mut events: Vec<SmartContractEvent>,
         block_timestamp: u64,
-    ) -> (Vec<BurnFuelArgs>, Receipt) {
+    ) -> (BurnFuelArgs, Receipt) {
         let mut results = HashMap::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
 
-        let mut burn_fuel_args = Vec::<BurnFuelArgs>::new();
+        let mut burn_fuel_args = BurnFuelArgs {
+            account: tx.data.get_caller().to_account_id(),
+            fuel_to_burn: 0,
+            fuel_limit: tx.data.get_fuel_limit(),
+        };
 
         let (events, results) = match &tx.data {
             TransactionData::BulkV1(bulk_tx) => {
@@ -484,7 +491,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 };
 
                                 return (
-                                    vec![root_fuel],
+                                    root_fuel,
                                     Receipt {
                                         height,
                                         index,
@@ -522,7 +529,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         };
 
                         return (
-                            vec![root_fuel],
+                            root_fuel,
                             Receipt {
                                 height,
                                 index,
@@ -535,17 +542,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     }
                 };
 
-                burn_fuel_args.push(BurnFuelArgs {
-                    account: root_tx.data.get_caller().to_account_id(),
-                    fuel_to_burn: fuel_consumed,
-                    fuel_limit: root_tx.data.get_fuel_limit(),
-                });
-
                 // FIXME * LOG REAL CONSUMPTION
                 log_wm_fuel_consumed_bt(root_tx, fuel_consumed);
 
                 // Convert wm fuel in TRINCI
                 let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
+                burn_fuel_args.fuel_to_burn += fuel_consumed;
 
                 burned_fuel += fuel_consumed;
 
@@ -626,16 +628,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         initial_fuel,
                                         block_timestamp,
                                     );
-                                    burn_fuel_args.push(BurnFuelArgs {
-                                        account: node.data.get_caller().to_account_id(),
-                                        fuel_to_burn: fuel_consumed,
-                                        fuel_limit: node.data.get_fuel_limit(),
-                                    });
+
                                     // FIXME * LOG REAL CONSUMPTION
                                     log_wm_fuel_consumed_st(node, fuel_consumed);
 
                                     // Convert wm fuel in TRINCI
                                     let fuel_consumed = self.calculate_burned_fuel(fuel_consumed);
+                                    burn_fuel_args.fuel_to_burn += fuel_consumed;
 
                                     burned_fuel += fuel_consumed;
 
