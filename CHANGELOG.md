@@ -26,7 +26,16 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.7 - unreleased
+
+0.2.8 05-07-2022
+----------------
+Changed
+* Bulk transacion is paid by the signer
+
+Fixed
+* Block time fixed (before was always zero) ### Breaking Change
+
+0.2.7 24-05-2022
 ------------------
 Changed
 * BlockchainSettings structure
