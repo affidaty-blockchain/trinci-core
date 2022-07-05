@@ -147,44 +147,28 @@ impl<D: Db> Dispatcher<D> {
         tx.check_integrity()?;
         let hash = tx.get_primary_hash();
 
-        debug!("[PTI] Received transaction: {}", hex::encode(hash));
-
-        // Check the network.
-        //debug!("LOCAL: {}", self.config.lock().network);
-        //debug!("TX: {}", tx.get_network());
-
         if self.config.lock().network != tx.get_network() {
-            //debug!("[PTI] NW KO");
             return Err(ErrorKind::BadNetwork.into());
         }
 
-        //debug!("[PTI] NW OK");
-
         // Check if already present in db.
         if self.db.read().contains_transaction(&hash) {
-            //debug!("[PTI] Present in DB (KO)");
             return Err(ErrorKind::DuplicatedConfirmedTx.into());
         }
-
-        //debug!("[PTI] Not present in DB (OK)");
 
         let mut pool = self.pool.write();
         match pool.txs.get_mut(&hash) {
             None => {
-                //debug!("[PTI] TX added to pools");
                 pool.txs.insert(hash, Some(tx));
                 pool.unconfirmed.push(hash);
             }
             Some(tx_ref @ None) => {
-                //debug!("[PTI] ???");
                 *tx_ref = Some(tx);
             }
             Some(Some(_)) => {
                 return if pool.unconfirmed.contains(&hash) {
-                    //debug!("[PTI] Present in DB unconfirmed (KO)");
                     Err(ErrorKind::DuplicatedUnconfirmedTx.into())
                 } else {
-                    //debug!("[PTI] Present in DB conf (KO)");
                     Err(ErrorKind::DuplicatedConfirmedTx.into())
                 };
             }
@@ -644,8 +628,6 @@ mod tests {
     };
 
     const ACCOUNT_ID: &str = "AccountId";
-    const BULK_TX_DATA_HASH_HEX: &str =
-        "1220cb7525e6f80b116271e6fc4bbf99b3a10815b3380fc32be2c990a0b2c547bbad";
     const BULK_WITH_NODES_TX_DATA_HASH_HEX: &str =
         "1220656ec5443f3eb0cb47507a858ab0e0e025c9d0d99b167c012d95886c2aa9c508";
     const TX_DATA_HASH_HEX: &str =
@@ -779,27 +761,25 @@ mod tests {
     }
 
     #[test]
-    fn put_bulk_transaction() {
+    fn put_bulk_transaction_without_nodes() {
         let mut dispatcher = create_dispatcher(false);
         let req = Message::PutTransactionRequest {
             confirm: true,
-            tx: create_test_bulk_tx(false),
+            tx: create_test_bulk_tx(false, false),
         };
 
         let res = dispatcher.message_handler_wrap(req).unwrap();
 
-        // Uncomment if hash update needed
-        //match res {
-        //    Message::PutTransactionResponse { hash } => {
-        //        println!("{}", hex::encode(hash));
-        //    }
-        //    _ => (),
-        //}
-
-        let exp_res = Message::PutTransactionResponse {
-            hash: Hash::from_hex(BULK_TX_DATA_HASH_HEX).unwrap(),
-        };
-        assert_eq!(res, exp_res);
+        match res {
+            Message::Exception(err) => {
+                assert_eq!(err.kind, ErrorKind::BrokenIntegrity);
+                assert_eq!(
+                    err.to_string_full(),
+                    "the integrity of the node is invalid: The bulk has no nodes"
+                )
+            }
+            _ => panic!("Unexpected response"),
+        }
     }
 
     #[test]
@@ -851,7 +831,7 @@ mod tests {
     #[test]
     fn put_bad_signature_bulk_transaction() {
         let mut dispatcher = create_dispatcher(false);
-        let mut tx = create_test_bulk_tx(false);
+        let mut tx = create_test_bulk_tx(false, false);
 
         match tx {
             Transaction::BulkTransaction(ref mut tx) => tx.signature[0] += 1,

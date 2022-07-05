@@ -595,8 +595,7 @@ impl WmLocal {
         );
 
         let mut config = Config::default();
-        config.interruptable(true);
-        // FIXME: NOT ENABLE IF THE consume_fuel method is not present
+        config.interruptable(true); // TODO remove with the new wasmtime crate
         config.consume_fuel(true);
 
         WmLocal {
