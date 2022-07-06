@@ -63,7 +63,7 @@ pub(super) mod error_kind_str {
     pub const NOT_IMPLEMENTED: &str = "not implemented";
     pub const TPM2_ERROR: &str = "tpm interaction error";
     pub const WRONG_TX_TYPE: &str = "this tx type is not implemented or malformed";
-    pub const BROKEN_INTEGRITY: &str = "the integrity of the node is invalid";
+    pub const BROKEN_INTEGRITY: &str = "the integrity of the node tx is invalid";
     pub const FUEL_ERROR: &str = "burning fuel error";
     pub const OTHER: &str = "other";
     pub const INVALID_CONTRACT: &str = "invalid contract hash";
