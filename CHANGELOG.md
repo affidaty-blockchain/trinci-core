@@ -27,10 +27,14 @@ Additional labels for pre-release metadata:
 * rc.x: stable release candidate.
 
 
+0.2.9 unreleased
+----------------
+...
+
 0.2.8 05-07-2022
 ----------------
 Changed
-* Bulk transacion is paid by the signer
+* Bulk transaction is paid by the signer
 
 Fixed
 * Block time fixed (before was always zero) ### Breaking Change
@@ -44,7 +48,7 @@ Changed
 * Improved `p2p` module, introduced reqres layer and reduced gossip messages
 * Added message fields:
   * GetTransactionRequest: `destination: Option<String>`
-  * GetTransactionresponse: `origin: Option<String>`
+  * GetTransactionResponse: `origin: Option<String>`
   * GetBlockRequest: `destination: Option<String>`
   * GetBlockResponse: `origin: Option<String>`
 

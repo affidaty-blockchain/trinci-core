@@ -775,7 +775,7 @@ mod tests {
                 assert_eq!(err.kind, ErrorKind::BrokenIntegrity);
                 assert_eq!(
                     err.to_string_full(),
-                    "the integrity of the node is invalid: The bulk has no nodes"
+                    "the integrity of the node tx is invalid: The bulk has no nodes"
                 )
             }
             _ => panic!("Unexpected response"),
