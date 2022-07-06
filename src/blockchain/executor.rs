@@ -871,6 +871,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
+        let timestamp = if height == 0 { 0 } else { block_info.timestamp };
+
         // Construct a new block.
         let data = BlockData::new(
             validator,
@@ -880,7 +882,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             txs_hash,
             rxs_hash,
             fork.state_hash(""),
-            block_info.timestamp,
+            timestamp,
         );
 
         // Verify the block signature
