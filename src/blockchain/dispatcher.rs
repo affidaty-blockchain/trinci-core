@@ -181,7 +181,7 @@ impl<D: Db> Dispatcher<D> {
         if sub.has_subscribers(Event::TRANSACTION) {
             debug!(
                 "[dispatcher] propagating tx {} in gossip",
-                hex::encode(tx.primary_hash().as_bytes())
+                hex::encode(tx.get_primary_hash().as_bytes())
             );
             sub.publish(
                 Event::TRANSACTION,

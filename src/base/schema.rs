@@ -672,6 +672,7 @@ impl Account {
     }
 }
 
+/// WARNING THIS STRUCTURE MUST BE THE SAME
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlockchainSettings {
     /// Not yet implemented
@@ -684,6 +685,8 @@ pub struct BlockchainSettings {
     pub burning_fuel_method: String,
     /// Name of the blockchain network
     pub network_name: Option<String>,
+    /// Unused value
+    pub is_production: bool,
     /// Compatibility of the bootstrap.bin
     pub min_node_version: String,
 }
