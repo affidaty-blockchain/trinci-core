@@ -106,7 +106,6 @@ impl<D: Db> Clone for Dispatcher<D> {
 
 impl<D: Db> Dispatcher<D> {
     /// Constructs a new dispatcher.
-    // FIXME
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<Mutex<BlockConfig>>,

@@ -111,7 +111,7 @@ pub enum TransactionData {
     BulkRootV1(TransactionDataV1),
     #[serde(rename = "0ec3469e3509682d7599797a9d1c5cdf56b2d9bd435f853a3b999cbb717e0337")]
     BulkV1(TransactionDataBulkV1),
-    #[serde(rename = "bulk_empty_root")] // FIXME calculate the hash like the others
+    #[serde(rename = "f76bce109213ee2204e218f000b7c67770812e4b26f4dba90c532a10865968ff")]
     BulkEmpyRoot(EmptyTransactionDataV1),
 }
 

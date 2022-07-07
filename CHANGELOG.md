@@ -38,6 +38,7 @@ Changed
 
 Fixed
 * Block time fixed (before was always zero) ### Breaking Change
+* Seed update at each block
 
 0.2.7 24-05-2022
 ------------------
