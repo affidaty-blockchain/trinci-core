@@ -198,6 +198,11 @@ async fn get_index(_req: Request<BlockRequestSender>) -> tide::Result {
 pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
     let mut app = tide::with_state(block_chan);
 
+    let node_info = {
+        let node_info = std::fs::read_to_string("node_info.info").unwrap();
+        serde_json::from_str::<NodeInfo>(&node_info).unwrap()
+    };
+
     app.at("/api/v1/message").post(message_handler);
     app.at("/api/v1/submit").post(put_transaction);
     app.at("/api/v1/account/:0").get(get_account);
@@ -205,10 +210,18 @@ pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
     app.at("/api/v1/receipt/:0").get(get_receipt);
     app.at("/api/v1/block/:0").get(get_block);
     app.at("/api/v1/p2p/id").get(get_p2p_id);
+    let _ = app
+        .at("/api/v1/bootstrap")
+        .serve_file(node_info.bootstrap_path);
     app.at("/").get(get_index);
 
     let fut = app.listen((addr, port));
     async_std::task::block_on(fut).unwrap();
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct NodeInfo {
+    bootstrap_path: String,
 }
 
 #[cfg(test)]

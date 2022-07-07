@@ -68,11 +68,18 @@ tempfile = "3.2.0"
 ureq = { version = "2.1.1", default-features = false }
 
 [features]
-default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
+default = [
+    "with-rocksdb",
+    "with-wasmtime",
+    "p2p",
+    "rest",
+    "bridge",
+    "serde_json",
+]
 with-rocksdb = ["merkledb"]
 with-wasmtime = ["wasmtime"]
 p2p = ["libp2p"]
 rest = ["tide"]
 bridge = []
 tpm2 = ["tss-esapi", "tss-esapi-sys"]
-rt-monitor = ["serde_json", "isahc"]
+rt-monitor = ["isahc"]
