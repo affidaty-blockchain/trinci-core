@@ -27,6 +27,10 @@ Additional labels for pre-release metadata:
 * rc.x: stable release candidate.
 
 
+0.2.9 unreleased
+----------------
+...
+
 0.2.8 05-07-2022
 ----------------
 Changed
@@ -34,6 +38,7 @@ Changed
 
 Fixed
 * Block time fixed (before was always zero) ### Breaking Change
+* Seed update at each block
 
 0.2.7 24-05-2022
 ------------------
@@ -44,7 +49,7 @@ Changed
 * Improved `p2p` module, introduced reqres layer and reduced gossip messages
 * Added message fields:
   * GetTransactionRequest: `destination: Option<String>`
-  * GetTransactionresponse: `origin: Option<String>`
+  * GetTransactionResponse: `origin: Option<String>`
   * GetBlockRequest: `destination: Option<String>`
   * GetBlockResponse: `origin: Option<String>`
 

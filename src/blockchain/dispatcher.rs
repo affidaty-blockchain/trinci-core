@@ -106,7 +106,6 @@ impl<D: Db> Clone for Dispatcher<D> {
 
 impl<D: Db> Dispatcher<D> {
     /// Constructs a new dispatcher.
-    // FIXME
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<Mutex<BlockConfig>>,
@@ -775,7 +774,7 @@ mod tests {
                 assert_eq!(err.kind, ErrorKind::BrokenIntegrity);
                 assert_eq!(
                     err.to_string_full(),
-                    "the integrity of the node is invalid: The bulk has no nodes"
+                    "the integrity of the node tx is invalid: The bulk has no nodes"
                 )
             }
             _ => panic!("Unexpected response"),

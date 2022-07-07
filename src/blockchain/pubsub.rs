@@ -88,7 +88,6 @@ struct SubscriberInfo {
 }
 
 /// Blockchain events subscribers.
-// FIXME pub(crate) struct PubSub
 pub struct PubSub {
     events_sub: HashMap<Event, HashMap<String, SubscriberInfo>>,
 }

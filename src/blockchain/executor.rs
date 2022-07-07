@@ -1019,7 +1019,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => (Hash::default(), 0, 0),
         };
 
-        // TODO Maybe change seed here?
         #[allow(clippy::while_let_loop)]
         loop {
             // Try to steal the hashes vector leaving the height slot busy.
@@ -1062,6 +1061,27 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     });
                     prev_hash = hash;
                     height += 1;
+
+                    // Update seed infos.
+                    let (prev_hash, txs_hash, rxs_hash) = match self.db.read().load_block(u64::MAX)
+                    {
+                        Some(block) => (
+                            block.data.primary_hash(),
+                            block.data.txs_hash,
+                            block.data.rxs_hash,
+                        ),
+                        None => (Hash::default(), Hash::default(), Hash::default()),
+                    };
+
+                    {
+                        let mut seed_prev_hash = self.seed.prev_hash.lock();
+                        let mut seed_rxs_hash = self.seed.rxs_hash.lock();
+                        let mut seed_txs_hash = self.seed.txs_hash.lock();
+
+                        *seed_prev_hash = prev_hash;
+                        *seed_txs_hash = txs_hash;
+                        *seed_rxs_hash = rxs_hash;
+                    }
                 }
                 Err(err) => {
                     let blk_info = BlockInfo {
