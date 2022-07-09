@@ -191,6 +191,11 @@ async fn get_p2p_id(req: Request<BlockRequestSender>) -> tide::Result {
     Ok(res.into())
 }
 
+async fn get_visa(_req: Request<BlockRequestSender>) -> tide::Result {
+    let node_info = std::fs::read_to_string("node_info.info").unwrap();
+    Ok(format!("{}", node_info).into())
+}
+
 async fn get_index(_req: Request<BlockRequestSender>) -> tide::Result {
     Ok(format!("TRINCI v{}", VERSION).into())
 }
@@ -213,6 +218,7 @@ pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
     let _ = app
         .at("/api/v1/bootstrap")
         .serve_file(node_info.bootstrap_path);
+    app.at("api/v1/visa").get(get_visa);
     app.at("/").get(get_index);
 
     let fut = app.listen((addr, port));
@@ -221,6 +227,11 @@ pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct NodeInfo {
+    public_ip: String,
+    //address: String,
+    bootstrap_address: String,
+    bootstrap_url_access: String,
+    bootstrap_hash: String,
     bootstrap_path: String,
 }
 

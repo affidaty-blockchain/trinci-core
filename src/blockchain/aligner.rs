@@ -189,7 +189,7 @@ impl<D: Db> Aligner<D> {
                     });
             }
         }
-        error!(
+        debug!(
             "[aligner] peer collection ended: {} peers found",
             collected_peers.len()
         );
