@@ -366,15 +366,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                 if result.is_err() {
                     fork.rollback();
-                } else if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
-                    events.iter().for_each(|event| {
-                        // Notify subscribers about contract events
-                        let msg = Message::GetContractEvent {
-                            event: event.clone(),
-                        };
-
-                        self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
-                    });
                 }
                 let events = if events.is_empty() {
                     None
@@ -565,17 +556,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         let event_tx = hash;
                         bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                        if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
-                            bulk_events.iter().for_each(|bulk_event| {
-                                // Notify subscribers about contract events
-                                let msg = Message::GetContractEvent {
-                                    event: bulk_event.clone(),
-                                };
-
-                                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
-                            });
-                        }
-
                         events.append(&mut bulk_events);
                     }
                     Err(error) => {
@@ -654,23 +634,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 .iter_mut()
                                                 .for_each(|e| e.event_tx = event_tx);
 
-                                            if self
-                                                .pubsub
-                                                .lock()
-                                                .has_subscribers(Event::CONTRACT_EVENTS)
-                                            {
-                                                bulk_events.iter().for_each(|bulk_event| {
-                                                    // Notify subscribers about contract events
-                                                    let msg = Message::GetContractEvent {
-                                                        event: bulk_event.clone(),
-                                                    };
-
-                                                    self.pubsub
-                                                        .lock()
-                                                        .publish(Event::CONTRACT_EVENTS, msg);
-                                                });
-                                            }
-
                                             events.append(&mut bulk_events);
                                         }
                                         Err(error) => {
@@ -740,6 +703,19 @@ impl<D: Db, W: Wm> Executor<D, W> {
         )
     }
 
+    fn emit_events(&mut self, events: &[SmartContractEvent]) {
+        if self.pubsub.lock().has_subscribers(Event::CONTRACT_EVENTS) {
+            events.iter().for_each(|event| {
+                // Notify subscribers about contract events
+                let msg = Message::GetContractEvent {
+                    event: event.clone(),
+                };
+
+                self.pubsub.lock().publish(Event::CONTRACT_EVENTS, msg);
+            });
+        }
+    }
+
     fn exec_transaction(
         &mut self,
         tx: &Transaction,
@@ -766,6 +742,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let (res_burning, mut burned) =
             self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn, block_timestamp);
         if res_burning {
+            if let Some(tx_events) = &receipt.events {
+                self.emit_events(tx_events);
+            }
+
             receipt.burned_fuel = burned;
             receipt
         } else {
