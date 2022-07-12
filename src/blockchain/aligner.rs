@@ -189,7 +189,7 @@ impl<D: Db> Aligner<D> {
                     });
             }
         }
-        error!(
+        debug!(
             "[aligner] peer collection ended: {} peers found",
             collected_peers.len()
         );
@@ -246,7 +246,7 @@ impl<D: Db> Aligner<D> {
 
                     self.missing_blocks.lock().push(req.clone());
                     for tx in txs_hashes {
-                        debug!("[aligner] adding hash tx");
+                        // debug!("[aligner] adding hash tx");
 
                         let pool = &*self.pool.read();
 
@@ -404,7 +404,7 @@ impl<D: Db> Aligner<D> {
                     if let Poll::Ready(Some((req, _res_chan))) =
                         self.rx_chan.lock().poll_next_unpin(cx)
                     {
-                        debug!("[aligner] new message received");
+                        // debug!("[aligner] new message received");
                         match req {
                             Message::GetTransactionResponse { tx, origin } => {
                                 if tx.get_primary_hash().eq(requested_tx.unwrap()) {
