@@ -46,7 +46,7 @@ use crate::{
     wm::{get_fuel_consumed_for_error, CtxArgs, Wm, MAX_FUEL},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 #[cfg(feature = "rt-monitor")]
 use crate::network_monitor::{
@@ -439,7 +439,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         mut events: Vec<SmartContractEvent>,
         block_timestamp: u64,
     ) -> (BurnFuelArgs, Receipt) {
-        let mut results = HashMap::new();
+        let mut results = Vec::<(String, BulkResult)>::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
 
@@ -544,14 +544,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                 match result {
                     Ok(rcpt) => {
-                        results.insert(
+                        results.push((
                             hex::encode(hash),
                             BulkResult {
                                 success: true,
                                 result: rcpt,
                                 fuel_consumed,
                             },
-                        );
+                        ));
 
                         let event_tx = hash;
                         bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
@@ -560,14 +560,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     }
                     Err(error) => {
                         execution_fail = true;
-                        results.insert(
+                        results.push((
                             hex::encode(hash),
                             BulkResult {
                                 success: false,
                                 result: error.to_string_full().as_bytes().to_vec(),
                                 fuel_consumed,
                             },
-                        );
+                        ));
                     }
                 }
                 if !execution_fail {
@@ -620,14 +620,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                     match result {
                                         Ok(rcpt) => {
-                                            results.insert(
+                                            results.push((
                                                 hex::encode(node.data.primary_hash()),
                                                 BulkResult {
                                                     success: true,
                                                     result: rcpt,
                                                     fuel_consumed,
                                                 },
-                                            );
+                                            ));
 
                                             let event_tx = node.data.primary_hash();
                                             bulk_events
@@ -637,7 +637,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             events.append(&mut bulk_events);
                                         }
                                         Err(error) => {
-                                            results.insert(
+                                            results.push((
                                                 hex::encode(node.data.primary_hash()),
                                                 BulkResult {
                                                     success: false,
@@ -647,21 +647,21 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                         .to_vec(),
                                                     fuel_consumed,
                                                 },
-                                            );
+                                            ));
                                             execution_fail = true;
                                             break;
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    results.insert(
+                                    results.push((
                                         hex::encode(node.data.primary_hash()),
                                         BulkResult {
                                             success: false,
                                             result: e.to_string_full().as_bytes().to_vec(),
                                             fuel_consumed: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                                         },
-                                    );
+                                    ));
                                     execution_fail = true;
                                 }
                             }
@@ -989,14 +989,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
     }
 
     pub fn run(&mut self, is_validator: bool, is_validator_closure: Arc<dyn IsValidator>) {
-        let (mut prev_hash, mut height, prev_timestamp) = match self.db.read().load_block(u64::MAX)
-        {
-            Some(block) => (
-                block.data.primary_hash(),
-                block.data.height + 1,
-                block.data.timestamp,
-            ),
-            None => (Hash::default(), 0, 0),
+        let (mut prev_hash, mut height) = match self.db.read().load_block(u64::MAX) {
+            Some(block) => (block.data.primary_hash(), block.data.height + 1),
+            None => (Hash::default(), 0),
         };
 
         #[allow(clippy::while_let_loop)]
@@ -1069,7 +1064,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         signature: block_signature,
                         validator: block_validator,
                         txs_hashes: Some(txs_hashes),
-                        timestamp: prev_timestamp,
+                        timestamp: block_timestamp,
                     };
                     self.pool.write().confirmed.insert(height, blk_info);
                     error!("Block execution error: {}", err.to_string_full());
