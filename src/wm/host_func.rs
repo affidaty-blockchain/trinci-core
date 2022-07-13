@@ -66,6 +66,12 @@ struct StoreAssetData<'a> {
     data: &'a [u8],
 }
 
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
+struct RemoveAssetData<'a> {
+    account: &'a str,
+}
+
 /// WASM logging facility.
 pub fn log(ctx: &CallContext, msg: &str) {
     debug!("{}: {}", ctx.owner, msg);
@@ -218,6 +224,15 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
         .unwrap_or_else(|| Account::new(account_id, None));
     account.remove_asset(ctx.owner);
     ctx.db.store_account(account);
+
+    // Emit on remove asset
+    let data = RemoveAssetData {
+        account: account_id,
+    };
+
+    let buf = rmp_serialize(&data).unwrap_or_default();
+
+    emit(ctx, "REMOVE_ASSET", &buf);
 }
 /// Digital signature verification.
 pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i32 {
@@ -310,6 +325,7 @@ mod tests {
 
     const ASSET_ACCOUNT: &str = "QmamzDVuZqkUDwHikjHCkgJXhtgkbiVDTvTYb2aq6qfLbY";
     const STORE_ASSET_DATA_HEX: &str = "92aa6d792d6163636f756e74c402002a";
+    const REMOVE_ASSET_DATA_HEX: &str = "91aa6d792d6163636f756e74";
 
     lazy_static! {
         static ref ACCOUNTS: Mutex<HashMap<String, Account>> = Mutex::new(HashMap::new());
@@ -617,6 +633,29 @@ mod tests {
 
         let buf = hex::decode(STORE_ASSET_DATA_HEX).unwrap();
         let val = rmp_deserialize::<StoreAssetData>(&buf).unwrap();
+
+        assert_eq!(val, expected);
+    }
+
+    #[test]
+    fn remove_asset_data_serialize() {
+        let data = RemoveAssetData {
+            account: "my-account",
+        };
+
+        let buf = rmp_serialize(&data).unwrap();
+
+        assert_eq!(hex::encode(buf), REMOVE_ASSET_DATA_HEX);
+    }
+
+    #[test]
+    fn remove_asset_data_deserialize() {
+        let expected = RemoveAssetData {
+            account: "my-account",
+        };
+
+        let buf = hex::decode(REMOVE_ASSET_DATA_HEX).unwrap();
+        let val = rmp_deserialize::<RemoveAssetData>(&buf).unwrap();
 
         assert_eq!(val, expected);
     }
