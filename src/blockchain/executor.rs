@@ -35,7 +35,7 @@ use super::{
 use crate::{
     base::{
         schema::{
-            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
+            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent, StoreAssetDb,
             TransactionData, UnsignedTransaction, FUEL_LIMIT,
         },
         serialize::{rmp_deserialize, rmp_serialize},
@@ -106,6 +106,8 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     p2p_id: String,
     /// Validator flag
     is_validator: Arc<bool>,
+    /// Data to store in an external DB after the block creation
+    store_asset_db: Vec<StoreAssetDb>,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -120,6 +122,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
             is_validator: self.is_validator.clone(),
+            store_asset_db: self.store_asset_db.clone(),
         }
     }
 }
@@ -188,6 +191,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             seed,
             p2p_id,
             is_validator: Arc::new(false),
+            store_asset_db: Vec::new(),
         }
     }
 
@@ -266,6 +270,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             &args,
             self.seed.clone(),
             &mut vec![],
+            &mut vec![],
             MAX_FUEL,
             block_timestamp,
         )
@@ -319,6 +324,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         (global_result, global_burned_fuel)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_unit_transaction(
         &mut self,
         tx: &SignedTransaction,
@@ -326,6 +332,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
+        // mut store_asset_db: Vec<StoreAssetDb>,
         block_timestamp: u64,
     ) -> (BurnFuelArgs, Receipt) {
         let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
@@ -357,12 +364,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     tx.data.get_args(),
                     self.seed.clone(),
                     &mut events,
+                    &mut self.store_asset_db,
                     initial_fuel,
                     block_timestamp,
                 );
 
                 let event_tx = tx.data.primary_hash();
                 events.iter_mut().for_each(|e| e.event_tx = event_tx);
+
+                self.store_asset_db
+                    .iter_mut()
+                    .for_each(|d| d.tx_hash = event_tx);
 
                 if result.is_err() {
                     fork.rollback();
@@ -430,13 +442,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_bulk_transaction(
         &mut self,
         tx: &BulkTransaction,
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         index: u32,
-        mut events: Vec<SmartContractEvent>,
+        mut input_events: Vec<SmartContractEvent>,
         block_timestamp: u64,
     ) -> (BurnFuelArgs, Receipt) {
         let mut results = Vec::<(String, BulkResult)>::new();
@@ -452,8 +465,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let (events, results) = match &tx.data {
             TransactionData::BulkV1(bulk_tx) => {
                 let root_tx = &bulk_tx.txs.root;
-                let hash = root_tx.data.primary_hash();
+                let root_hash = root_tx.data.primary_hash();
                 let mut bulk_events: Vec<SmartContractEvent> = vec![];
+                let mut bulk_store_asset_db: Vec<StoreAssetDb> = vec![];
 
                 let initial_fuel =
                     self.calculate_internal_fuel_limit(root_tx.data.get_fuel_limit());
@@ -507,6 +521,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             &tx_data.args,
                             self.seed.clone(),
                             &mut bulk_events,
+                            &mut bulk_store_asset_db,
                             initial_fuel,
                             block_timestamp,
                         )
@@ -545,7 +560,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 match result {
                     Ok(rcpt) => {
                         results.push((
-                            hex::encode(hash),
+                            hex::encode(root_hash),
                             BulkResult {
                                 success: true,
                                 result: rcpt,
@@ -553,15 +568,20 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             },
                         ));
 
-                        let event_tx = hash;
+                        let event_tx = root_hash;
                         bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                        events.append(&mut bulk_events);
+                        input_events.append(&mut bulk_events);
+
+                        bulk_store_asset_db
+                            .iter_mut()
+                            .for_each(|d| d.tx_hash = event_tx);
+                        self.store_asset_db.append(&mut bulk_store_asset_db);
                     }
                     Err(error) => {
                         execution_fail = true;
                         results.push((
-                            hex::encode(hash),
+                            hex::encode(root_hash),
                             BulkResult {
                                 success: false,
                                 result: error.to_string_full().as_bytes().to_vec(),
@@ -605,6 +625,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         node.data.get_args(),
                                         self.seed.clone(),
                                         &mut bulk_events,
+                                        &mut bulk_store_asset_db,
                                         initial_fuel,
                                         block_timestamp,
                                     );
@@ -634,7 +655,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 .iter_mut()
                                                 .for_each(|e| e.event_tx = event_tx);
 
-                                            events.append(&mut bulk_events);
+                                            input_events.append(&mut bulk_events);
+
+                                            bulk_store_asset_db
+                                                .iter_mut()
+                                                .for_each(|d| d.tx_hash = event_tx);
+                                            self.store_asset_db.append(&mut bulk_store_asset_db);
                                         }
                                         Err(error) => {
                                             results.push((
@@ -672,10 +698,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     fork.rollback();
                 }
 
-                let events = if events.is_empty() {
+                let events = if input_events.is_empty() {
                     None
                 } else {
-                    Some(events)
+                    Some(input_events)
                 };
 
                 (events, rmp_serialize(&results))
@@ -728,6 +754,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork.flush();
 
         let events: Vec<SmartContractEvent> = vec![];
+        let mut store_asset_db: Vec<StoreAssetDb> = vec![];
 
         let (fuel_to_burn, mut receipt) = match tx {
             Transaction::UnitTransaction(tx) => {
@@ -745,6 +772,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             if let Some(tx_events) = &receipt.events {
                 self.emit_events(tx_events);
             }
+
+            self.store_asset_db.append(&mut store_asset_db);
 
             receipt.burned_fuel = burned;
             receipt
@@ -831,6 +860,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
     ) -> Result<Hash> {
         debug!("Executing block: {}", height);
         // Write on a fork.
+
+        self.store_asset_db = Vec::new();
+
         let mut fork = self.db.write().fork_create();
 
         // Get a vector of executed transactions hashes.
@@ -917,6 +949,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
+
+        self.store_asset_db.iter_mut().for_each(|d| {
+            d.block_height = height;
+            d.block_hash = block_hash;
+        });
+
+        // DELETEME
+        error!("{:#?}", self.store_asset_db);
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             #[cfg(feature = "rt-monitor")]
@@ -1227,7 +1267,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 => {
@@ -1261,7 +1301,7 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
+            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _, _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {

@@ -18,7 +18,7 @@
 use super::{AppInput, CheckHashArgs, CtxArgs, MAX_FUEL};
 use crate::{
     base::{
-        schema::SmartContractEvent,
+        schema::{SmartContractEvent, StoreAssetDb},
         serialize::{self, rmp_serialize},
     },
     crypto::{drand::SeedSource, Hash},
@@ -716,6 +716,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>) {
@@ -733,6 +734,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            store_asset_db,
             seed,
             initial_fuel,
             block_timestamp,
@@ -912,6 +914,7 @@ impl Wm for WmLocal {
             &args,
             seed,
             &mut vec![],
+            &mut vec![],
             MAX_FUEL,
             block_timestamp,
         );
@@ -998,6 +1001,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<i32>) {
@@ -1016,6 +1020,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            store_asset_db,
             seed,
             initial_fuel,
             block_timestamp,
@@ -1167,7 +1172,13 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
         ) -> (u64, Result<Vec<u8>>) {
-            self.exec_transaction_with_events(db, data, &mut Vec::new(), create_arc_seed())
+            self.exec_transaction_with_events(
+                db,
+                data,
+                &mut Vec::new(),
+                &mut Vec::new(),
+                create_arc_seed(),
+            )
         }
 
         fn exec_transaction_with_events<T: DbFork>(
@@ -1175,6 +1186,8 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
+            store_asset_db: &mut Vec<StoreAssetDb>,
+
             seed: Arc<SeedSource>,
         ) -> (u64, Result<Vec<u8>>) {
             self.call(
@@ -1189,6 +1202,7 @@ mod tests {
                 data.get_args(),
                 seed,
                 events,
+                store_asset_db,
                 MAX_FUEL,
                 0,
             )
@@ -1210,6 +1224,7 @@ mod tests {
                 app_hash,
                 method.as_bytes(),
                 create_arc_seed(),
+                &mut Vec::new(),
                 &mut Vec::new(),
                 MAX_FUEL,
                 0,
@@ -1463,9 +1478,16 @@ mod tests {
         });
         let data = create_test_data("notify", input.clone());
         let mut events = Vec::new();
+        let mut store_asset_db = Vec::new();
 
         let _ = vm
-            .exec_transaction_with_events(&mut db, &data, &mut events, create_arc_seed())
+            .exec_transaction_with_events(
+                &mut db,
+                &data,
+                &mut events,
+                &mut store_asset_db,
+                create_arc_seed(),
+            )
             .1
             .unwrap();
 

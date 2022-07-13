@@ -23,7 +23,7 @@
 use std::sync::Arc;
 
 use crate::{
-    base::schema::{SmartContractEvent, FUEL_LIMIT},
+    base::schema::{SmartContractEvent, StoreAssetDb, FUEL_LIMIT},
     crypto::{drand::SeedSource, Hash},
     db::DbFork,
     Result,
@@ -58,6 +58,7 @@ pub trait Wm: Send + 'static {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>);
@@ -77,6 +78,7 @@ pub trait Wm: Send + 'static {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<i32>);

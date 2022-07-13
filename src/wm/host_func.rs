@@ -19,7 +19,10 @@
 use std::sync::Arc;
 
 use crate::{
-    base::{schema::SmartContractEvent, serialize::rmp_serialize},
+    base::{
+        schema::{SmartContractEvent, StoreAssetDb},
+        serialize::rmp_serialize,
+    },
     crypto::{
         drand::{Drand, SeedSource},
         Hash, PublicKey,
@@ -50,6 +53,8 @@ pub struct CallContext<'a> {
     pub origin: &'a str,
     /// Smart contracts events
     pub events: &'a mut Vec<SmartContractEvent>,
+    /// Data to store in the external db
+    pub store_asset_db: &'a mut Vec<StoreAssetDb>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
     /// Initial fuel
@@ -83,15 +88,19 @@ pub fn sha256(_ctx: &CallContext, data: Vec<u8>) -> Vec<u8> {
     digest.as_ref().to_vec()
 }
 
-/// WASM notification facility.
-pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
-    let smart_contract_hash: Hash = match ctx.db.load_account(ctx.owner) {
+fn get_smartcontract_hash(ctx: &mut CallContext) -> Hash {
+    match ctx.db.load_account(ctx.owner) {
         Some(account) => match account.contract {
             Some(contract_hash) => contract_hash,
             None => Hash::default(),
         },
         None => Hash::default(),
-    };
+    }
+}
+
+/// WASM notification facility.
+pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
+    let smart_contract_hash: Hash = get_smartcontract_hash(ctx);
 
     ctx.events.push(SmartContractEvent {
         event_tx: Hash::default(),
@@ -160,6 +169,7 @@ pub fn is_callable(
                 method.as_bytes(),
                 ctx.seed.clone(),
                 ctx.events,
+                ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
             )
@@ -201,6 +211,10 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
         .db
         .load_account(account_id)
         .unwrap_or_else(|| Account::new(account_id, None));
+
+    #[cfg(feature = "indexer")]
+    let prev_amount = account.load_asset(ctx.owner);
+
     account.store_asset(ctx.owner, value);
     ctx.db.store_account(account);
 
@@ -213,6 +227,25 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
     let buf = rmp_serialize(&data).unwrap_or_default();
 
     emit(ctx, "STORE_ASSET", &buf);
+
+    #[cfg(feature = "indexer")]
+    {
+        let smartcontract_hash = get_smartcontract_hash(ctx);
+
+        let data = StoreAssetDb {
+            account: account_id.to_string(),
+            asset: ctx.owner.to_string(),
+            prev_amount,
+            amount: value.to_vec(),
+            tx_hash: Hash::default(),
+            smartcontract_hash,
+            block_timestamp: ctx.block_timestamp,
+            block_height: 0,
+            block_hash: Hash::default(),
+        };
+
+        ctx.store_asset_db.push(data);
+    }
 }
 
 /// Remove an asset from the given `account-id`
@@ -284,6 +317,7 @@ pub fn call(
                 data,
                 ctx.seed.clone(),
                 ctx.events,
+                ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
             )
@@ -371,6 +405,7 @@ mod tests {
              _args,
              _seed,
              _events,
+             _store_asset_db,
              _initial_fuel,
              _block_timestamp| (0, Ok(vec![])),
         );
@@ -385,6 +420,7 @@ mod tests {
              _args,
              _seed,
              _events,
+             _store_asset_db,
              _initial_fuel,
              _block_timestamp| {
                 let val = if origin == "0" { 0 } else { 1 };
@@ -412,6 +448,7 @@ mod tests {
         db: MockDbFork,
         owner: String,
         events: Vec<SmartContractEvent>,
+        store_asset_db: Vec<StoreAssetDb>,
     }
 
     impl TestData {
@@ -421,6 +458,7 @@ mod tests {
                 db: create_fork_mock(),
                 owner: account_id(0),
                 events: Vec::new(),
+                store_asset_db: Vec::new(),
             }
         }
 
@@ -454,6 +492,7 @@ mod tests {
                 seed,
                 initial_fuel: 0,
                 block_timestamp: 0,
+                store_asset_db: &mut self.store_asset_db,
             }
         }
     }

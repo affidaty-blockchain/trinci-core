@@ -550,6 +550,21 @@ pub struct SmartContractEvent {
     pub event_data: Vec<u8>,
 }
 
+#[cfg(feature = "indexer")]
+/// Store asset data to store in the external db
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct StoreAssetDb {
+    pub account: String,
+    pub asset: String,
+    pub prev_amount: Vec<u8>,
+    pub amount: Vec<u8>,
+    pub tx_hash: Hash,
+    pub smartcontract_hash: Hash,
+    pub block_height: u64,
+    pub block_hash: Hash,
+    pub block_timestamp: u64,
+}
+
 /// Transaction execution receipt.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Receipt {
