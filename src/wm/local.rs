@@ -18,7 +18,7 @@
 use super::{AppInput, CheckHashArgs, CtxArgs, MAX_FUEL};
 use crate::{
     base::{
-        schema::{SmartContractEvent, StoreAssetDb},
+        schema::SmartContractEvent,
         serialize::{self, rmp_serialize},
     },
     crypto::{drand::SeedSource, Hash},
@@ -29,6 +29,10 @@ use crate::{
     },
     Account, Error, ErrorKind, Result, SERVICE_ACCOUNT_ID,
 };
+
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,

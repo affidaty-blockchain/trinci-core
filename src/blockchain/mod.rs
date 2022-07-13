@@ -50,3 +50,6 @@ pub use pubsub::Event;
 pub use service::{BlockConfig, BlockService};
 
 pub use worker::IsValidator;
+
+#[cfg(feature = "indexer")]
+pub mod indexer;

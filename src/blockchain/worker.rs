@@ -40,6 +40,7 @@ use std::{
 
 use super::aligner::{AlignerWorker, NodeAligner};
 use super::dispatcher::AlignerInterface;
+use super::indexer::Indexer;
 
 /// Closure trait to load a wasm binary.
 pub trait IsValidator: Fn(String) -> Result<bool> + Send + Sync + 'static {}
@@ -127,6 +128,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             config.lock().keypair.clone(),
             seed,
             p2p_id,
+            Indexer::new(),
         );
 
         let building = Arc::new(AtomicBool::new(false));

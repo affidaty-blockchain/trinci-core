@@ -27,15 +27,18 @@
 use serde_value::value;
 
 use super::{
+    indexer::Indexer,
     message::Message,
     pool::{BlockInfo, Pool},
     pubsub::{Event, PubSub},
     IsValidator,
 };
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
 use crate::{
     base::{
         schema::{
-            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent, StoreAssetDb,
+            Block, BlockData, BulkTransaction, SignedTransaction, SmartContractEvent,
             TransactionData, UnsignedTransaction, FUEL_LIMIT,
         },
         serialize::{rmp_deserialize, rmp_serialize},
@@ -46,6 +49,7 @@ use crate::{
     wm::{get_fuel_consumed_for_error, CtxArgs, Wm, MAX_FUEL},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
+
 use std::sync::Arc;
 
 #[cfg(feature = "rt-monitor")]
@@ -106,8 +110,10 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     p2p_id: String,
     /// Validator flag
     is_validator: Arc<bool>,
-    /// Data to store in an external DB after the block creation
-    store_asset_db: Vec<StoreAssetDb>,
+
+    #[cfg(feature = "indexer")]
+    /// Indexer structure
+    indexer: Indexer,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -122,7 +128,7 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
             is_validator: self.is_validator.clone(),
-            store_asset_db: self.store_asset_db.clone(),
+            indexer: self.indexer.clone(),
         }
     }
 }
@@ -180,6 +186,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         keypair: Arc<KeyPair>,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        indexer: Indexer,
     ) -> Self {
         Executor {
             pool,
@@ -191,7 +198,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
             seed,
             p2p_id,
             is_validator: Arc::new(false),
-            store_asset_db: Vec::new(),
+            indexer,
         }
     }
 
@@ -364,7 +371,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     tx.data.get_args(),
                     self.seed.clone(),
                     &mut events,
-                    &mut self.store_asset_db,
+                    &mut self.indexer.data,
                     initial_fuel,
                     block_timestamp,
                 );
@@ -372,7 +379,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 let event_tx = tx.data.primary_hash();
                 events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                self.store_asset_db
+                self.indexer
+                    .data
                     .iter_mut()
                     .for_each(|d| d.tx_hash = event_tx);
 
@@ -576,7 +584,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         bulk_store_asset_db
                             .iter_mut()
                             .for_each(|d| d.tx_hash = event_tx);
-                        self.store_asset_db.append(&mut bulk_store_asset_db);
+                        self.indexer.data.append(&mut bulk_store_asset_db);
                     }
                     Err(error) => {
                         execution_fail = true;
@@ -660,7 +668,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             bulk_store_asset_db
                                                 .iter_mut()
                                                 .for_each(|d| d.tx_hash = event_tx);
-                                            self.store_asset_db.append(&mut bulk_store_asset_db);
+                                            self.indexer.data.append(&mut bulk_store_asset_db);
                                         }
                                         Err(error) => {
                                             results.push((
@@ -773,7 +781,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 self.emit_events(tx_events);
             }
 
-            self.store_asset_db.append(&mut store_asset_db);
+            self.indexer.data.append(&mut store_asset_db);
 
             receipt.burned_fuel = burned;
             receipt
@@ -861,7 +869,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         debug!("Executing block: {}", height);
         // Write on a fork.
 
-        self.store_asset_db = Vec::new();
+        self.indexer.data = Vec::new();
 
         let mut fork = self.db.write().fork_create();
 
@@ -950,13 +958,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
 
-        self.store_asset_db.iter_mut().for_each(|d| {
+        self.indexer.data.iter_mut().for_each(|d| {
             d.block_height = height;
             d.block_hash = block_hash;
         });
 
         // DELETEME
-        error!("{:#?}", self.store_asset_db);
+        error!("{:#?}", self.indexer.data);
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             #[cfg(feature = "rt-monitor")]
@@ -1178,6 +1186,7 @@ mod tests {
             keypair,
             seed.clone(),
             "test_id".to_string(),
+            Indexer::new(),
         );
 
         if fuel_limit < FUEL_LIMIT {
@@ -1216,6 +1225,7 @@ mod tests {
             keypair,
             seed.clone(),
             "test_id".to_string(),
+            Indexer::new(),
         )
     }
 
@@ -1227,7 +1237,16 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair, seed, "test_id".to_string())
+        Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed,
+            "test_id".to_string(),
+            Indexer::new(),
+        )
     }
 
     fn create_db_mock(fail: bool) -> MockDb {

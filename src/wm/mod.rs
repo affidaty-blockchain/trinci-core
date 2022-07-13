@@ -22,8 +22,11 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use crate::{
-    base::schema::{SmartContractEvent, StoreAssetDb, FUEL_LIMIT},
+    base::schema::{SmartContractEvent, FUEL_LIMIT},
     crypto::{drand::SeedSource, Hash},
     db::DbFork,
     Result,

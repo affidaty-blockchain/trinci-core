@@ -19,10 +19,7 @@
 use std::sync::Arc;
 
 use crate::{
-    base::{
-        schema::{SmartContractEvent, StoreAssetDb},
-        serialize::rmp_serialize,
-    },
+    base::{schema::SmartContractEvent, serialize::rmp_serialize},
     crypto::{
         drand::{Drand, SeedSource},
         Hash, PublicKey,
@@ -31,6 +28,10 @@ use crate::{
     wm::Wm,
     Account, Error, ErrorKind, Result,
 };
+
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use ring::digest;
 
 use super::{get_fuel_consumed_for_error, CtxArgs};
