@@ -49,25 +49,31 @@ pub struct StoreAssetDbStr {
     pub block_timestamp: u64,
 }
 
-// #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-// pub struct IndexerConfig {
-//     host: String,
-//     port: u16,
-//     user: String,
-//     password: String,
-// }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct IndexerConfig {
+    host: String,
+    port: u16,
+    user: String,
+    password: String,
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Indexer {
-    // pub config: IndexerConfig,
+    pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
+    // pub temp_data: Vec<StoreAssetDb>,
 }
 
 impl Indexer {
-    pub fn new(/*config: IndexerConfig*/) -> Self {
+    pub fn new(config: IndexerConfig) -> Self {
         Indexer {
-            data: Vec::new(), /*config: todo!()*/
+            data: Vec::new(),
+            config,
         }
+    }
+
+    pub fn clear_data(&mut self) {
+        self.data = Vec::new();
     }
 
     fn get_amount(buf: &[u8]) -> serde_json::Value {
@@ -162,9 +168,14 @@ impl Indexer {
     }
 }
 
-impl Default for Indexer {
+impl Default for IndexerConfig {
     fn default() -> Self {
-        Self::new()
+        Self {
+            host: "localhost".to_string(),
+            port: 5984,
+            user: "admin".to_string(),
+            password: "password".to_string(),
+        }
     }
 }
 

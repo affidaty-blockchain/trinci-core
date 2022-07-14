@@ -720,7 +720,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
-        store_asset_db: &mut Vec<StoreAssetDb>,
+        #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>) {
@@ -738,6 +738,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            #[cfg(feature = "indexer")]
             store_asset_db,
             seed,
             initial_fuel,
@@ -918,6 +919,7 @@ impl Wm for WmLocal {
             &args,
             seed,
             &mut vec![],
+            #[cfg(feature = "indexer")]
             &mut vec![],
             MAX_FUEL,
             block_timestamp,
@@ -1005,7 +1007,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
-        store_asset_db: &mut Vec<StoreAssetDb>,
+        #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<i32>) {
@@ -1024,6 +1026,7 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            #[cfg(feature = "indexer")]
             store_asset_db,
             seed,
             initial_fuel,
@@ -1180,6 +1183,7 @@ mod tests {
                 db,
                 data,
                 &mut Vec::new(),
+                #[cfg(feature = "indexer")]
                 &mut Vec::new(),
                 create_arc_seed(),
             )
@@ -1190,7 +1194,7 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
-            store_asset_db: &mut Vec<StoreAssetDb>,
+            #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
 
             seed: Arc<SeedSource>,
         ) -> (u64, Result<Vec<u8>>) {
@@ -1206,6 +1210,7 @@ mod tests {
                 data.get_args(),
                 seed,
                 events,
+                #[cfg(feature = "indexer")]
                 store_asset_db,
                 MAX_FUEL,
                 0,
@@ -1229,6 +1234,7 @@ mod tests {
                 method.as_bytes(),
                 create_arc_seed(),
                 &mut Vec::new(),
+                #[cfg(feature = "indexer")]
                 &mut Vec::new(),
                 MAX_FUEL,
                 0,
@@ -1482,6 +1488,7 @@ mod tests {
         });
         let data = create_test_data("notify", input.clone());
         let mut events = Vec::new();
+        #[cfg(feature = "indexer")]
         let mut store_asset_db = Vec::new();
 
         let _ = vm
@@ -1489,6 +1496,7 @@ mod tests {
                 &mut db,
                 &data,
                 &mut events,
+                #[cfg(feature = "indexer")]
                 &mut store_asset_db,
                 create_arc_seed(),
             )

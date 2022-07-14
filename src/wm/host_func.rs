@@ -55,6 +55,7 @@ pub struct CallContext<'a> {
     /// Smart contracts events
     pub events: &'a mut Vec<SmartContractEvent>,
     /// Data to store in the external db
+    #[cfg(feature = "indexer")]
     pub store_asset_db: &'a mut Vec<StoreAssetDb>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
@@ -170,6 +171,7 @@ pub fn is_callable(
                 method.as_bytes(),
                 ctx.seed.clone(),
                 ctx.events,
+                #[cfg(feature = "indexer")]
                 ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
@@ -320,6 +322,7 @@ pub fn call(
                 data,
                 ctx.seed.clone(),
                 ctx.events,
+                #[cfg(feature = "indexer")]
                 ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
@@ -408,7 +411,7 @@ mod tests {
              _args,
              _seed,
              _events,
-             _store_asset_db,
+             #[cfg(feature = "indexer")] _store_asset_db,
              _initial_fuel,
              _block_timestamp| (0, Ok(vec![])),
         );
@@ -423,7 +426,7 @@ mod tests {
              _args,
              _seed,
              _events,
-             _store_asset_db,
+             #[cfg(feature = "indexer")] _store_asset_db,
              _initial_fuel,
              _block_timestamp| {
                 let val = if origin == "0" { 0 } else { 1 };
@@ -451,6 +454,7 @@ mod tests {
         db: MockDbFork,
         owner: String,
         events: Vec<SmartContractEvent>,
+        #[cfg(feature = "indexer")]
         store_asset_db: Vec<StoreAssetDb>,
     }
 
@@ -461,6 +465,7 @@ mod tests {
                 db: create_fork_mock(),
                 owner: account_id(0),
                 events: Vec::new(),
+                #[cfg(feature = "indexer")]
                 store_asset_db: Vec::new(),
             }
         }
@@ -495,6 +500,7 @@ mod tests {
                 seed,
                 initial_fuel: 0,
                 block_timestamp: 0,
+                #[cfg(feature = "indexer")]
                 store_asset_db: &mut self.store_asset_db,
             }
         }
