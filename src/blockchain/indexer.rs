@@ -170,6 +170,8 @@ impl Default for Indexer {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{json, Value};
+
     use super::Indexer;
 
     #[test]
@@ -178,15 +180,22 @@ mod tests {
 
         let amount = Indexer::get_amount(&buf);
 
-        assert_eq!(amount, r#"{"amount":null}"#);
+        assert_eq!(amount, Value::Null);
     }
 
     #[test]
     fn get_amount_integer_1() {
         let buf = [42];
+
         let amount = Indexer::get_amount(&buf);
 
-        assert_eq!(amount, r#"{"amount":42}"#);
+        let expected: Value = json!({
+            "value":42,
+            "source": buf,
+            "decoded":true
+        });
+
+        assert_eq!(amount, expected);
     }
 
     #[test]
@@ -194,7 +203,13 @@ mod tests {
         let buf = [205, 3, 232];
         let amount = Indexer::get_amount(&buf);
 
-        assert_eq!(amount, r#"{"amount":1000}"#);
+        let expected: Value = json!({
+            "value":1000,
+            "source": buf,
+            "decoded":true
+        });
+
+        assert_eq!(amount, expected);
     }
 
     #[test]
@@ -206,6 +221,12 @@ mod tests {
 
         let amount = Indexer::get_amount(&buf);
 
-        assert_eq!(amount, r#"{"amount":{"message":"message","units":42}}"#);
+        let expected: Value = json!({
+            "value":json!({"units":42,"message":"message"}),
+            "source": buf,
+            "decoded":true
+        });
+
+        assert_eq!(amount, expected);
     }
 }
