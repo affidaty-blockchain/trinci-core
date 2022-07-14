@@ -208,44 +208,46 @@ pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
 /// Store an asset as assets entry in the given account-id
 /// The `asset_id` key is the ctx.caller
 pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
-    let mut account = ctx
-        .db
-        .load_account(account_id)
-        .unwrap_or_else(|| Account::new(account_id, None));
+    if !account_id.is_empty() {
+        let mut account = ctx
+            .db
+            .load_account(account_id)
+            .unwrap_or_else(|| Account::new(account_id, None));
 
-    #[cfg(feature = "indexer")]
-    let prev_amount = account.load_asset(ctx.owner);
+        #[cfg(feature = "indexer")]
+        let prev_amount = account.load_asset(ctx.owner);
 
-    account.store_asset(ctx.owner, value);
-    ctx.db.store_account(account);
+        account.store_asset(ctx.owner, value);
+        ctx.db.store_account(account);
 
-    // Emit an event for each asset movement
-    let data = StoreAssetData {
-        account: account_id,
-        data: value,
-    };
-
-    let buf = rmp_serialize(&data).unwrap_or_default();
-
-    emit(ctx, "STORE_ASSET", &buf);
-
-    #[cfg(feature = "indexer")]
-    {
-        let smartcontract_hash = get_smartcontract_hash(ctx);
-
-        let data = StoreAssetDb {
-            account: account_id.to_string(),
-            asset: ctx.owner.to_string(),
-            prev_amount,
-            amount: value.to_vec(),
-            tx_hash: Hash::default(),
-            smartcontract_hash,
-            block_timestamp: ctx.block_timestamp,
-            block_height: 0,
-            block_hash: Hash::default(),
+        // Emit an event for each asset movement
+        let data = StoreAssetData {
+            account: account_id,
+            data: value,
         };
 
-        ctx.store_asset_db.push(data);
+        let buf = rmp_serialize(&data).unwrap_or_default();
+
+        emit(ctx, "STORE_ASSET", &buf);
+
+        #[cfg(feature = "indexer")]
+        {
+            let smartcontract_hash = get_smartcontract_hash(ctx);
+
+            let data = StoreAssetDb {
+                account: account_id.to_string(),
+                asset: ctx.owner.to_string(),
+                prev_amount,
+                amount: value.to_vec(),
+                tx_hash: Hash::default(),
+                smartcontract_hash,
+                block_timestamp: ctx.block_timestamp,
+                block_height: 0,
+                block_hash: Hash::default(),
+            };
+
+            ctx.store_asset_db.push(data);
+        }
     }
 }
 

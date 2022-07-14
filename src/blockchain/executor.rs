@@ -178,6 +178,7 @@ fn log_wm_fuel_consumed_bt(tx: &UnsignedTransaction, fuel_consumed: u64) {
 
 impl<D: Db, W: Wm> Executor<D, W> {
     /// Constructs a new executor.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: Arc<RwLock<Pool>>,
         db: Arc<RwLock<D>>,
@@ -339,10 +340,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         height: u64,
         index: u32,
         mut events: Vec<SmartContractEvent>,
-        // mut store_asset_db: Vec<StoreAssetDb>,
         block_timestamp: u64,
-    ) -> (BurnFuelArgs, Receipt) {
+    ) -> (BurnFuelArgs, Receipt, Vec<StoreAssetDb>) {
         let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
+
+        let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
         let ctx_args = CtxArgs {
             origin: &tx.data.get_caller().to_account_id(),
@@ -371,7 +373,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     tx.data.get_args(),
                     self.seed.clone(),
                     &mut events,
-                    &mut self.indexer.data,
+                    &mut store_asset_db,
                     initial_fuel,
                     block_timestamp,
                 );
@@ -379,10 +381,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 let event_tx = tx.data.primary_hash();
                 events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                self.indexer
-                    .data
-                    .iter_mut()
-                    .for_each(|d| d.tx_hash = event_tx);
+                store_asset_db.iter_mut().for_each(|d| d.tx_hash = event_tx);
 
                 if result.is_err() {
                     fork.rollback();
@@ -430,6 +429,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         returns,
                         events,
                     },
+                    store_asset_db,
                 )
             }
             Err(e) => (
@@ -446,6 +446,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     returns: e.to_string_full().as_bytes().to_vec(),
                     events: None,
                 },
+                vec![],
             ),
         }
     }
@@ -459,10 +460,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
         mut input_events: Vec<SmartContractEvent>,
         block_timestamp: u64,
-    ) -> (BurnFuelArgs, Receipt) {
+    ) -> (BurnFuelArgs, Receipt, Vec<StoreAssetDb>) {
         let mut results = Vec::<(String, BulkResult)>::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
+
+        let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
         let mut burn_fuel_args = BurnFuelArgs {
             account: tx.data.get_caller().to_account_id(),
@@ -513,6 +516,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         returns: e.to_string_full().as_bytes().to_vec(),
                                         events: None,
                                     },
+                                    store_asset_db,
                                 );
                             }
                         };
@@ -552,6 +556,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 returns: "wrong transaction schema".as_bytes().to_vec(),
                                 events: None,
                             },
+                            vec![],
                         );
                     }
                 };
@@ -584,7 +589,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         bulk_store_asset_db
                             .iter_mut()
                             .for_each(|d| d.tx_hash = event_tx);
-                        self.indexer.data.append(&mut bulk_store_asset_db);
+                        store_asset_db.append(&mut bulk_store_asset_db);
                     }
                     Err(error) => {
                         execution_fail = true;
@@ -668,7 +673,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             bulk_store_asset_db
                                                 .iter_mut()
                                                 .for_each(|d| d.tx_hash = event_tx);
-                                            self.indexer.data.append(&mut bulk_store_asset_db);
+                                            store_asset_db.append(&mut bulk_store_asset_db);
                                         }
                                         Err(error) => {
                                             results.push((
@@ -734,6 +739,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 returns: results.unwrap_or_default(),
                 events,
             },
+            store_asset_db,
         )
     }
 
@@ -762,9 +768,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
         fork.flush();
 
         let events: Vec<SmartContractEvent> = vec![];
-        let mut store_asset_db: Vec<StoreAssetDb> = vec![];
 
-        let (fuel_to_burn, mut receipt) = match tx {
+        let (fuel_to_burn, mut receipt, mut store_asset_db) = match tx {
             Transaction::UnitTransaction(tx) => {
                 self.handle_unit_transaction(tx, fork, height, index, events, block_timestamp)
             }
@@ -963,8 +968,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
             d.block_hash = block_hash;
         });
 
-        // DELETEME
-        error!("{:#?}", self.indexer.data);
+        // Send store asset info to a db
+        #[cfg(feature = "indexer")]
+        self.indexer.store_data();
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             #[cfg(feature = "rt-monitor")]
