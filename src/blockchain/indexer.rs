@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{base::serialize::rmp_deserialize, crypto::Hash};
+use crate::{base::serialize::rmp_deserialize, crypto::Hash, Error, ErrorKind, Result};
 
 use curl::easy::{Easy, List};
-use std::io::Read;
+use std::{io::Read, thread::spawn};
 use uuid::Uuid;
 
 /// Store asset data to store in the external db
@@ -74,7 +74,7 @@ impl Indexer {
         if buf.is_empty() {
             serde_json::Value::Null
         } else {
-            match rmp_deserialize::<serde_json::Value>(&buf) {
+            match rmp_deserialize::<serde_json::Value>(buf) {
                 Ok(val) => {
                     serde_json::json!({
                         "source": buf,
@@ -111,7 +111,7 @@ impl Indexer {
                 block_hash: hex::encode(d.block_hash.as_bytes()),
                 block_timestamp: d.block_timestamp,
             };
-            let data_str = serde_json::to_string(&val).unwrap();
+            let data_str = serde_json::to_string(&val).unwrap(); // This should be safe
             template.push_str(&prefix);
             template.push_str(&data_str);
             if prefix.is_empty() {
@@ -123,29 +123,42 @@ impl Indexer {
         template
     }
 
-    fn write_data_to_db(&self, mut data: &[u8]) {
+    fn write_data_to_db(data: Vec<u8>) -> Result<()> {
         // TODO errors handling
         // TODO pass DB configuration
+
+        let mut data: &[u8] = data.as_ref();
         let mut easy = Easy::new();
         easy.url("http://admin:password@localhost:5984/trinci/_bulk_docs")
-            .unwrap();
-        easy.post(true).unwrap();
-        easy.post_field_size(data.len() as u64).unwrap();
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        easy.post(true)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        easy.post_field_size(data.len() as u64)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         let mut list = List::new();
-        list.append("Content-Type:application/json").unwrap();
-        easy.http_headers(list).unwrap();
+        list.append("Content-Type:application/json")
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        easy.http_headers(list)
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         let mut transfer = easy.transfer();
         transfer
             .read_function(|buf| Ok(data.read(buf).unwrap_or(0)))
-            .unwrap();
-        transfer.perform().unwrap();
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        transfer
+            .perform()
+            .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+        Ok(())
     }
 
     pub fn store_data(&self) {
         let data = self.prepare_json_for_db().as_bytes().to_vec();
-        self.write_data_to_db(&data);
+        let _ = spawn(move || {
+            if let Err(e) = Indexer::write_data_to_db(data) {
+                error!("Error DB: {}", e.to_string_full());
+            }
+        });
     }
 }
 
