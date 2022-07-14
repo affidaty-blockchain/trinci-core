@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::crypto::Hash;
+use crate::{base::serialize::rmp_deserialize, crypto::Hash};
 
 use curl::easy::{Easy, List};
 use std::io::Read;
@@ -40,8 +40,8 @@ pub struct StoreAssetDbStr {
     pub _id: String,
     pub account: String,
     pub asset: String,
-    pub prev_amount: String,
-    pub amount: String,
+    pub prev_amount: serde_json::Value,
+    pub amount: serde_json::Value,
     pub tx_hash: String,
     pub smartcontract_hash: String,
     pub block_height: u64,
@@ -49,22 +49,47 @@ pub struct StoreAssetDbStr {
     pub block_timestamp: u64,
 }
 
-// pub trait ExternalDb {}
+// #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+// pub struct IndexerConfig {
+//     host: String,
+//     port: u16,
+//     user: String,
+//     password: String,
+// }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Indexer {
+    // pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
 }
 
 impl Indexer {
-    pub fn new() -> Self {
-        Indexer { data: Vec::new() }
+    pub fn new(/*config: IndexerConfig*/) -> Self {
+        Indexer {
+            data: Vec::new(), /*config: todo!()*/
+        }
     }
 
-    fn get_amount(value: &[u8]) -> String {
-        match rmp_serde::from_slice::<u64>(value) {
-            Ok(val) => val.to_string(),
-            Err(_) => format!("{:?}", value).replace(' ', ""),
+    fn get_amount(buf: &[u8]) -> serde_json::Value {
+        if buf.is_empty() {
+            serde_json::Value::Null
+        } else {
+            match rmp_deserialize::<serde_json::Value>(&buf) {
+                Ok(val) => {
+                    serde_json::json!({
+                        "source": buf,
+                        "value": val,
+                        "decoded": true
+                    })
+                }
+                Err(e) => {
+                    serde_json::json!({
+                        "source": buf,
+                        "value": e.to_string(),
+                        "decoded": false
+                    })
+                }
+            }
         }
     }
 
@@ -98,7 +123,7 @@ impl Indexer {
         template
     }
 
-    fn write_data_to_db(mut data: &[u8]) {
+    fn write_data_to_db(&self, mut data: &[u8]) {
         // TODO errors handling
         // TODO pass DB configuration
         let mut easy = Easy::new();
@@ -120,12 +145,54 @@ impl Indexer {
 
     pub fn store_data(&self) {
         let data = self.prepare_json_for_db().as_bytes().to_vec();
-        Self::write_data_to_db(&data);
+        self.write_data_to_db(&data);
     }
 }
 
 impl Default for Indexer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Indexer;
+
+    #[test]
+    fn get_amount_empty_value() {
+        let buf = [];
+
+        let amount = Indexer::get_amount(&buf);
+
+        assert_eq!(amount, r#"{"amount":null}"#);
+    }
+
+    #[test]
+    fn get_amount_integer_1() {
+        let buf = [42];
+        let amount = Indexer::get_amount(&buf);
+
+        assert_eq!(amount, r#"{"amount":42}"#);
+    }
+
+    #[test]
+    fn get_amount_integer_2() {
+        let buf = [205, 3, 232];
+        let amount = Indexer::get_amount(&buf);
+
+        assert_eq!(amount, r#"{"amount":1000}"#);
+    }
+
+    #[test]
+    fn get_amount_json_data() {
+        let buf = [
+            130, 165, 117, 110, 105, 116, 115, 42, 167, 109, 101, 115, 115, 97, 103, 101, 167, 109,
+            101, 115, 115, 97, 103, 101,
+        ];
+
+        let amount = Indexer::get_amount(&buf);
+
+        assert_eq!(amount, r#"{"amount":{"message":"message","units":42}}"#);
     }
 }
