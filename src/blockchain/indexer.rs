@@ -61,7 +61,6 @@ pub struct IndexerConfig {
 pub struct Indexer {
     pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
-    // pub temp_data: Vec<StoreAssetDb>,
 }
 
 impl Indexer {
@@ -129,13 +128,18 @@ impl Indexer {
         template
     }
 
-    fn write_data_to_db(data: Vec<u8>) -> Result<()> {
-        // TODO errors handling
+    fn write_data_to_db(data: Vec<u8>, config: &IndexerConfig) -> Result<()> {
         // TODO pass DB configuration
 
         let mut data: &[u8] = data.as_ref();
         let mut easy = Easy::new();
-        easy.url("http://admin:password@localhost:5984/trinci/_bulk_docs")
+
+        let url = format!(
+            "http://{}:{}@{}:{}/trinci/_bulk_docs",
+            config.user, config.password, config.host, config.port
+        );
+
+        easy.url(&url)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         easy.post(true)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
@@ -160,8 +164,9 @@ impl Indexer {
 
     pub fn store_data(&self) {
         let data = self.prepare_json_for_db().as_bytes().to_vec();
+        let config = self.config.clone();
         let _ = spawn(move || {
-            if let Err(e) = Indexer::write_data_to_db(data) {
+            if let Err(e) = Indexer::write_data_to_db(data, &config) {
                 error!("Error DB: {}", e.to_string_full());
             }
         });

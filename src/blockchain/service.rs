@@ -15,10 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+#[cfg(feature = "indexer")]
+use super::indexer::IndexerConfig;
+
 use super::{
     message::{BlockRequestSender, Message},
     worker::{BlockWorker, IsValidator},
 };
+
 use crate::{
     base::{serialize::rmp_serialize, BlockchainSettings, Mutex, RwLock},
     channel::confirmed_channel,
@@ -63,6 +67,7 @@ pub struct BlockService<D: Db, W: Wm> {
 
 impl<D: Db, W: Wm> BlockService<D, W> {
     /// Create a new blockchain service instance.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         account_id: &str,
         worker_is_validator: impl IsValidator,
@@ -71,11 +76,21 @@ impl<D: Db, W: Wm> BlockService<D, W> {
         wm: W,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        #[cfg(feature = "indexer")] indexer_config: IndexerConfig,
     ) -> Self {
         let (tx_chan, rx_chan) = confirmed_channel::<Message, Message>();
 
-        let mut worker =
-            BlockWorker::new(worker_is_validator, config, db, wm, rx_chan, seed, p2p_id);
+        let mut worker = BlockWorker::new(
+            worker_is_validator,
+            config,
+            db,
+            wm,
+            rx_chan,
+            seed,
+            p2p_id,
+            #[cfg(feature = "indexer")]
+            indexer_config,
+        );
         let db = worker.db_arc();
         let wm = worker.wm_arc();
 
@@ -195,6 +210,9 @@ mod tests {
     use super::*;
     use crate::{crypto::Hash, db::*, wm::*};
 
+    #[cfg(feature = "indexer")]
+    use crate::blockchain::indexer::IndexerConfig;
+
     fn is_validator_function() -> impl IsValidator {
         move |_account_id| Ok(true)
     }
@@ -234,6 +252,8 @@ mod tests {
             wm,
             seed,
             "TEST".to_string(),
+            #[cfg(feature = "indexer")]
+            IndexerConfig::default(),
         )
     }
 

@@ -78,6 +78,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
 
 impl<D: Db, W: Wm> BlockWorker<D, W> {
     #[allow(clippy::mutex_atomic)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         is_validator_closure: impl IsValidator,
         config: BlockConfig,
@@ -86,6 +87,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
         rx_chan: BlockRequestReceiver,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        #[cfg(feature = "indexer")] indexer_config: IndexerConfig,
     ) -> Self {
         let pool = Arc::new(RwLock::new(Pool::default()));
         let pubsub = Arc::new(Mutex::new(PubSub::new()));
@@ -131,7 +133,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             seed,
             p2p_id,
             #[cfg(feature = "indexer")]
-            Indexer::new(IndexerConfig::default()),
+            Indexer::new(indexer_config),
         );
 
         let building = Arc::new(AtomicBool::new(false));
