@@ -29,7 +29,8 @@ Additional labels for pre-release metadata:
 
 0.2.9 unreleased
 ----------------
-...
+Added
+* Indexer feature
 
 0.2.8 05-07-2022
 ----------------

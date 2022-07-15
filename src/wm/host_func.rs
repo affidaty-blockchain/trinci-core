@@ -238,14 +238,15 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
 
             let data = StoreAssetDb {
                 account: account_id.to_string(),
+                origin: ctx.origin.to_string(),
                 asset: ctx.owner.to_string(),
                 prev_amount,
                 amount: value.to_vec(),
                 tx_hash: Hash::default(),
                 smartcontract_hash,
-                block_timestamp: ctx.block_timestamp,
                 block_height: 0,
                 block_hash: Hash::default(),
+                block_timestamp: ctx.block_timestamp,
             };
 
             ctx.store_asset_db.push(data);

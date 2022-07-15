@@ -25,6 +25,7 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct StoreAssetDb {
     pub account: String,
+    pub origin: String,
     pub asset: String,
     pub prev_amount: Vec<u8>,
     pub amount: Vec<u8>,
@@ -39,6 +40,7 @@ pub struct StoreAssetDb {
 pub struct StoreAssetDbStr {
     pub _id: String,
     pub account: String,
+    pub origin: String,
     pub asset: String,
     pub prev_amount: serde_json::Value,
     pub amount: serde_json::Value,
@@ -107,6 +109,7 @@ impl Indexer {
             let val = StoreAssetDbStr {
                 _id: Uuid::new_v4().to_string(),
                 account: d.account.clone(),
+                origin: d.origin.clone(),
                 asset: d.asset.clone(),
                 prev_amount: Self::get_amount(&d.prev_amount),
                 amount: Self::get_amount(&d.amount),
