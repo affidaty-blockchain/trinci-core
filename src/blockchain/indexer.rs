@@ -51,10 +51,10 @@ pub struct StoreAssetDbStr {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct IndexerConfig {
-    host: String,
-    port: u16,
-    user: String,
-    password: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -138,7 +138,6 @@ impl Indexer {
             "http://{}:{}@{}:{}/trinci/_bulk_docs",
             config.user, config.password, config.host, config.port
         );
-
         easy.url(&url)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
         easy.post(true)
