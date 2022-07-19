@@ -110,7 +110,6 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     p2p_id: String,
     /// Validator flag
     is_validator: Arc<bool>,
-
     #[cfg(feature = "indexer")]
     /// Indexer structure
     indexer: Indexer,
