@@ -78,7 +78,7 @@ ureq = { version = "2.1.1", default-features = false }
 
 
 [features]
-default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge"]
+default = ["with-rocksdb", "with-wasmtime", "p2p", "rest", "bridge", "indexer"]
 indexer = ["serde_json", "uuid", "curl"]
 with-rocksdb = ["merkledb"]
 with-wasmtime = ["wasmtime"]

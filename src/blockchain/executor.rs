@@ -480,10 +480,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut burned_fuel = 0;
 
         #[cfg(feature = "indexer")]
-        {
-            let bulk_hash_tx = tx.data.primary_hash();
-            let mut store_asset_db = Vec::<StoreAssetDb>::new();
-        }
+        let bulk_hash_tx = tx.data.primary_hash();
+        #[cfg(feature = "indexer")]
+        let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
         let mut burn_fuel_args = BurnFuelArgs {
             account: tx.data.get_caller().to_account_id(),
