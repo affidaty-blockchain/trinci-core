@@ -28,6 +28,10 @@ use crate::{
     wm::Wm,
     Account, Error, ErrorKind, Result,
 };
+
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use ring::digest;
 
 use super::{get_fuel_consumed_for_error, CtxArgs};
@@ -50,6 +54,9 @@ pub struct CallContext<'a> {
     pub origin: &'a str,
     /// Smart contracts events
     pub events: &'a mut Vec<SmartContractEvent>,
+    /// Data to store in the external db
+    #[cfg(feature = "indexer")]
+    pub store_asset_db: &'a mut Vec<StoreAssetDb>,
     /// Drand seed
     pub seed: Arc<SeedSource>,
     /// Initial fuel
@@ -83,15 +90,19 @@ pub fn sha256(_ctx: &CallContext, data: Vec<u8>) -> Vec<u8> {
     digest.as_ref().to_vec()
 }
 
-/// WASM notification facility.
-pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
-    let smart_contract_hash: Hash = match ctx.db.load_account(ctx.owner) {
+fn get_smartcontract_hash(ctx: &mut CallContext) -> Hash {
+    match ctx.db.load_account(ctx.owner) {
         Some(account) => match account.contract {
             Some(contract_hash) => contract_hash,
             None => Hash::default(),
         },
         None => Hash::default(),
-    };
+    }
+}
+
+/// WASM notification facility.
+pub fn emit(ctx: &mut CallContext, event_name: &str, event_data: &[u8]) {
+    let smart_contract_hash: Hash = get_smartcontract_hash(ctx);
 
     ctx.events.push(SmartContractEvent {
         event_tx: Hash::default(),
@@ -160,6 +171,8 @@ pub fn is_callable(
                 method.as_bytes(),
                 ctx.seed.clone(),
                 ctx.events,
+                #[cfg(feature = "indexer")]
+                ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
             )
@@ -197,22 +210,48 @@ pub fn load_asset(ctx: &CallContext, account_id: &str) -> Vec<u8> {
 /// Store an asset as assets entry in the given account-id
 /// The `asset_id` key is the ctx.caller
 pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
-    let mut account = ctx
-        .db
-        .load_account(account_id)
-        .unwrap_or_else(|| Account::new(account_id, None));
-    account.store_asset(ctx.owner, value);
-    ctx.db.store_account(account);
+    if !account_id.is_empty() {
+        let mut account = ctx
+            .db
+            .load_account(account_id)
+            .unwrap_or_else(|| Account::new(account_id, None));
 
-    // Emit an event for each asset movement
-    let data = StoreAssetData {
-        account: account_id,
-        data: value,
-    };
+        #[cfg(feature = "indexer")]
+        let prev_amount = account.load_asset(ctx.owner);
 
-    let buf = rmp_serialize(&data).unwrap_or_default();
+        account.store_asset(ctx.owner, value);
+        ctx.db.store_account(account);
 
-    emit(ctx, "STORE_ASSET", &buf);
+        // Emit an event for each asset movement
+        let data = StoreAssetData {
+            account: account_id,
+            data: value,
+        };
+
+        let buf = rmp_serialize(&data).unwrap_or_default();
+
+        emit(ctx, "STORE_ASSET", &buf);
+
+        #[cfg(feature = "indexer")]
+        {
+            let smartcontract_hash = get_smartcontract_hash(ctx);
+
+            let data = StoreAssetDb {
+                account: account_id.to_string(),
+                origin: ctx.origin.to_string(),
+                asset: ctx.owner.to_string(),
+                prev_amount,
+                amount: value.to_vec(),
+                tx_hash: Hash::default(),
+                smartcontract_hash,
+                block_height: 0,
+                block_hash: Hash::default(),
+                block_timestamp: ctx.block_timestamp,
+            };
+
+            ctx.store_asset_db.push(data);
+        }
+    }
 }
 
 /// Remove an asset from the given `account-id`
@@ -284,6 +323,8 @@ pub fn call(
                 data,
                 ctx.seed.clone(),
                 ctx.events,
+                #[cfg(feature = "indexer")]
+                ctx.store_asset_db,
                 initial_fuel,
                 ctx.block_timestamp,
             )
@@ -371,6 +412,7 @@ mod tests {
              _args,
              _seed,
              _events,
+             #[cfg(feature = "indexer")] _store_asset_db,
              _initial_fuel,
              _block_timestamp| (0, Ok(vec![])),
         );
@@ -385,6 +427,7 @@ mod tests {
              _args,
              _seed,
              _events,
+             #[cfg(feature = "indexer")] _store_asset_db,
              _initial_fuel,
              _block_timestamp| {
                 let val = if origin == "0" { 0 } else { 1 };
@@ -412,6 +455,8 @@ mod tests {
         db: MockDbFork,
         owner: String,
         events: Vec<SmartContractEvent>,
+        #[cfg(feature = "indexer")]
+        store_asset_db: Vec<StoreAssetDb>,
     }
 
     impl TestData {
@@ -421,6 +466,8 @@ mod tests {
                 db: create_fork_mock(),
                 owner: account_id(0),
                 events: Vec::new(),
+                #[cfg(feature = "indexer")]
+                store_asset_db: Vec::new(),
             }
         }
 
@@ -454,6 +501,8 @@ mod tests {
                 seed,
                 initial_fuel: 0,
                 block_timestamp: 0,
+                #[cfg(feature = "indexer")]
+                store_asset_db: &mut self.store_asset_db,
             }
         }
     }

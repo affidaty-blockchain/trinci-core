@@ -22,6 +22,9 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use crate::{
     base::schema::{SmartContractEvent, FUEL_LIMIT},
     crypto::{drand::SeedSource, Hash},
@@ -45,6 +48,7 @@ pub trait Wm: Send + 'static {
     /// Execute the smart contract method as defined within the `data` parameter.
     /// It is required to pass the database to contextualize the operations.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(not(feature = "indexer"))]
     fn call(
         &mut self,
         db: &mut dyn DbFork,
@@ -62,9 +66,30 @@ pub trait Wm: Send + 'static {
         block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>);
 
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "indexer")]
+    fn call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        contract: Hash,
+        method: &str,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
+        initial_fuel: u64,
+        block_timestamp: u64,
+    ) -> (u64, Result<Vec<u8>>);
+
     /// Execute the smart contract `is_callable` method
     /// It is required to pass the database to contextualize the operations.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(not(feature = "indexer"))]
     fn callable_call(
         &mut self,
         db: &mut dyn DbFork,
@@ -77,6 +102,25 @@ pub trait Wm: Send + 'static {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        initial_fuel: u64,
+        block_timestamp: u64,
+    ) -> (u64, Result<i32>);
+
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "indexer")]
+    fn callable_call(
+        &mut self,
+        db: &mut dyn DbFork,
+        depth: u16,
+        network: &str,
+        origin: &str,
+        owner: &str,
+        caller: &str,
+        contract: Hash,
+        args: &[u8],
+        seed: Arc<SeedSource>,
+        events: &mut Vec<SmartContractEvent>,
+        store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<i32>);

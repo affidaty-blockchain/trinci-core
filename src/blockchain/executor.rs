@@ -32,6 +32,9 @@ use super::{
     pubsub::{Event, PubSub},
     IsValidator,
 };
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::{Indexer, StoreAssetDb};
+
 use crate::{
     base::{
         schema::{
@@ -46,6 +49,7 @@ use crate::{
     wm::{get_fuel_consumed_for_error, CtxArgs, Wm, MAX_FUEL},
     Error, ErrorKind, KeyPair, PublicKey, Receipt, Result, Transaction, SERVICE_ACCOUNT_ID,
 };
+
 use std::sync::Arc;
 
 #[cfg(feature = "rt-monitor")]
@@ -106,6 +110,10 @@ pub(crate) struct Executor<D: Db, W: Wm> {
     p2p_id: String,
     /// Validator flag
     is_validator: Arc<bool>,
+
+    #[cfg(feature = "indexer")]
+    /// Indexer structure
+    indexer: Indexer,
 }
 
 impl<D: Db, W: Wm> Clone for Executor<D, W> {
@@ -120,6 +128,8 @@ impl<D: Db, W: Wm> Clone for Executor<D, W> {
             seed: self.seed.clone(),
             p2p_id: self.p2p_id.clone(),
             is_validator: self.is_validator.clone(),
+            #[cfg(feature = "indexer")]
+            indexer: self.indexer.clone(),
         }
     }
 }
@@ -167,8 +177,16 @@ fn log_wm_fuel_consumed_bt(tx: &UnsignedTransaction, fuel_consumed: u64) {
     )
 }
 
+struct HandleTransactionReturns {
+    burn_fuel_args: BurnFuelArgs,
+    receipt: Receipt,
+    #[cfg(feature = "indexer")]
+    store_asset_db: Vec<StoreAssetDb>,
+}
+
 impl<D: Db, W: Wm> Executor<D, W> {
     /// Constructs a new executor.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: Arc<RwLock<Pool>>,
         db: Arc<RwLock<D>>,
@@ -177,6 +195,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         keypair: Arc<KeyPair>,
         seed: Arc<SeedSource>,
         p2p_id: String,
+        #[cfg(feature = "indexer")] indexer: Indexer,
     ) -> Self {
         Executor {
             pool,
@@ -188,6 +207,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             seed,
             p2p_id,
             is_validator: Arc::new(false),
+            #[cfg(feature = "indexer")]
+            indexer,
         }
     }
 
@@ -266,6 +287,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
             &args,
             self.seed.clone(),
             &mut vec![],
+            #[cfg(feature = "indexer")]
+            &mut vec![],
             MAX_FUEL,
             block_timestamp,
         )
@@ -319,6 +342,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         (global_result, global_burned_fuel)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_unit_transaction(
         &mut self,
         tx: &SignedTransaction,
@@ -327,8 +351,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
         index: u32,
         mut events: Vec<SmartContractEvent>,
         block_timestamp: u64,
-    ) -> (BurnFuelArgs, Receipt) {
+    ) -> HandleTransactionReturns {
         let initial_fuel = self.calculate_internal_fuel_limit(tx.data.get_fuel_limit());
+
+        #[cfg(feature = "indexer")]
+        let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
         let ctx_args = CtxArgs {
             origin: &tx.data.get_caller().to_account_id(),
@@ -357,12 +384,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     tx.data.get_args(),
                     self.seed.clone(),
                     &mut events,
+                    #[cfg(feature = "indexer")]
+                    &mut store_asset_db,
                     initial_fuel,
                     block_timestamp,
                 );
 
                 let event_tx = tx.data.primary_hash();
                 events.iter_mut().for_each(|e| e.event_tx = event_tx);
+
+                #[cfg(feature = "indexer")]
+                store_asset_db.iter_mut().for_each(|d| d.tx_hash = event_tx);
 
                 if result.is_err() {
                     fork.rollback();
@@ -396,13 +428,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 // Total fuel burned
                 let burned_fuel = self.calculate_burned_fuel(fuel_consumed);
 
-                (
-                    BurnFuelArgs {
+                HandleTransactionReturns {
+                    burn_fuel_args: BurnFuelArgs {
                         account: tx.data.get_caller().to_account_id(),
                         fuel_to_burn: burned_fuel,
                         fuel_limit: tx.data.get_fuel_limit(),
                     },
-                    Receipt {
+                    receipt: Receipt {
                         height,
                         burned_fuel,
                         index: index as u32,
@@ -410,15 +442,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         returns,
                         events,
                     },
-                )
+                    #[cfg(feature = "indexer")]
+                    store_asset_db,
+                }
             }
-            Err(e) => (
-                BurnFuelArgs {
+            Err(e) => HandleTransactionReturns {
+                burn_fuel_args: BurnFuelArgs {
                     account: tx.data.get_caller().to_account_id(),
                     fuel_to_burn: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     fuel_limit: tx.data.get_fuel_limit(),
                 },
-                Receipt {
+                receipt: Receipt {
                     height,
                     burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
                     index: index as u32,
@@ -426,22 +460,28 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     returns: e.to_string_full().as_bytes().to_vec(),
                     events: None,
                 },
-            ),
+                #[cfg(feature = "indexer")]
+                store_asset_db: vec![],
+            },
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_bulk_transaction(
         &mut self,
         tx: &BulkTransaction,
         fork: &mut <D as Db>::DbForkType,
         height: u64,
         index: u32,
-        mut events: Vec<SmartContractEvent>,
+        mut input_events: Vec<SmartContractEvent>,
         block_timestamp: u64,
-    ) -> (BurnFuelArgs, Receipt) {
+    ) -> HandleTransactionReturns {
         let mut results = Vec::<(String, BulkResult)>::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
+
+        #[cfg(feature = "indexer")]
+        let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
         let mut burn_fuel_args = BurnFuelArgs {
             account: tx.data.get_caller().to_account_id(),
@@ -452,8 +492,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let (events, results) = match &tx.data {
             TransactionData::BulkV1(bulk_tx) => {
                 let root_tx = &bulk_tx.txs.root;
-                let hash = root_tx.data.primary_hash();
+                let root_hash = root_tx.data.primary_hash();
                 let mut bulk_events: Vec<SmartContractEvent> = vec![];
+                #[cfg(feature = "indexer")]
+                let mut bulk_store_asset_db: Vec<StoreAssetDb> = vec![];
 
                 let initial_fuel =
                     self.calculate_internal_fuel_limit(root_tx.data.get_fuel_limit());
@@ -481,9 +523,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                     fuel_limit: tx_data.fuel_limit,
                                 };
 
-                                return (
-                                    root_fuel,
-                                    Receipt {
+                                return HandleTransactionReturns {
+                                    burn_fuel_args: root_fuel,
+                                    receipt: Receipt {
                                         height,
                                         index,
                                         burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
@@ -491,7 +533,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         returns: e.to_string_full().as_bytes().to_vec(),
                                         events: None,
                                     },
-                                );
+                                    #[cfg(feature = "indexer")]
+                                    store_asset_db,
+                                };
                             }
                         };
 
@@ -507,6 +551,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             &tx_data.args,
                             self.seed.clone(),
                             &mut bulk_events,
+                            #[cfg(feature = "indexer")]
+                            &mut bulk_store_asset_db,
                             initial_fuel,
                             block_timestamp,
                         )
@@ -519,9 +565,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             fuel_limit: root_tx.data.get_fuel_limit(),
                         };
 
-                        return (
-                            root_fuel,
-                            Receipt {
+                        return HandleTransactionReturns {
+                            burn_fuel_args: root_fuel,
+                            receipt: Receipt {
                                 height,
                                 index,
                                 burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
@@ -529,7 +575,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                 returns: "wrong transaction schema".as_bytes().to_vec(),
                                 events: None,
                             },
-                        );
+                            #[cfg(feature = "indexer")]
+                            store_asset_db: vec![],
+                        };
                     }
                 };
 
@@ -545,7 +593,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 match result {
                     Ok(rcpt) => {
                         results.push((
-                            hex::encode(hash),
+                            hex::encode(root_hash),
                             BulkResult {
                                 success: true,
                                 result: rcpt,
@@ -553,15 +601,23 @@ impl<D: Db, W: Wm> Executor<D, W> {
                             },
                         ));
 
-                        let event_tx = hash;
+                        let event_tx = root_hash;
                         bulk_events.iter_mut().for_each(|e| e.event_tx = event_tx);
 
-                        events.append(&mut bulk_events);
+                        input_events.append(&mut bulk_events);
+
+                        #[cfg(feature = "indexer")]
+                        {
+                            bulk_store_asset_db
+                                .iter_mut()
+                                .for_each(|d| d.tx_hash = event_tx);
+                            store_asset_db.append(&mut bulk_store_asset_db);
+                        }
                     }
                     Err(error) => {
                         execution_fail = true;
                         results.push((
-                            hex::encode(hash),
+                            hex::encode(root_hash),
                             BulkResult {
                                 success: false,
                                 result: error.to_string_full().as_bytes().to_vec(),
@@ -605,6 +661,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                         node.data.get_args(),
                                         self.seed.clone(),
                                         &mut bulk_events,
+                                        #[cfg(feature = "indexer")]
+                                        &mut bulk_store_asset_db,
                                         initial_fuel,
                                         block_timestamp,
                                     );
@@ -634,7 +692,15 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                 .iter_mut()
                                                 .for_each(|e| e.event_tx = event_tx);
 
-                                            events.append(&mut bulk_events);
+                                            input_events.append(&mut bulk_events);
+
+                                            #[cfg(feature = "indexer")]
+                                            {
+                                                bulk_store_asset_db
+                                                    .iter_mut()
+                                                    .for_each(|d| d.tx_hash = event_tx);
+                                                store_asset_db.append(&mut bulk_store_asset_db);
+                                            }
                                         }
                                         Err(error) => {
                                             results.push((
@@ -672,10 +738,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     fork.rollback();
                 }
 
-                let events = if events.is_empty() {
+                let events = if input_events.is_empty() {
                     None
                 } else {
-                    Some(events)
+                    Some(input_events)
                 };
 
                 (events, rmp_serialize(&results))
@@ -690,9 +756,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         };
         let burned_fuel = self.calculate_burned_fuel(burned_fuel);
 
-        (
+        HandleTransactionReturns {
             burn_fuel_args,
-            Receipt {
+            receipt: Receipt {
                 height,
                 index,
                 burned_fuel,
@@ -700,7 +766,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 returns: results.unwrap_or_default(),
                 events,
             },
-        )
+            #[cfg(feature = "indexer")]
+            store_asset_db,
+        }
     }
 
     fn emit_events(&mut self, events: &[SmartContractEvent]) {
@@ -729,7 +797,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         let events: Vec<SmartContractEvent> = vec![];
 
-        let (fuel_to_burn, mut receipt) = match tx {
+        let res = match tx {
             Transaction::UnitTransaction(tx) => {
                 self.handle_unit_transaction(tx, fork, height, index, events, block_timestamp)
             }
@@ -738,6 +806,11 @@ impl<D: Db, W: Wm> Executor<D, W> {
             }
         };
 
+        let fuel_to_burn = res.burn_fuel_args;
+        let mut receipt = res.receipt;
+        #[cfg(feature = "indexer")]
+        let mut store_asset_db = res.store_asset_db;
+
         // Try to burn fuel from the caller account
         let (res_burning, mut burned) =
             self.try_burn_fuel(fork, burn_fuel_method, fuel_to_burn, block_timestamp);
@@ -745,6 +818,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
             if let Some(tx_events) = &receipt.events {
                 self.emit_events(tx_events);
             }
+
+            #[cfg(feature = "indexer")]
+            self.indexer.data.append(&mut store_asset_db);
 
             receipt.burned_fuel = burned;
             receipt
@@ -831,6 +907,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
     ) -> Result<Hash> {
         debug!("Executing block: {}", height);
         // Write on a fork.
+
+        #[cfg(feature = "indexer")]
+        self.indexer.clear_data();
+
         let mut fork = self.db.write().fork_create();
 
         // Get a vector of executed transactions hashes.
@@ -917,6 +997,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
         // Final step, merge the fork.
         self.db.write().fork_merge(fork)?;
+
+        #[cfg(feature = "indexer")]
+        {
+            self.indexer.data.iter_mut().for_each(|d| {
+                d.block_height = height;
+                d.block_hash = block_hash;
+            });
+
+            // Send store asset info to a db
+            self.indexer.store_data();
+        }
 
         if is_validator && self.pubsub.lock().has_subscribers(Event::BLOCK) {
             #[cfg(feature = "rt-monitor")]
@@ -1102,6 +1193,9 @@ mod tests {
         Error, ErrorKind, TransactionDataV1,
     };
 
+    #[cfg(feature = "indexer")]
+    use crate::blockchain::indexer::IndexerConfig;
+
     use serde_value::{value, Value};
 
     const BLOCK_HEX: &str = "929893a56563647361a9736563703338347231c461045936d631b849bb5760bcf62e0d1261b6b6e227dc0a3892cbeec91be069aaa25996f276b271c2c53cba4be96d67edcadd66b793456290609102d5401f413cd1b5f4130b9cfaa68d30d0d25c3704cb72734cd32064365ff7042f5a3eee09b06cc10103c4221220648263253df78db6c2f1185e832c546f2f7a9becbdc21d3be41c80dc96b86011c4221220f937696c204cc4196d48f3fe7fc95c80be266d210b95397cc04cfc6b062799b8c4221220dec404bd222542402ffa6b32ebaa9998823b7bb0a628152601d1da11ec70b867c422122005db394ef154791eed2cb97e7befb2864a5702ecfd44fab7ef1c5ca215475c7d00c403000102";
@@ -1138,6 +1232,8 @@ mod tests {
             keypair,
             seed.clone(),
             "test_id".to_string(),
+            #[cfg(feature = "indexer")]
+            Indexer::new(IndexerConfig::default()),
         );
 
         if fuel_limit < FUEL_LIMIT {
@@ -1176,6 +1272,8 @@ mod tests {
             keypair,
             seed.clone(),
             "test_id".to_string(),
+            #[cfg(feature = "indexer")]
+            Indexer::new(IndexerConfig::default()),
         )
     }
 
@@ -1187,7 +1285,17 @@ mod tests {
 
         let keypair = Arc::new(crate::crypto::sign::tests::create_test_keypair());
 
-        Executor::new(pool, db, wm, sub, keypair, seed, "test_id".to_string())
+        Executor::new(
+            pool,
+            db,
+            wm,
+            sub,
+            keypair,
+            seed,
+            "test_id".to_string(),
+            #[cfg(feature = "indexer")]
+            Indexer::new(IndexerConfig::default()),
+        )
     }
 
     fn create_db_mock(fail: bool) -> MockDb {
@@ -1227,7 +1335,20 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
+            move |_: &mut dyn DbFork,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  #[cfg(feature = "indexer")] _,
+                  _,
+                  _| {
                 count += 1;
                 match count {
                     1 => {
@@ -1261,7 +1382,20 @@ mod tests {
         let mut wm = MockWm::new();
         let mut count = 0;
         wm.expect_call().returning(
-            move |_: &mut dyn DbFork, _, _, _, _, _, _, _, _, _, _, _, _| {
+            move |_: &mut dyn DbFork,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  #[cfg(feature = "indexer")] _,
+                  _,
+                  _| {
                 count += 1;
                 match count {
                     1 | 2 | 3 => {
