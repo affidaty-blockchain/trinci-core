@@ -480,7 +480,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut burned_fuel = 0;
 
         #[cfg(feature = "indexer")]
-        let mut store_asset_db = Vec::<StoreAssetDb>::new();
+        {
+            let bulk_hash_tx = tx.data.primary_hash();
+            let mut store_asset_db = Vec::<StoreAssetDb>::new();
+        }
 
         let mut burn_fuel_args = BurnFuelArgs {
             account: tx.data.get_caller().to_account_id(),
@@ -609,7 +612,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         {
                             bulk_store_asset_db
                                 .iter_mut()
-                                .for_each(|d| d.tx_hash = event_tx);
+                                .for_each(|d| d.tx_hash = bulk_hash_tx);
                             store_asset_db.append(&mut bulk_store_asset_db);
                         }
                     }
@@ -697,7 +700,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                             {
                                                 bulk_store_asset_db
                                                     .iter_mut()
-                                                    .for_each(|d| d.tx_hash = event_tx);
+                                                    .for_each(|d| d.tx_hash = bulk_hash_tx);
                                                 store_asset_db.append(&mut bulk_store_asset_db);
                                             }
                                         }
