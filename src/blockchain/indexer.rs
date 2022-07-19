@@ -51,11 +51,18 @@ pub struct StoreAssetDbStr {
     pub block_timestamp: u64,
 }
 
+/// Indexer configuration
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct IndexerConfig {
+    /// hostname
     pub host: String,
+    /// port
     pub port: u16,
+    /// database name
+    pub db_name: String,
+    /// username
     pub user: String,
+    /// password
     pub password: String,
 }
 
@@ -132,14 +139,12 @@ impl Indexer {
     }
 
     fn write_data_to_db(data: Vec<u8>, config: &IndexerConfig) -> Result<()> {
-        // TODO pass DB configuration
-
         let mut data: &[u8] = data.as_ref();
         let mut easy = Easy::new();
 
         let url = format!(
-            "http://{}:{}@{}:{}/trinci/_bulk_docs",
-            config.user, config.password, config.host, config.port
+            "http://{}:{}@{}:{}/{}/_bulk_docs",
+            config.user, config.password, config.host, config.port, config.db_name
         );
         easy.url(&url)
             .map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
@@ -180,6 +185,7 @@ impl Default for IndexerConfig {
         Self {
             host: "localhost".to_string(),
             port: 5984,
+            db_name: "trinci".to_string(),
             user: "admin".to_string(),
             password: "password".to_string(),
         }
