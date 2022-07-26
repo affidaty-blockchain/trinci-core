@@ -107,10 +107,15 @@ impl<D: Db> Builder<D> {
                 // If the node is the validator,
                 // the block is created,
                 // than a timestamp is needed.
-                let timestamp = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
+
+                let timestamp = if height == 0 {
+                    0
+                } else {
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                };
 
                 let blk_info = BlockInfo {
                     hash: None,

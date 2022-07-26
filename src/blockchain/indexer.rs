@@ -16,13 +16,13 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{base::serialize::rmp_deserialize, crypto::Hash, Error, ErrorKind, Result};
+use uuid::Uuid;
 
 use curl::easy::{Easy, List};
 use std::{io::Read, thread::spawn};
-use uuid::Uuid;
 
 /// Store asset data to store in the external db
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct StoreAssetDb {
     pub account: String,
     pub origin: String,
@@ -36,7 +36,7 @@ pub struct StoreAssetDb {
     pub block_timestamp: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Debug)]
 pub struct StoreAssetDbStr {
     pub _id: String,
     pub account: String,
@@ -49,6 +49,46 @@ pub struct StoreAssetDbStr {
     pub block_height: u64,
     pub block_hash: String,
     pub block_timestamp: u64,
+}
+
+fn get_amount(buf: &[u8]) -> serde_json::Value {
+    if buf.is_empty() {
+        serde_json::Value::Null
+    } else {
+        match rmp_deserialize::<serde_json::Value>(buf) {
+            Ok(val) => {
+                serde_json::json!({
+                    "source": buf,
+                    "value": val,
+                    "decoded": true
+                })
+            }
+            Err(e) => {
+                serde_json::json!({
+                    "source": buf,
+                    "value": e.to_string(),
+                    "decoded": false
+                })
+            }
+        }
+    }
+}
+
+fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
+    let val = serde_json::json!({
+        "_id": Uuid::new_v4().to_string(),
+        "account": data.account.clone(),
+        "origin": data.origin.clone(),
+        "asset": data.asset.clone(),
+        "prev_amount": get_amount(&data.prev_amount),
+        "amount": get_amount(&data.amount),
+        "tx_hash": hex::encode(data.tx_hash.as_bytes()),
+        "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
+        "block_height": data.block_height,
+        "block_hash": hex::encode(data.block_hash.as_bytes()),
+        "block_timestamp": data.block_timestamp,
+    });
+    serde_json::to_string(&val).unwrap() // This should be safe
 }
 
 /// Indexer configuration
@@ -66,7 +106,7 @@ pub struct IndexerConfig {
     pub password: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Indexer {
     pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
@@ -84,49 +124,12 @@ impl Indexer {
         self.data = Vec::new();
     }
 
-    fn get_amount(buf: &[u8]) -> serde_json::Value {
-        if buf.is_empty() {
-            serde_json::Value::Null
-        } else {
-            match rmp_deserialize::<serde_json::Value>(buf) {
-                Ok(val) => {
-                    serde_json::json!({
-                        "source": buf,
-                        "value": val,
-                        "decoded": true
-                    })
-                }
-                Err(e) => {
-                    serde_json::json!({
-                        "source": buf,
-                        "value": e.to_string(),
-                        "decoded": false
-                    })
-                }
-            }
-        }
-    }
-
     fn prepare_json_for_db(&self) -> String {
         let mut template = String::from("{\"docs\": [");
 
         let mut prefix = String::new();
         for d in &self.data {
-            // TODO impl from StoreAssetDb or Display for StoreAssetDb
-            let val = StoreAssetDbStr {
-                _id: Uuid::new_v4().to_string(),
-                account: d.account.clone(),
-                origin: d.origin.clone(),
-                asset: d.asset.clone(),
-                prev_amount: Self::get_amount(&d.prev_amount),
-                amount: Self::get_amount(&d.amount),
-                tx_hash: hex::encode(d.tx_hash.as_bytes()),
-                smartcontract_hash: hex::encode(d.smartcontract_hash.as_bytes()),
-                block_height: d.block_height,
-                block_hash: hex::encode(d.block_hash.as_bytes()),
-                block_timestamp: d.block_timestamp,
-            };
-            let data_str = serde_json::to_string(&val).unwrap(); // This should be safe
+            let data_str = json_string_from_store_asset_db(d);
             template.push_str(&prefix);
             template.push_str(&data_str);
             if prefix.is_empty() {
@@ -196,13 +199,13 @@ impl Default for IndexerConfig {
 mod tests {
     use serde_json::{json, Value};
 
-    use super::Indexer;
+    use crate::blockchain::indexer::get_amount;
 
     #[test]
     fn get_amount_empty_value() {
         let buf = [];
 
-        let amount = Indexer::get_amount(&buf);
+        let amount = get_amount(&buf);
 
         assert_eq!(amount, Value::Null);
     }
@@ -211,7 +214,7 @@ mod tests {
     fn get_amount_integer_1() {
         let buf = [42];
 
-        let amount = Indexer::get_amount(&buf);
+        let amount = get_amount(&buf);
 
         let expected: Value = json!({
             "value":42,
@@ -225,7 +228,7 @@ mod tests {
     #[test]
     fn get_amount_integer_2() {
         let buf = [205, 3, 232];
-        let amount = Indexer::get_amount(&buf);
+        let amount = get_amount(&buf);
 
         let expected: Value = json!({
             "value":1000,
@@ -243,7 +246,7 @@ mod tests {
             101, 115, 115, 97, 103, 101,
         ];
 
-        let amount = Indexer::get_amount(&buf);
+        let amount = get_amount(&buf);
 
         let expected: Value = json!({
             "value":json!({"units":42,"message":"message"}),
