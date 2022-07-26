@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::crypto::hash::Hashable;
 use crate::{base::serialize::rmp_deserialize, crypto::Hash, Error, ErrorKind, Result};
+use uuid::Uuid;
 
 use curl::easy::{Easy, List};
 use std::{io::Read, thread::spawn};
@@ -76,7 +76,7 @@ fn get_amount(buf: &[u8]) -> serde_json::Value {
 
 fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
     let val = serde_json::json!({
-        "_id": hex::encode(&data.primary_hash().as_bytes()),
+        "_id": Uuid::new_v4().to_string(),
         "account": data.account.clone(),
         "origin": data.origin.clone(),
         "asset": data.asset.clone(),
