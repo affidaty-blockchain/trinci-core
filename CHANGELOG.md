@@ -67,9 +67,9 @@ Added
 * Aligner module
 * Message::Ack for reqres interaction
 
-
 Removed
 * Synchronizer removed, now replaced by aligner
+
 
 0.2.6 - 08-02-2022
 ------------------
