@@ -27,10 +27,11 @@ Additional labels for pre-release metadata:
 * rc.x: stable release candidate.
 
 
-0.2.9 unreleased
+0.2.9-rc1 28-07-2022
 ----------------
 Added
 * Indexer feature
+* Now it is possible to get bootstrap and network informations from rest interface 
 
 0.2.8 05-07-2022
 ----------------
