@@ -1,5 +1,4 @@
-#image: affidaty/rust-buster-builder
-image: willygroup/rust-builder:v0.0.3
+image: affidaty/rust-buster-builder
 
 stages:
     - lints
