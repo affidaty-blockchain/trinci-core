@@ -29,6 +29,10 @@ use crate::{
     },
     Account, Error, ErrorKind, Result, SERVICE_ACCOUNT_ID,
 };
+
+#[cfg(feature = "indexer")]
+use crate::blockchain::indexer::StoreAssetDb;
+
 use serialize::rmp_deserialize;
 use std::{
     collections::HashMap,
@@ -716,6 +720,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<Vec<u8>>) {
@@ -733,6 +738,8 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            #[cfg(feature = "indexer")]
+            store_asset_db,
             seed,
             initial_fuel,
             block_timestamp,
@@ -912,6 +919,8 @@ impl Wm for WmLocal {
             &args,
             seed,
             &mut vec![],
+            #[cfg(feature = "indexer")]
+            &mut vec![],
             MAX_FUEL,
             block_timestamp,
         );
@@ -998,6 +1007,7 @@ impl Wm for WmLocal {
         args: &[u8],
         seed: Arc<SeedSource>,
         events: &mut Vec<SmartContractEvent>,
+        #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
     ) -> (u64, Result<i32>) {
@@ -1016,6 +1026,8 @@ impl Wm for WmLocal {
             network,
             origin,
             events,
+            #[cfg(feature = "indexer")]
+            store_asset_db,
             seed,
             initial_fuel,
             block_timestamp,
@@ -1167,7 +1179,14 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
         ) -> (u64, Result<Vec<u8>>) {
-            self.exec_transaction_with_events(db, data, &mut Vec::new(), create_arc_seed())
+            self.exec_transaction_with_events(
+                db,
+                data,
+                &mut Vec::new(),
+                #[cfg(feature = "indexer")]
+                &mut Vec::new(),
+                create_arc_seed(),
+            )
         }
 
         fn exec_transaction_with_events<T: DbFork>(
@@ -1175,6 +1194,8 @@ mod tests {
             db: &mut T,
             data: &TransactionData,
             events: &mut Vec<SmartContractEvent>,
+            #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
+
             seed: Arc<SeedSource>,
         ) -> (u64, Result<Vec<u8>>) {
             self.call(
@@ -1189,6 +1210,8 @@ mod tests {
                 data.get_args(),
                 seed,
                 events,
+                #[cfg(feature = "indexer")]
+                store_asset_db,
                 MAX_FUEL,
                 0,
             )
@@ -1210,6 +1233,8 @@ mod tests {
                 app_hash,
                 method.as_bytes(),
                 create_arc_seed(),
+                &mut Vec::new(),
+                #[cfg(feature = "indexer")]
                 &mut Vec::new(),
                 MAX_FUEL,
                 0,
@@ -1463,9 +1488,18 @@ mod tests {
         });
         let data = create_test_data("notify", input.clone());
         let mut events = Vec::new();
+        #[cfg(feature = "indexer")]
+        let mut store_asset_db = Vec::new();
 
         let _ = vm
-            .exec_transaction_with_events(&mut db, &data, &mut events, create_arc_seed())
+            .exec_transaction_with_events(
+                &mut db,
+                &data,
+                &mut events,
+                #[cfg(feature = "indexer")]
+                &mut store_asset_db,
+                create_arc_seed(),
+            )
             .1
             .unwrap();
 

@@ -21,6 +21,15 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NodeInfo {
+    pub public_ip: String,
+    pub bootstrap_address: String,
+    pub bootstrap_url_access: String,
+    pub bootstrap_hash: String,
+    pub bootstrap_path: String,
+}
+
 /// REST service configuration.
 #[derive(Clone)]
 pub struct RestConfig {
@@ -28,6 +37,8 @@ pub struct RestConfig {
     pub addr: String,
     /// TCP port.
     pub port: u16,
+    /// Node Info
+    pub node_info: NodeInfo,
 }
 
 /// REST service data.
@@ -62,10 +73,11 @@ impl RestService {
         let bc_chan = self.bc_chan.clone();
         let addr = self.config.addr.clone();
         let port = self.config.port;
+        let node_info = self.config.node_info.clone();
         let mut canary = Arc::clone(&self.canary);
         let handle = thread::spawn(move || {
             let _ = Arc::get_mut(&mut canary);
-            worker::run(addr, port, bc_chan);
+            worker::run(addr, port, node_info, bc_chan);
         });
         self.handle = Some(handle);
     }
@@ -88,14 +100,25 @@ impl RestService {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::channel;
+
+    pub fn create_node_info() -> NodeInfo {
+        NodeInfo {
+            public_ip: "10.10.10.1".to_string(),
+            bootstrap_address: "boot_addrs".to_string(),
+            bootstrap_url_access: "42.42.42.42".to_string(),
+            bootstrap_hash: "122112".to_string(),
+            bootstrap_path: "xxx".to_string(),
+        }
+    }
 
     fn create_rest_service() -> RestService {
         let config = RestConfig {
             addr: "localhost".to_owned(),
             port: 8000,
+            node_info: create_node_info(),
         };
 
         let (tx_chan, _rx_chan) = channel::confirmed_channel();

@@ -23,6 +23,8 @@ use crate::{
 };
 use tide::{http::mime, Request, Response, StatusCode};
 
+use super::service::NodeInfo;
+
 /// Conversion from "core" errors to HTTP errors.
 impl From<ErrorKind> for StatusCode {
     fn from(err: ErrorKind) -> StatusCode {
@@ -191,22 +193,14 @@ async fn get_p2p_id(req: Request<BlockRequestSender>) -> tide::Result {
     Ok(res.into())
 }
 
-async fn get_visa(_req: Request<BlockRequestSender>) -> tide::Result {
-    let node_info = std::fs::read_to_string("node_info.info").unwrap();
-    Ok(format!("{}", node_info).into())
-}
-
 async fn get_index(_req: Request<BlockRequestSender>) -> tide::Result {
     Ok(format!("TRINCI v{}", VERSION).into())
 }
 
-pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
+pub fn run(addr: String, port: u16, node_info: NodeInfo, block_chan: BlockRequestSender) {
     let mut app = tide::with_state(block_chan);
 
-    let node_info = {
-        let node_info = std::fs::read_to_string("node_info.info").unwrap();
-        serde_json::from_str::<NodeInfo>(&node_info).unwrap()
-    };
+    let node_info_str = serde_json::to_string(&node_info).unwrap();
 
     app.at("/api/v1/message").post(message_handler);
     app.at("/api/v1/submit").post(put_transaction);
@@ -218,21 +212,16 @@ pub fn run(addr: String, port: u16, block_chan: BlockRequestSender) {
     let _ = app
         .at("/api/v1/bootstrap")
         .serve_file(node_info.bootstrap_path);
-    app.at("api/v1/visa").get(get_visa);
+    app.at("/api/v1/visa")
+        .get(move |_req: Request<BlockRequestSender>| {
+            let node_info_str = node_info_str.clone();
+            async move { tide::Result::<Response>::Ok(node_info_str.into()) }
+        });
+
     app.at("/").get(get_index);
 
     let fut = app.listen((addr, port));
     async_std::task::block_on(fut).unwrap();
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct NodeInfo {
-    public_ip: String,
-    //address: String,
-    bootstrap_address: String,
-    bootstrap_url_access: String,
-    bootstrap_hash: String,
-    bootstrap_path: String,
 }
 
 #[cfg(test)]
@@ -251,6 +240,7 @@ mod tests {
         },
         blockchain::BlockRequestReceiver,
         channel,
+        rest::service::tests::create_node_info,
     };
     use std::{
         io::Read,
@@ -345,7 +335,7 @@ mod tests {
         block_svc_mock_start(rx_chan);
 
         thread::spawn(move || {
-            run("localhost".to_string(), port, tx_chan);
+            run("localhost".to_string(), port, create_node_info(), tx_chan);
         });
 
         let mut trials = 3;
