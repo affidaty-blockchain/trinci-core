@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{base::serialize::rmp_deserialize, crypto::Hash, Error, ErrorKind, Result};
+use crate::{
+    base::serialize::rmp_deserialize, crypto::Hash, wm::host_func::IndexerSequence, Error,
+    ErrorKind, Result,
+};
 use uuid::Uuid;
 
 use curl::easy::{Easy, List};
 use std::{io::Read, thread::spawn};
-
 /// Store asset data to store in the external db
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct StoreAssetDb {
@@ -29,6 +31,9 @@ pub struct StoreAssetDb {
     pub asset: String,
     pub prev_amount: Vec<u8>,
     pub amount: Vec<u8>,
+    pub method: String,
+    pub sequence_number: u64,
+    // pub tx_type: String,
     pub tx_hash: Hash,
     pub smartcontract_hash: Hash,
     pub block_height: u64,
@@ -44,6 +49,9 @@ pub struct StoreAssetDbStr {
     pub asset: String,
     pub prev_amount: serde_json::Value,
     pub amount: serde_json::Value,
+    pub method: String,
+    pub sequence_number: u64,
+    // pub tx_type: String,
     pub tx_hash: String,
     pub smartcontract_hash: String,
     pub block_height: u64,
@@ -82,6 +90,9 @@ fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
         "asset": data.asset.clone(),
         "prev_amount": get_amount(&data.prev_amount),
         "amount": get_amount(&data.amount),
+        "method": data.method.clone(),
+        "sequence_number": data.sequence_number,
+        // "tx_type": data.tx_type.clone(),
         "tx_hash": hex::encode(data.tx_hash.as_bytes()),
         "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
         "block_height": data.block_height,
@@ -110,6 +121,7 @@ pub struct IndexerConfig {
 pub struct Indexer {
     pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
+    pub indexer_sequnce: IndexerSequence,
 }
 
 impl Indexer {
@@ -117,6 +129,10 @@ impl Indexer {
         Indexer {
             data: Vec::new(),
             config,
+            indexer_sequnce: IndexerSequence {
+                prev_hash: None,
+                next_sequence: 0,
+            },
         }
     }
 

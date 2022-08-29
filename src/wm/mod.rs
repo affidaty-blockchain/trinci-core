@@ -123,6 +123,7 @@ pub trait Wm: Send + 'static {
         store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
+        method: &str,
     ) -> (u64, Result<i32>);
 
     fn app_hash_check<'a>(

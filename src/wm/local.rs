@@ -743,6 +743,7 @@ impl Wm for WmLocal {
             seed,
             initial_fuel,
             block_timestamp,
+            method,
         };
 
         // Allocate execution context (aka Store).
@@ -1010,6 +1011,7 @@ impl Wm for WmLocal {
         #[cfg(feature = "indexer")] store_asset_db: &mut Vec<StoreAssetDb>,
         initial_fuel: u64,
         block_timestamp: u64,
+        method: &str,
     ) -> (u64, Result<i32>) {
         // TODO put common code with call in a separated method
         let engine1 = self.engine.clone(); // FIXME
@@ -1031,6 +1033,7 @@ impl Wm for WmLocal {
             seed,
             initial_fuel,
             block_timestamp,
+            method,
         };
 
         // Allocate execution context (aka Store).
@@ -1238,6 +1241,7 @@ mod tests {
                 &mut Vec::new(),
                 MAX_FUEL,
                 0,
+                method,
             )
         }
     }
