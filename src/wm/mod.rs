@@ -104,6 +104,7 @@ pub trait Wm: Send + 'static {
         events: &mut Vec<SmartContractEvent>,
         initial_fuel: u64,
         block_timestamp: u64,
+        method: &str,
     ) -> (u64, Result<i32>);
 
     #[allow(clippy::too_many_arguments)]

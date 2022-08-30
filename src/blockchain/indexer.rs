@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::{
-    base::serialize::rmp_deserialize, crypto::Hash, wm::host_func::IndexerSequence, Error,
-    ErrorKind, Result,
-};
+use crate::{base::serialize::rmp_deserialize, crypto::Hash, Error, ErrorKind, Result};
 use uuid::Uuid;
 
 use curl::easy::{Easy, List};
@@ -32,8 +29,6 @@ pub struct StoreAssetDb {
     pub prev_amount: Vec<u8>,
     pub amount: Vec<u8>,
     pub method: String,
-    pub sequence_number: u64,
-    // pub tx_type: String,
     pub tx_hash: Hash,
     pub smartcontract_hash: Hash,
     pub block_height: u64,
@@ -50,8 +45,6 @@ pub struct StoreAssetDbStr {
     pub prev_amount: serde_json::Value,
     pub amount: serde_json::Value,
     pub method: String,
-    pub sequence_number: u64,
-    // pub tx_type: String,
     pub tx_hash: String,
     pub smartcontract_hash: String,
     pub block_height: u64,
@@ -91,8 +84,7 @@ fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
         "prev_amount": get_amount(&data.prev_amount),
         "amount": get_amount(&data.amount),
         "method": data.method.clone(),
-        "sequence_number": data.sequence_number,
-        // "tx_type": data.tx_type.clone(),
+        "sequence_number": next_sequence(&data.tx_hash),
         "tx_hash": hex::encode(data.tx_hash.as_bytes()),
         "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
         "block_height": data.block_height,
@@ -100,6 +92,35 @@ fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
         "block_timestamp": data.block_timestamp,
     });
     serde_json::to_string(&val).unwrap() // This should be safe
+}
+
+#[cfg(feature = "indexer")]
+static mut PREV_HASH: Option<Hash> = None;
+#[cfg(feature = "indexer")]
+static mut SEQUENCE: u64 = 0;
+
+#[cfg(feature = "indexer")]
+pub fn next_sequence(hash: &Hash) -> u64 {
+    // if Hash is none, init counter
+    unsafe {
+        match PREV_HASH {
+            Some(prev_hahs) => {
+                if prev_hahs.eq(&hash) {
+                    SEQUENCE += 1;
+                    return SEQUENCE;
+                } else {
+                    SEQUENCE = 0;
+                    PREV_HASH = Some(hash.clone());
+                    return 0;
+                }
+            }
+            None => {
+                SEQUENCE = 0;
+                PREV_HASH = Some(hash.clone());
+                return 0;
+            }
+        }
+    }
 }
 
 /// Indexer configuration
@@ -121,7 +142,6 @@ pub struct IndexerConfig {
 pub struct Indexer {
     pub config: IndexerConfig,
     pub data: Vec<StoreAssetDb>,
-    pub indexer_sequnce: IndexerSequence,
 }
 
 impl Indexer {
@@ -129,10 +149,6 @@ impl Indexer {
         Indexer {
             data: Vec::new(),
             config,
-            indexer_sequnce: IndexerSequence {
-                prev_hash: None,
-                next_sequence: 0,
-            },
         }
     }
 
@@ -215,7 +231,10 @@ impl Default for IndexerConfig {
 mod tests {
     use serde_json::{json, Value};
 
-    use crate::blockchain::indexer::get_amount;
+    use crate::{
+        blockchain::indexer::{get_amount, next_sequence},
+        crypto::Hash,
+    };
 
     #[test]
     fn get_amount_empty_value() {
@@ -271,5 +290,22 @@ mod tests {
         });
 
         assert_eq!(amount, expected);
+    }
+
+    #[test]
+    fn test_sequence_number() {
+        let hash =
+            Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae")
+                .unwrap();
+        let s0 = next_sequence(&hash);
+        let s1 = next_sequence(&hash);
+        assert_eq!(s0, 0);
+        assert_eq!(s1, 1);
+
+        let hash =
+            Hash::from_hex("12202c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886255e7ae")
+                .unwrap();
+        let s0 = next_sequence(&hash);
+        assert_eq!(s0, 0);
     }
 }

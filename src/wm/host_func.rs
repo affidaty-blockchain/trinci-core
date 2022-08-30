@@ -36,35 +36,6 @@ use ring::digest;
 
 use super::{get_fuel_consumed_for_error, CtxArgs};
 
-#[cfg(feature = "indexer")]
-pub struct IndexerSequence {
-    pub prev_hash: Option<Hash>,
-    pub next_sequence: u64,
-}
-
-impl IndexerSequence {
-    pub fn next(&mut self, hash: Hash) -> u64 {
-        // if Hash is none, init counter
-        match self.prev_hash {
-            Some(prev_hahs) => {
-                if prev_hahs.eq(&hash) {
-                    self.next_sequence += 1;
-                    return self.next_sequence;
-                } else {
-                    self.next_sequence = 0;
-                    self.prev_hash = Some(hash);
-                    return 0;
-                }
-            }
-            None => {
-                self.next_sequence = 0;
-                self.prev_hash = Some(hash);
-                return 0;
-            }
-        }
-    }
-}
-
 /// Data required to perform contract persistent actions.
 pub struct CallContext<'a> {
     /// Wasm machine reference (None if implementation do not support nested calls).
@@ -280,8 +251,6 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
                 block_hash: Hash::default(),
                 block_timestamp: ctx.block_timestamp,
                 method: ctx.method.to_string(),
-                sequence_number: todo!(),
-                // tx_type: todo!(),
             };
 
             ctx.store_asset_db.push(data);
