@@ -768,8 +768,15 @@ impl Wm for WmLocal {
         let alloc_func = unwrap_or_return!(instance
             .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
             .map_err(|_err| {
-                error!("Function 'alloc' not found");
-                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
+                instance
+                    .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "malloc")
+                    .map_err(|_err| {
+                        error!("Function 'alloc' or 'malloc' not found");
+                        Error::new_ext(
+                            ErrorKind::ResourceNotFound,
+                            "wasm `alloc` or `malloc` not found",
+                        )
+                    })
             }));
 
         // Exporting the instance memory
