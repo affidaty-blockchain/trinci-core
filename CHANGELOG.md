@@ -26,10 +26,10 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.9-rc2 30-08-2022
+0.2.9-rc3 04-11-2022
 ----------------
-Added
-* Now didexer feature collects data of tx method and tx sequence too
+Removed
+* Event "REMOVE_ASSET" removed, now 0.2.9 is retrocompatible with 0.2.8
 
 
 0.2.9-rc1 28-07-2022
