@@ -268,14 +268,16 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
     account.remove_asset(ctx.owner);
     ctx.db.store_account(account);
 
+    // TODO: add event in 3.0.0
     // Emit on remove asset
-    let data = RemoveAssetData {
-        account: account_id,
-    };
+    // let data = RemoveAssetData {
+    //     account: account_id,
+    // };
 
-    let buf = rmp_serialize(&data).unwrap_or_default();
+    // let buf = rmp_serialize(&data).unwrap_or_default();
 
-    emit(ctx, "REMOVE_ASSET", &buf);
+    // emit(ctx, "REMOVE_ASSET", &buf);
+    // ------------------------
 }
 /// Digital signature verification.
 pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i32 {
