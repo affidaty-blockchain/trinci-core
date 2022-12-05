@@ -481,6 +481,29 @@ impl<D: Db> Dispatcher<D> {
         Message::GetP2pIdResponse(id)
     }
 
+    fn exec_read_only_transaction_handler(
+        &self,
+        _target: String,
+        _method: String,
+        // args: Vec<u8>,
+        _origin: String,
+        // _contract: Option<Hash>,
+        max_fuel: u64,
+    ) -> Message {
+        // TODO: implement read_only_exec and return right rx.
+        println!("ECCHICE");
+
+        let rx = crate::Receipt {
+            height: 0,
+            index: 0,
+            burned_fuel: max_fuel,
+            success: true,
+            returns: vec![0x00],
+            events: None,
+        };
+        Message::GetReceiptResponse { rx }
+    }
+
     fn packed_message_handler(
         &mut self,
         buf: Vec<u8>,
@@ -604,6 +627,14 @@ impl<D: Db> Dispatcher<D> {
                 None
             }
             Message::GetP2pIdRequest => Some(self.get_p2p_id_handler()),
+            Message::ExecReadOnlyTransaction {
+                target,
+                method,
+                // args,
+                origin,
+                // contract,
+                max_fuel,
+            } => Some(self.exec_read_only_transaction_handler(target, method, origin, max_fuel)),
             Message::Packed { buf } => self.packed_message_handler(buf, res_chan, pack_level + 1),
             _ => None,
         }

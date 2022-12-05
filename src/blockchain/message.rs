@@ -173,6 +173,22 @@ pub enum Message {
     /// Send block info to aligner
     #[serde(rename = "22")]
     AlignBlockInfo { peer_id: String, block: Block },
+    /// Read only put tx
+    #[serde(rename = "23")]
+    ExecReadOnlyTransaction {
+        /// Target account.
+        target: String,
+        /// Method.
+        method: String,
+        /// Method's args.
+        // args: Vec<u8>,
+        /// Origin.
+        origin: String,
+        /// Contract.
+        // contract: Option<Hash>,
+        /// Max consumable fuel.
+        max_fuel: u64,
+    },
     /// Acknowledgment message for reqRes,
     /// it means that a req message
     /// has been received.
