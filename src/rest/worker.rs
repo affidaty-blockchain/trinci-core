@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
+
 use crate::{
     base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{BlockRequestSender, Message},
     crypto::Hash,
     Error, ErrorKind, Result, VERSION,
 };
+
 use tide::{http::mime, Request, Response, StatusCode};
 
 use super::service::NodeInfo;
@@ -141,12 +143,16 @@ struct ReadOnlyArgs {
     method: String,
     origin: String,
     max_fuel: u64,
+    args: Vec<u8>,
+    network: String,
+    contract: Option<Hash>
 }
 
 async fn read_only_sync_exec(mut req: Request<BlockRequestSender>) -> tide::Result {
 
-    let ReadOnlyArgs { target, method,  origin,  max_fuel } = req.body_json().await?;
-    let message = Message::ExecReadOnlyTransaction { target, method,  origin,  max_fuel };
+    let ReadOnlyArgs { target, method,  origin,  max_fuel, args,  network, contract} = req.body_json().await?;
+    
+    let message = Message::ExecReadOnlyTransaction { target, method,  origin,  max_fuel, args, contract, network};
     
     let bc_res = match  message {
     Message::ExecReadOnlyTransaction { .. } => {

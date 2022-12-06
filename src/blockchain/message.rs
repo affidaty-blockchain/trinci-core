@@ -181,13 +181,15 @@ pub enum Message {
         /// Method.
         method: String,
         /// Method's args.
-        // args: Vec<u8>,
-        /// Origin.
+        args: Vec<u8>,
+        /// Origin. (PublicKey)
         origin: String,
         /// Contract.
-        // contract: Option<Hash>,
+        contract: Option<Hash>,
         /// Max consumable fuel.
         max_fuel: u64,
+        /// Network
+        network: String,
     },
     /// Acknowledgment message for reqRes,
     /// it means that a req message

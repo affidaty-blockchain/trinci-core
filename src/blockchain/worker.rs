@@ -59,7 +59,7 @@ pub struct BlockWorker<D: Db, W: Wm> {
     /// Blockchain requests receiver.
     rx_chan: BlockRequestReceiver,
     /// Dispatcher subsystem, in charge of handling incoming blockchain messages.
-    dispatcher: Dispatcher<D>,
+    dispatcher: Dispatcher<D, W>,
     /// Builder subsystem, in charge of building new blocks (validator only).
     builder: Builder<D>,
     /// Executor subsystem, in charge of executing block transactions.
@@ -121,6 +121,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             p2p_id.clone(),
             AlignerInterface(aligner_tx_chan, aligner_status.clone()),
             node_aligner,
+            wm.clone() // TODO: add feature
         );
 
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());
