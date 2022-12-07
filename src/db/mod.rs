@@ -39,6 +39,9 @@ pub trait Db: Send + Sync + 'static {
     /// Load data associated to the given account `id`.
     fn load_account_data(&self, id: &str, key: &str) -> Option<Vec<u8>>;
 
+    /// Fetch DB generic data (this shuld be used by core only, this map sould be used only internally).
+    fn load_data(&self, key: &str) -> Option<Vec<u8>>;
+
     /// Check if transaction is present.
     fn contains_transaction(&self, key: &Hash) -> bool;
 
@@ -87,6 +90,12 @@ pub trait DbFork: 'static {
 
     /// Store data associated to the given account `id`.
     fn store_account_data(&mut self, id: &str, key: &str, data: Vec<u8>);
+
+    /// Fetch DB generic data (this shuld be used by core only, this map sould be used only internally).
+    fn load_data(&self, key: &str) -> Option<Vec<u8>>;
+
+    /// Insert/Update generic data.
+    fn store_data(&mut self, key: &str, data: Vec<u8>);
 
     /// Remove data associated to the given account `id`.
     fn remove_account_data(&mut self, id: &str, key: &str);

@@ -36,6 +36,7 @@ pub(crate) mod builder;
 pub(crate) mod dispatcher;
 pub(crate) mod executor;
 pub(crate) mod pool;
+#[cfg(feature = "ro-exec")]
 pub(crate) mod read_only_executor;
 
 pub mod aligner;

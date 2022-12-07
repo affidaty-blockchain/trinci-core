@@ -114,6 +114,7 @@ const RECEIPTS: &str = "receipts";
 const TRANSACTIONS_HASH: &str = "transactions_hash";
 const RECEIPTS_HASH: &str = "receipts_hash";
 const BLOCKS: &str = "blocks";
+const INTERNAL_DB: &str = "internal_db";
 
 /// Database implementation using rocks db.
 pub struct RocksDb {
@@ -161,6 +162,12 @@ impl Db for RocksDb {
     /// Load data associated to the given account `id`.
     fn load_account_data(&self, id: &str, key: &str) -> Option<Vec<u8>> {
         let map: ProofMapIndex<_, str, Vec<u8>> = self.snap.get_proof_map((ACCOUNTS, id));
+        map.get(key)
+    }
+
+    /// Fetch DB generic data (this shuld be used by core only, this map sould be used only internally).
+    fn load_data(&self, key: &str) -> Option<Vec<u8>> {
+        let map: ProofMapIndex<_, str, Vec<u8>> = self.snap.get_proof_map(INTERNAL_DB);
         map.get(key)
     }
 
@@ -269,6 +276,18 @@ impl DbFork for RocksDbFork {
     fn store_account_data(&mut self, id: &str, key: &str, data: Vec<u8>) {
         let mut map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map((ACCOUNTS, id));
         map.put(key, data);
+    }
+
+    /// Fetch DB generic data (this shuld be used by core only, this map sould be used only internally).
+    fn load_data(&self, key: &str) -> Option<Vec<u8>> {
+        let map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map(INTERNAL_DB);
+        map.get(key)
+    }
+
+    /// Insert/Update generic data.
+    fn store_data(&mut self, key: &str, data: Vec<u8>) {
+        let mut map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map(INTERNAL_DB);
+        map.put(&key, data);
     }
 
     /// Remove data associated to the given account `id`.
