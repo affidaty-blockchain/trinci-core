@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
-
 use crate::{
     base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{BlockRequestSender, Message},
@@ -145,29 +144,48 @@ struct ReadOnlyArgs {
     max_fuel: u64,
     args: Vec<u8>,
     network: String,
-    contract: Option<Hash>
+    contract: Option<Hash>,
 }
 
 async fn read_only_sync_exec(mut req: Request<BlockRequestSender>) -> tide::Result {
+    let ReadOnlyArgs {
+        target,
+        method,
+        origin,
+        max_fuel,
+        args,
+        network,
+        contract,
+    } = req.body_json().await?;
 
-    let ReadOnlyArgs { target, method,  origin,  max_fuel, args,  network, contract} = req.body_json().await?;
-    
-    let message = Message::ExecReadOnlyTransaction { target, method,  origin,  max_fuel, args, contract, network};
-    
-    let bc_res = match  message {
-    Message::ExecReadOnlyTransaction { .. } => {
+    let message = Message::ExecReadOnlyTransaction {
+        target,
+        method,
+        origin,
+        max_fuel,
+        args,
+        contract,
+        network,
+    };
+
+    let bc_res = match message {
+        Message::ExecReadOnlyTransaction { .. } => {
             match send_recv(req.state(), message).await? {
-                    Message::GetReceiptResponse { rx } => {
-                        debug!("{:?}", &rx);
-                        rmp_serialize(&rx)},
-                    Message::Exception(err) => Err(err),
-                    _ => Err(Error::new_ext(
-                        ErrorKind::Other,
-                        "unexpected response from block service",
-                    )),
+                Message::GetReceiptResponse { rx } => {
+                    // debug!("{:?}", &rx);
+                    rmp_serialize(&rx)
                 }
-    }
-    _ => {Err(Error::new_ext(ErrorKind::MalformedData, "wrong message type"))}
+                Message::Exception(err) => Err(err),
+                _ => Err(Error::new_ext(
+                    ErrorKind::Other,
+                    "unexpected response from block service",
+                )),
+            }
+        }
+        _ => Err(Error::new_ext(
+            ErrorKind::MalformedData,
+            "wrong message type",
+        )),
     };
     return tide_result(bc_res);
 }
