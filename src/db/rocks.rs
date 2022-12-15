@@ -287,7 +287,7 @@ impl DbFork for RocksDbFork {
     /// Insert/Update generic data.
     fn store_data(&mut self, key: &str, data: Vec<u8>) {
         let mut map: ProofMapIndex<_, str, Vec<u8>> = self.0.get_proof_map(INTERNAL_DB);
-        map.put(&key, data);
+        map.put(key, data);
     }
 
     /// Remove data associated to the given account `id`.

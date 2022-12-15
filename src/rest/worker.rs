@@ -187,7 +187,7 @@ async fn read_only_sync_exec(mut req: Request<BlockRequestSender>) -> tide::Resu
             "wrong message type",
         )),
     };
-    return tide_result(bc_res);
+    tide_result(bc_res)
 }
 
 async fn get_receipt(req: Request<BlockRequestSender>) -> tide::Result {

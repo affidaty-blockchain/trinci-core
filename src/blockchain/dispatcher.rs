@@ -491,6 +491,7 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
     }
 
     #[allow(unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     fn exec_read_only_transaction_handler(
         &self,
         target: String,
