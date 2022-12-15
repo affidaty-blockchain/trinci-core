@@ -66,20 +66,6 @@ pub(crate) struct Executor<D: Db> {
     is_validator: Arc<bool>,
 }
 
-// impl<D: Db> Clone for Executor<D> {
-//     fn clone(&self) -> Self {
-//         Executor {
-//             db: self.db.clone(),
-//             wm: self.wm.clone(),
-//             burn_fuel_method: self.burn_fuel_method.clone(),
-//             seed: self.seed.clone(),
-//             is_validator: self.is_validator.clone(),
-//             #[cfg(feature = "indexer")]
-//             indexer: self.indexer.clone(),
-//         }
-//     }
-// }
-
 // DELETE
 fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fuel_consumed: u64) {
     let (data, data_suffix) = {
@@ -197,8 +183,6 @@ impl<D: Db> Executor<D> {
         match app_hash {
             Ok(app_hash) => {
                 let mut events: Vec<SmartContractEvent> = vec![];
-
-                // TODO: call ro_call: it replace hf_drand w/ hf_ephemeral_drand
 
                 let (fuel_consumed, result) = self.wm.call(
                     fork,

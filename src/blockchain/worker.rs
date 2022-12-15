@@ -121,7 +121,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             p2p_id.clone(),
             AlignerInterface(aligner_tx_chan, aligner_status.clone()),
             node_aligner,
-            wm.clone(), // TODO: add feature
+            wm.clone(),
         );
 
         let builder = Builder::new(config.lock().threshold, pool.clone(), db.clone());

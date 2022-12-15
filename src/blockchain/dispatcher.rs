@@ -89,7 +89,6 @@ pub(crate) struct Dispatcher<D: Db, W: Wm> {
     /// Aligner
     dispatcher_aligner: AlignerInterface,
     /// WM for read only executor
-    /// TODO: add feature
     /// Should be W not D
     wm_read_only: Arc<Mutex<W>>,
 }
@@ -107,7 +106,6 @@ impl<D: Db, W: Wm> Clone for Dispatcher<D, W> {
                 self.dispatcher_aligner.0.clone(),
                 self.dispatcher_aligner.1.clone(),
             ),
-            // TODO: add feature
             wm_read_only: self.wm_read_only.clone(),
         }
     }
