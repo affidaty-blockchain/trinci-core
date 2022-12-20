@@ -1,6 +1,6 @@
 [package]
 name = "trinci-core"
-version = "0.2.9-rc3"
+version = "0.2.9-rc4"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2021"
 description = "TRINCI Blockchain Core"
@@ -86,3 +86,4 @@ rest = ["tide"]
 bridge = []
 tpm2 = ["tss-esapi", "tss-esapi-sys"]
 rt-monitor = ["isahc"]
+ro-exec = []

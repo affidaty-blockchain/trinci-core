@@ -1142,10 +1142,12 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         let mut seed_prev_hash = self.seed.prev_hash.lock();
                         let mut seed_rxs_hash = self.seed.rxs_hash.lock();
                         let mut seed_txs_hash = self.seed.txs_hash.lock();
+                        let mut seed_prev_seed = self.seed.previous_seed.lock();
 
                         *seed_prev_hash = prev_hash;
                         *seed_txs_hash = txs_hash;
                         *seed_rxs_hash = rxs_hash;
+                        *seed_prev_seed = 0;
                     }
                 }
                 Err(err) => {

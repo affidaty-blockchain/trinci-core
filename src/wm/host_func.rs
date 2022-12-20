@@ -279,6 +279,7 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
     // emit(ctx, "REMOVE_ASSET", &buf);
     // ------------------------
 }
+
 /// Digital signature verification.
 pub fn verify(_ctx: &CallContext, pk: &PublicKey, data: &[u8], sign: &[u8]) -> i32 {
     pk.verify(data, sign) as i32
