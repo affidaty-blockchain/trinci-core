@@ -27,7 +27,7 @@
 use crate::{
     base::{
         schema::{SmartContractEvent, FUEL_LIMIT},
-        Mutex, RwLock,
+        RwLock,
     },
     crypto::{drand::SeedSource, Hash},
     db::{Db, DbFork},
@@ -52,7 +52,8 @@ struct ConsumeFuelReturns {
     units: u64,
 }
 
-/// Executor context data.
+/// Executor context data
+#[allow(dead_code)]
 pub(crate) struct Executor<D: Db> {
     /// Instance of a type implementing Database trait.
     db: Arc<RwLock<D>>,
@@ -196,8 +197,6 @@ impl<D: Db> Executor<D> {
                     &args,
                     seed.clone(),
                     &mut events,
-                    #[cfg(feature = "indexer")]
-                    &mut store_asset_db,
                     initial_fuel,
                     block_timestamp,
                 );
