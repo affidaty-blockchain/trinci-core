@@ -26,17 +26,16 @@ Additional labels for pre-release metadata:
 * beta.x: shipped version under testing.
 * rc.x: stable release candidate.
 
-0.2.9-rc3 04-11-2022
-----------------
-Removed
-* Event "REMOVE_ASSET" removed, now 0.2.9 is retrocompatible with 0.2.8
-
-
-0.2.9-rc1 28-07-2022
+0.2.9 28-12-2022
 ----------------
 Added
-* Indexer feature
-* Now it is possible to get bootstrap and network informations from rest interface 
+ * Indexer feature
+ * Now it is possible to get bootstrap and network informations from rest interface 
+ * readonly-exec feature
+Fixed
+ * drand
+Removed
+ * Event "REMOVE_ASSET" removed, now 0.2.9 is retrocompatible with 0.2.8
 
 0.2.8 05-07-2022
 ----------------

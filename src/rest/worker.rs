@@ -21,6 +21,7 @@ use crate::{
     crypto::Hash,
     Error, ErrorKind, Result, VERSION,
 };
+
 use tide::{http::mime, Request, Response, StatusCode};
 
 use super::service::NodeInfo;
@@ -135,6 +136,60 @@ async fn get_transaction(req: Request<BlockRequestSender>) -> tide::Result {
     tide_result(res)
 }
 
+#[derive(Deserialize)]
+struct ReadOnlyArgs {
+    target: String,
+    method: String,
+    origin: String,
+    max_fuel: u64,
+    args: Vec<u8>,
+    network: String,
+    contract: Option<Hash>,
+}
+
+async fn read_only_sync_exec(mut req: Request<BlockRequestSender>) -> tide::Result {
+    let ReadOnlyArgs {
+        target,
+        method,
+        origin,
+        max_fuel,
+        args,
+        network,
+        contract,
+    } = req.body_json().await?;
+
+    let message = Message::ExecReadOnlyTransaction {
+        target,
+        method,
+        origin,
+        max_fuel,
+        args,
+        contract,
+        network,
+    };
+
+    let bc_res = match message {
+        Message::ExecReadOnlyTransaction { .. } => {
+            match send_recv(req.state(), message).await? {
+                Message::GetReceiptResponse { rx } => {
+                    // debug!("{:?}", &rx);
+                    rmp_serialize(&rx)
+                }
+                Message::Exception(err) => Err(err),
+                _ => Err(Error::new_ext(
+                    ErrorKind::Other,
+                    "unexpected response from block service",
+                )),
+            }
+        }
+        _ => Err(Error::new_ext(
+            ErrorKind::MalformedData,
+            "wrong message type",
+        )),
+    };
+    tide_result(bc_res)
+}
+
 async fn get_receipt(req: Request<BlockRequestSender>) -> tide::Result {
     let ticket = req.param("0").unwrap_or_default();
     let hash = Hash::from_hex(ticket).unwrap_or_default();
@@ -204,6 +259,7 @@ pub fn run(addr: String, port: u16, node_info: NodeInfo, block_chan: BlockReques
 
     app.at("/api/v1/message").post(message_handler);
     app.at("/api/v1/submit").post(put_transaction);
+    app.at("/api/v1/ro/exec").post(read_only_sync_exec);
     app.at("/api/v1/account/:0").get(get_account);
     app.at("/api/v1/transaction/:0").get(get_transaction);
     app.at("/api/v1/receipt/:0").get(get_receipt);
