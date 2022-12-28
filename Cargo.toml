@@ -1,6 +1,6 @@
 [package]
 name = "trinci-core"
-version = "0.2.9-rc4"
+version = "0.2.9"
 authors = ["The Trinci Team <trinci@affidaty.io>"]
 edition = "2021"
 description = "TRINCI Blockchain Core"
