@@ -24,10 +24,11 @@ use std::{
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NodeInfo {
     pub public_ip: String,
-    pub bootstrap_address: String,
+    pub p2p_account_id: String,
+    pub p2p_port: u16,
     pub bootstrap_url_access: String,
-    pub bootstrap_hash: String,
-    pub bootstrap_path: String,
+    pub bootstrap_file_path: String,
+    pub node_version: (String, String),
 }
 
 /// REST service configuration.
@@ -107,10 +108,11 @@ pub mod tests {
     pub fn create_node_info() -> NodeInfo {
         NodeInfo {
             public_ip: "10.10.10.1".to_string(),
-            bootstrap_address: "boot_addrs".to_string(),
-            bootstrap_url_access: "42.42.42.42".to_string(),
-            bootstrap_hash: "122112".to_string(),
-            bootstrap_path: "xxx".to_string(),
+            p2p_account_id: "AAAA".to_string(),
+            p2p_port: "10".to_string(),
+            bootstrap_url_access: "www.test.com".to_string(),
+            node_version: "0.0.0".to_string(),
+            bootstrap_file_path: "./here.bin".to_string(),
         }
     }
 

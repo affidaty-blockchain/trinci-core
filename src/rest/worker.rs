@@ -267,7 +267,7 @@ pub fn run(addr: String, port: u16, node_info: NodeInfo, block_chan: BlockReques
     app.at("/api/v1/p2p/id").get(get_p2p_id);
     let _ = app
         .at("/api/v1/bootstrap")
-        .serve_file(node_info.bootstrap_path);
+        .serve_file(node_info.bootstrap_file_path);
     app.at("/api/v1/visa")
         .get(move |_req: Request<BlockRequestSender>| {
             let node_info_str = node_info_str.clone();
