@@ -109,9 +109,9 @@ pub mod tests {
         NodeInfo {
             public_ip: "10.10.10.1".to_string(),
             p2p_account_id: "AAAA".to_string(),
-            p2p_port: "10".to_string(),
+            p2p_port: 10,
             bootstrap_url_access: "www.test.com".to_string(),
-            node_version: "0.0.0".to_string(),
+            node_version: ("0.0.0".to_string(), "0.0.0".to_string()),
             bootstrap_file_path: "./here.bin".to_string(),
         }
     }
