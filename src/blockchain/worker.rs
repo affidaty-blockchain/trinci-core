@@ -129,7 +129,7 @@ impl<D: Db, W: Wm> BlockWorker<D, W> {
             pool,
             db.clone(),
             wm.clone(),
-            pubsub,
+            pubsub.clone(),
             config.lock().keypair.clone(),
             seed,
             p2p_id,

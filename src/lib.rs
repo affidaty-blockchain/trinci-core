@@ -45,6 +45,8 @@ pub mod rest;
 pub use crypto::tpm2;
 #[cfg(feature = "rt-monitor")]
 pub mod network_monitor;
+// TODO: #[cfg(feature = "kafka")]
+pub mod kafka;
 
 pub use base::{Account, Block, Receipt, Transaction, TransactionDataV1};
 pub use blockchain::{BlockConfig, BlockService, Message};
