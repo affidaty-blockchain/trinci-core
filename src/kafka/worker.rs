@@ -16,6 +16,7 @@
 // along with TRINCI. If not, see <https://www.gnu.org/licenses/>.
 
 use super::KafkaConfig;
+use crate::base::serialize::rmp_serialize;
 use crate::blockchain::{pubsub::Event, BlockRequestSender, Message};
 
 use futures::{future, StreamExt};
@@ -38,12 +39,16 @@ impl KafkaWorker {
 
     fn handle_msg(&self, msg: Message) {
         match msg {
-            Message::GetContractEvent { .. } => {
-                self.send_to_kafka(&self.config.addr, SMARTCONTRACT_EVENT, msg)
-            }
-            Message::GetBlockResponse { .. } => {
-                self.send_to_kafka(&self.config.addr, BLOCK_EVENT, msg)
-            }
+            Message::GetContractEvent { .. } => self.send_to_kafka(
+                &format!("{}:{}", self.config.addr, self.config.port),
+                SMARTCONTRACT_EVENT,
+                msg,
+            ),
+            Message::GetBlockResponse { .. } => self.send_to_kafka(
+                &format!("{}:{}", self.config.addr, self.config.port),
+                BLOCK_EVENT,
+                msg,
+            ),
             _ => (),
         }
     }
@@ -56,11 +61,10 @@ impl KafkaWorker {
             .create()
             .unwrap();
 
-        let json_msg = serde_json::to_string(&payload).unwrap();
+        let buf = rmp_serialize(&payload).unwrap();
+        let hex = hex::encode(buf);
 
-        producer
-            .send(&Record::from_value(topic, json_msg.as_bytes()))
-            .unwrap();
+        producer.send(&Record::from_value(topic, hex)).unwrap();
     }
 
     async fn run(&mut self) {
@@ -83,7 +87,6 @@ impl KafkaWorker {
                                 return Poll::Ready(());
                             }
                             Poll::Pending => {
-                                debug!("[kafka] BOH");
                                 break;
                             }
                         }
