@@ -24,6 +24,7 @@
 //! that the hash resulting from the local execution is equal to the expected
 //! one before committing the execution changes.
 
+// use rand_core::block;
 use serde_value::value;
 
 use super::{
@@ -1148,6 +1149,22 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         *seed_txs_hash = txs_hash;
                         *seed_rxs_hash = rxs_hash;
                         *seed_prev_seed = 0;
+                    }
+
+                    // Propagate block execution event
+                    // Notify subscribers about block execution.
+                    if self.pubsub.lock().has_subscribers(Event::BLOCK_EXEC) {
+                        match self.db.read().load_block(u64::MAX) {
+                            Some(block) => {
+                                let msg = Message::GetBlockResponse {
+                                    block,
+                                    txs: Some(txs_hashes.to_owned()),
+                                    origin: None,
+                                };
+                                self.pubsub.lock().publish(Event::BLOCK_EXEC, msg);
+                            }
+                            None => (),
+                        }
                     }
                 }
                 Err(err) => {

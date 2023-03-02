@@ -28,49 +28,45 @@ const SMARTCONTRACT_EVENT: &str = "trinci_messages_transaction_event";
 const BLOCK_EVENT: &str = "trinci_messages_get_block_response";
 
 pub struct KafkaWorker {
-    config: KafkaConfig,
     bc_chan: BlockRequestSender,
+    producer: Producer,
 }
 
 impl KafkaWorker {
     pub fn new(config: KafkaConfig, bc_chan: BlockRequestSender) -> Self {
-        KafkaWorker { config, bc_chan }
-    }
+        let host = &format!("{}:{}", config.addr, config.port);
 
-    fn handle_msg(&self, msg: Message) {
-        match msg {
-            Message::GetContractEvent { .. } => self.send_to_kafka(
-                &format!("{}:{}", self.config.addr, self.config.port),
-                SMARTCONTRACT_EVENT,
-                msg,
-            ),
-            Message::GetBlockResponse { .. } => self.send_to_kafka(
-                &format!("{}:{}", self.config.addr, self.config.port),
-                BLOCK_EVENT,
-                msg,
-            ),
-            _ => (),
-        }
-    }
-
-    fn send_to_kafka(&self, host: &str, topic: &str, payload: Message) {
-        // TODO: Put it outside.
-        let mut producer = Producer::from_hosts(vec![host.to_owned()])
+        let producer = Producer::from_hosts(vec![host.to_owned()])
             .with_ack_timeout(Duration::from_secs(1))
             .with_required_acks(RequiredAcks::One)
             .create()
             .unwrap();
 
+        KafkaWorker { bc_chan, producer }
+    }
+
+    fn handle_msg(&mut self, msg: Message) {
+        match msg {
+            Message::GetContractEvent { .. } => self.send_to_kafka(SMARTCONTRACT_EVENT, msg),
+            Message::GetBlockResponse { .. } => self.send_to_kafka(BLOCK_EVENT, msg),
+            _ => (),
+        }
+    }
+
+    fn send_to_kafka(&mut self, topic: &str, payload: Message) {
         let buf = rmp_serialize(&payload).unwrap();
         let hex = hex::encode(buf);
 
-        producer.send(&Record::from_value(topic, hex)).unwrap();
+        match self.producer.send(&Record::from_value(topic, hex)) {
+            Ok(_) => (),
+            Err(_) => error!("[kafka] producer is unable to send messages to the server"),
+        }
     }
 
     async fn run(&mut self) {
         let res_chan = self.bc_chan.send_sync(Message::Subscribe {
             id: "kafka".to_owned(),
-            events: Event::BLOCK | Event::CONTRACT_EVENTS,
+            events: Event::CONTRACT_EVENTS | Event::BLOCK_EXEC,
         });
 
         match res_chan {
@@ -79,7 +75,7 @@ impl KafkaWorker {
                     loop {
                         match res_chan.poll_next_unpin(cx) {
                             Poll::Ready(Some(msg)) => {
-                                debug!("[kafka] {:?}", msg);
+                                debug!("[kafka] sending event: {:?}", msg);
                                 self.handle_msg(msg)
                             }
                             Poll::Ready(None) => {
