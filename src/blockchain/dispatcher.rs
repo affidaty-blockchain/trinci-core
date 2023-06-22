@@ -543,7 +543,7 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
         }
 
         // Be sure that the client is using anonymous serialization format.
-        let tag = buf.get(0).cloned().unwrap_or_default();
+        let tag = buf.first().cloned().unwrap_or_default();
         if (tag & ARRAY_HIGH_NIBBLE) != ARRAY_HIGH_NIBBLE {
             let err = Error::new_ext(
                 ErrorKind::MalformedData,
@@ -589,7 +589,7 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
         match req {
             Message::PutTransactionRequest { confirm, tx } => {
                 let res = self.put_transaction_handler(tx);
-                confirm.then(|| res)
+                confirm.then_some(res)
             }
             Message::GetTransactionRequest { hash, destination } => {
                 let res = self.get_transaction_handler(hash, destination);

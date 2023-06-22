@@ -21,6 +21,8 @@ use crate::{
 };
 use serde::{self, Deserialize, Serialize};
 
+// TODO: remove and resolve via clippy
+#[allow(clippy::large_enum_variant)]
 pub enum KeyPair {
     Ecdsa(ecdsa::KeyPair),
     Ed25519(ed25519::KeyPair),

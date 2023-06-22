@@ -43,6 +43,8 @@ pub mod p2p;
 pub mod rest;
 #[cfg(feature = "tpm2")]
 pub use crypto::tpm2;
+#[cfg(feature = "kafka")]
+pub mod kafka;
 #[cfg(feature = "rt-monitor")]
 pub mod network_monitor;
 

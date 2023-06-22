@@ -30,16 +30,11 @@ use ring::digest;
 use serde::{de::Visitor, Deserializer, Serializer};
 
 /// Available hash algorithms.
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
 pub enum HashAlgorithm {
+    #[default]
     Identity,
     Sha256,
-}
-
-impl Default for HashAlgorithm {
-    fn default() -> Self {
-        HashAlgorithm::Identity
-    }
 }
 
 /// Current default algorithm used by the library internals.

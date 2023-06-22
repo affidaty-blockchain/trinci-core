@@ -629,7 +629,7 @@ impl WmLocal {
 
         // let wasm_bin = (self.loader)(db, *target)?;
         let mut key = String::from("contracts:code:");
-        key.push_str(&hex::encode(&target));
+        key.push_str(&hex::encode(target));
 
         let wasm_bin = match db.load_account_data(SERVICE_ACCOUNT_ID, &key) {
             Some(bin) => bin,
@@ -642,7 +642,7 @@ impl WmLocal {
         };
 
         let module =
-            Module::new(engine, &wasm_bin).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
+            Module::new(engine, wasm_bin).map_err(|err| Error::new_ext(ErrorKind::Other, err))?;
 
         let entry = CachedModule {
             module,
@@ -932,11 +932,11 @@ impl Wm for WmLocal {
         }
     }
 
-    fn app_hash_check<'a>(
+    fn app_hash_check(
         &mut self,
         db: &mut dyn DbFork,
         mut app_hash: Option<Hash>,
-        ctx_args: CtxArgs<'a>,
+        ctx_args: CtxArgs<'_>,
         seed: Arc<SeedSource>,
         block_timestamp: u64,
     ) -> Result<Hash> {

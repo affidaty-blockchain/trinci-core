@@ -24,6 +24,7 @@
 //! that the hash resulting from the local execution is equal to the expected
 //! one before committing the execution changes.
 
+// use rand_core::block;
 use serde_value::value;
 
 use super::{
@@ -148,7 +149,7 @@ fn log_wm_fuel_consumed(hash: &str, account: &str, method: &str, data: &[u8], fu
         hash,
         account,
         method,
-        hex::encode(&data),
+        hex::encode(data),
         data_suffix,
         fuel_consumed
     );
@@ -436,7 +437,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     receipt: Receipt {
                         height,
                         burned_fuel,
-                        index: index as u32,
+                        index,
                         success,
                         returns,
                         events,
@@ -454,7 +455,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 receipt: Receipt {
                     height,
                     burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
-                    index: index as u32,
+                    index,
                     success: false,
                     returns: e.to_string_full().as_bytes().to_vec(),
                     events: None,
@@ -1148,6 +1149,19 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         *seed_txs_hash = txs_hash;
                         *seed_rxs_hash = rxs_hash;
                         *seed_prev_seed = 0;
+                    }
+
+                    // Propagate block execution event
+                    // Notify subscribers about block execution.
+                    if self.pubsub.lock().has_subscribers(Event::BLOCK_EXEC) {
+                        if let Some(block) = self.db.read().load_block(u64::MAX) {
+                            let msg = Message::GetBlockResponse {
+                                block,
+                                txs: Some(txs_hashes.to_owned()),
+                                origin: None,
+                            };
+                            self.pubsub.lock().publish(Event::BLOCK_EXEC, msg);
+                        }
                     }
                 }
                 Err(err) => {

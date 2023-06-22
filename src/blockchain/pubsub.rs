@@ -34,7 +34,7 @@ bitflags::bitflags! {
     pub struct Event: u8 {
         /// New unconfirmed transaction.
         const TRANSACTION = 1 << 0;
-        /// New block has been executed.
+        /// New block has been created.
         const BLOCK = 1 << 1;
         /// Any unsolicited gossip request from the blockchain.
         const GOSSIP_REQUEST = 1 << 2;
@@ -42,10 +42,12 @@ bitflags::bitflags! {
         const CONTRACT_EVENTS = 1 << 3;
         /// Any unsolicited unicast request from the blockchain.
         const UNICAST_REQUEST = 1 << 4;
+        /// New block has been executed.
+        const BLOCK_EXEC = 1 << 5;
     }
 }
 
-const EVENTS_NUM: usize = 5;
+const EVENTS_NUM: usize = 6;
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -230,7 +232,7 @@ mod tests {
 
         pubsub.subscribe(
             "foo".to_string(),
-            Event::BLOCK | Event::TRANSACTION | Event::CONTRACT_EVENTS,
+            Event::BLOCK | Event::TRANSACTION | Event::CONTRACT_EVENTS | Event::BLOCK_EXEC,
             0,
             sender,
         );
@@ -239,6 +241,23 @@ mod tests {
         assert!(pubsub.has_subscribers(Event::TRANSACTION));
         println!("{:?}", pubsub.has_subscribers(Event::CONTRACT_EVENTS));
         assert!(pubsub.has_subscribers(Event::CONTRACT_EVENTS));
+        println!("{:?}", pubsub.has_subscribers(Event::BLOCK_EXEC));
+        assert!(pubsub.has_subscribers(Event::BLOCK_EXEC));
+    }
+
+    #[test]
+    fn events_subscribe_2_flag() {
+        let mut pubsub = PubSub::default();
+        let (sender, _) = channel::simple_channel();
+
+        pubsub.subscribe("foo".to_string(), Event::BLOCK_EXEC, 0, sender);
+
+        assert!(!pubsub.has_subscribers(Event::BLOCK));
+        assert!(!pubsub.has_subscribers(Event::TRANSACTION));
+        assert!(!pubsub.has_subscribers(Event::CONTRACT_EVENTS));
+        assert!(!pubsub.has_subscribers(Event::UNICAST_REQUEST));
+        assert!(!pubsub.has_subscribers(Event::GOSSIP_REQUEST));
+        assert!(pubsub.has_subscribers(Event::BLOCK_EXEC));
     }
 
     #[test]
