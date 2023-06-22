@@ -127,11 +127,11 @@ pub trait Wm: Send + 'static {
         method: &str,
     ) -> (u64, Result<i32>);
 
-    fn app_hash_check<'a>(
+    fn app_hash_check(
         &mut self,
         db: &mut dyn DbFork,
         app_hash: Option<Hash>,
-        ctx_args: CtxArgs<'a>,
+        ctx_args: CtxArgs<'_>,
         seed: Arc<SeedSource>,
         block_timestamp: u64,
     ) -> Result<Hash>;
