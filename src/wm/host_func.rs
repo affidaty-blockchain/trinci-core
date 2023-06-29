@@ -261,13 +261,15 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
 /// Remove an asset from the given `account-id`
 /// The `asset_id` key is the ctx.caller
 pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
-    #[cfg(feature = "indexer")]
-    let prev_amount = account.load_asset(ctx.owner);
-
     let mut account = ctx
         .db
         .load_account(account_id)
         .unwrap_or_else(|| Account::new(account_id, None));
+
+    #[cfg(feature = "indexer")] 
+    let prev_amount = account.load_asset(ctx.owner);
+
+
     account.remove_asset(ctx.owner);
     ctx.db.store_account(account);
 
