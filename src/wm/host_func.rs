@@ -261,6 +261,9 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
 /// Remove an asset from the given `account-id`
 /// The `asset_id` key is the ctx.caller
 pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
+    #[cfg(feature = "indexer")]
+    let prev_amount = account.load_asset(ctx.owner);
+
     let mut account = ctx
         .db
         .load_account(account_id)
@@ -278,6 +281,27 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
 
     // emit(ctx, "REMOVE_ASSET", &buf);
     // ------------------------
+
+    #[cfg(feature = "indexer")]
+    {
+        let smartcontract_hash = get_smartcontract_hash(ctx);
+
+        let data = StoreAssetDb {
+            account: account_id.to_string(),
+            origin: ctx.origin.to_string(),
+            asset: ctx.owner.to_string(),
+            prev_amount,
+            amount: vec![],
+            tx_hash: Hash::default(),
+            smartcontract_hash,
+            block_height: 0,
+            block_hash: Hash::default(),
+            block_timestamp: ctx.block_timestamp,
+            method: ctx.method.to_string(),
+        };
+
+        ctx.store_asset_db.push(data);
+    }
 }
 
 /// Digital signature verification.
