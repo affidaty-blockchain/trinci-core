@@ -321,9 +321,9 @@ impl Behavior {
                     self.gossip.add_explicit_peer(&peer_id);
 
                     for addr in info.listen_addrs {
-                        info!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
+                        debug!("[ident] adding {} to kad routing table @ {}", peer_id, addr);
                         self.kad.add_address(&peer_id, addr.clone());
-                        info!(
+                        debug!(
                             "[ident] adding {} to req-res routing table @ {}",
                             peer_id, addr
                         );
@@ -357,7 +357,7 @@ impl Behavior {
                     }
                 }
             }
-            _ => info!("[ident] event: {:?}", event),
+            _ => debug!("[ident] event: {:?}", event),
         }
     }
 

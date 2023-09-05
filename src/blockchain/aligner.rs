@@ -239,10 +239,8 @@ impl<D: Db> Aligner<D> {
                     *start = Instant::now();
                     *attempt = 0;
 
-                    debug!(
-                        "[aligner] align block {} received by {:?}",
-                        block.data.height, &origin
-                    );
+                    info!("[aligner] Alignment block {} recieved", block.data.height);
+                    debug!("\treceived by {:?}", &origin);
 
                     self.missing_blocks.lock().push(req.clone());
                     for tx in txs_hashes {
@@ -283,6 +281,11 @@ impl<D: Db> Aligner<D> {
         peer: &str,
         cx: &mut Context,
     ) -> Poll<bool> {
+        let local_last = self.db.read().load_block(u64::MAX).unwrap();
+        info!(
+            "[aligner] Collecting missing blocks. From block {} to block {}",
+            max_block_height, local_last.data.height
+        );
         // Send first request.
         let mut msg = Message::GetBlockRequest {
             height: u64::MAX,
@@ -298,7 +301,6 @@ impl<D: Db> Aligner<D> {
         let mut start = Instant::now();
         let mut attempt: u8 = 0;
         let mut over = false;
-        let local_last = self.db.read().load_block(u64::MAX).unwrap();
         let hash_local_last = local_last.hash(HashAlgorithm::Sha256);
 
         while !over && attempt < MAX_ATTEMPTS {
@@ -373,6 +375,8 @@ impl<D: Db> Aligner<D> {
         max_block_height: u64,
         cx: &mut Context,
     ) -> Poll<bool> {
+        info!("[aligner] Collecting missing transactions");
+
         // Send unicast request to a random trusted peer for every transaction in `missing_txs`.
 
         // TODO Use Box::pin(timeout)
@@ -404,7 +408,6 @@ impl<D: Db> Aligner<D> {
                     if let Poll::Ready(Some((req, _res_chan))) =
                         self.rx_chan.lock().poll_next_unpin(cx)
                     {
-                        // debug!("[aligner] new message received");
                         match req {
                             Message::GetTransactionResponse { tx, origin } => {
                                 if tx.get_primary_hash().eq(requested_tx.unwrap()) {
@@ -414,10 +417,10 @@ impl<D: Db> Aligner<D> {
                                     attempt = 0;
 
                                     debug!(
-                                        "[aligner] align tx {:?} received by {}",
-                                        tx.get_primary_hash(),
-                                        origin.unwrap()
+                                        "[aligner] Alignment tx {} recieved",
+                                        hex::encode(tx.get_primary_hash())
                                     );
+                                    debug!("\tfrom {}", origin.unwrap());
 
                                     // Once the expected TX is received, ask for the next one.
                                     // Note: submission to pool and DB is handled by dispatcher.
@@ -450,7 +453,7 @@ impl<D: Db> Aligner<D> {
                                     self.unexpected_blocks.lock().push(req.clone());
                                 }
                             }
-                            _ => error!("[aligner] unexpected message"),
+                            _ => (),
                         }
                     }
                 } else {
@@ -613,14 +616,14 @@ impl<D: Db> Aligner<D> {
     async fn run_async(&self) {
         debug!("[aligner] service up");
 
-        debug!("[aligner] new align instance initialized");
-
+        info!("[aligner] Disalignment on local node detected, staring new alignmetn procedure");
         // Wait some time before collecting new peers in case of a flood of "new added peer" messages
         let collection_time = Duration::from_secs(SLEEP_TIME);
         let start = Instant::now();
         while collection_time.checked_sub(start.elapsed()).is_some() {}
 
         // Collect trusted peers.
+        info!("[aligner] Retreiving trusted neighbours to collect missing blocks");
         let collected_peers_fut = future::poll_fn(
             move |cx: &mut Context<'_>| -> Poll<Option<Vec<(String, String, Block)>>> {
                 self.find_trusted_peers(cx)
@@ -643,6 +646,7 @@ impl<D: Db> Aligner<D> {
             let peer = &peers.choose(&mut rand::thread_rng());
             match peer {
                 Some((peer, ..)) => {
+                    info!("[aligner] Found truested peers");
                     let future = future::poll_fn(move |cx: &mut Context<'_>| -> Poll<bool> {
                         self.collect_missing_blocks(max_block_height, peer, cx)
                     });
@@ -666,7 +670,7 @@ impl<D: Db> Aligner<D> {
                             // Note: in the `missing_block` array blocks are collected
                             //       from the most recent (first array element),
                             //       to the least recent (last array element).
-                            debug!("[aligner] submitting alignment blocks to pool service");
+                            info!("[aligner] Alignment completed, submitting transactions and block into the pool service for the blocks execution");
                             self.update_pool();
                             // Wait until all blocks are executed.
                             let mut executed_block = self.db.read().load_block(u64::MAX).unwrap();
@@ -675,8 +679,8 @@ impl<D: Db> Aligner<D> {
                                 executed_block = self.db.read().load_block(u64::MAX).unwrap();
                             }
                         } else {
-                            debug!(
-                                    "[aligner] unable to retrieve missing blocks and txs, aborting alignment"
+                            info!(
+                                    "[aligner] Unable to retrieve missing blocks and txs, aborting alignment"
                                 );
                         }
                     }
@@ -684,14 +688,14 @@ impl<D: Db> Aligner<D> {
                 None => (), // If no trusted peers, complete alignment task.
             };
         } else {
-            debug!("[aligner] unable to find trusted peers, aborting alignment");
+            info!("[aligner] Unable to find trusted peers, aborting alignment");
         }
 
         // Reinitialize aligner structures.
         debug!("[aligner] reset aligner");
         self.reset();
 
-        debug!("[aligner] alignment task completed");
+        info!("[aligner] Alignment task completed");
     }
 
     pub fn run(&mut self) {
