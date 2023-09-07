@@ -265,6 +265,11 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
         .db
         .load_account(account_id)
         .unwrap_or_else(|| Account::new(account_id, None));
+
+    #[cfg(feature = "indexer")] 
+    let prev_amount = account.load_asset(ctx.owner);
+
+
     account.remove_asset(ctx.owner);
     ctx.db.store_account(account);
 
@@ -278,6 +283,27 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
 
     // emit(ctx, "REMOVE_ASSET", &buf);
     // ------------------------
+
+    #[cfg(feature = "indexer")]
+    {
+        let smartcontract_hash = get_smartcontract_hash(ctx);
+
+        let data = StoreAssetDb {
+            account: account_id.to_string(),
+            origin: ctx.origin.to_string(),
+            asset: ctx.owner.to_string(),
+            prev_amount,
+            amount: vec![],
+            tx_hash: Hash::default(),
+            smartcontract_hash,
+            block_height: 0,
+            block_hash: Hash::default(),
+            block_timestamp: ctx.block_timestamp,
+            method: ctx.method.to_string(),
+        };
+
+        ctx.store_asset_db.push(data);
+    }
 }
 
 /// Digital signature verification.

@@ -220,7 +220,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
     // Calculates the fuel consumed by the transaction execution
     fn calculate_burned_fuel(&self, wm_fuel: u64) -> u64 {
         // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
-        warn!("calculate_burned_fuel::{}", wm_fuel);
+        debug!("calculate_burned_fuel::{}", wm_fuel);
         // wm_fuel
         if wm_fuel == 0 {
             0
@@ -437,7 +437,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     receipt: Receipt {
                         height,
                         burned_fuel,
-                        index,
+                        index: index as u32,
                         success,
                         returns,
                         events,
@@ -455,7 +455,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                 receipt: Receipt {
                     height,
                     burned_fuel: get_fuel_consumed_for_error(), // FIXME * How much should the caller pay for this operation?
-                    index,
+                    index: index as u32,
                     success: false,
                     returns: e.to_string_full().as_bytes().to_vec(),
                     events: None,
@@ -907,7 +907,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
         is_validator: bool,
         is_validator_closure: Arc<dyn IsValidator>,
     ) -> Result<Hash> {
-        debug!("Executing block: {}", height);
+        info!("Executing block: {}", height);
         // Write on a fork.
 
         #[cfg(feature = "indexer")]
@@ -1154,13 +1154,25 @@ impl<D: Db, W: Wm> Executor<D, W> {
                     // Propagate block execution event
                     // Notify subscribers about block execution.
                     if self.pubsub.lock().has_subscribers(Event::BLOCK_EXEC) {
-                        if let Some(block) = self.db.read().load_block(u64::MAX) {
-                            let msg = Message::GetBlockResponse {
-                                block,
-                                txs: Some(txs_hashes.to_owned()),
-                                origin: None,
-                            };
-                            self.pubsub.lock().publish(Event::BLOCK_EXEC, msg);
+                        // if let Some(block) = self.db.read().load_block(u64::MAX) {
+                        //     let msg = Message::GetBlockResponse {
+                        //         block,
+                        //         txs: Some(txs_hashes.to_owned()),
+                        //         origin: None,
+                        //     };
+                        //     self.pubsub.lock().publish(Event::BLOCK_EXEC, msg);
+                        // }
+
+                        match self.db.read().load_block(u64::MAX) {
+                            Some(block) => {
+                                let msg = Message::GetBlockResponse {
+                                    block,
+                                    txs: Some(txs_hashes.to_owned()),
+                                    origin: None,
+                                };
+                                self.pubsub.lock().publish(Event::BLOCK_EXEC, msg);
+                            }
+                            None => (),
                         }
                     }
                 }

@@ -123,7 +123,7 @@ impl<D: Db> Executor<D> {
     // Calculates the fuel consumed by the transaction execution
     fn calculate_burned_fuel(&self, wm_fuel: u64) -> u64 {
         // TODO find a f(_wm_fuel) to calculate the fuel in TRINCI
-        warn!("calculate_burned_fuel::{}", wm_fuel);
+        debug!("calculate_burned_fuel::{}", wm_fuel);
         // wm_fuel
         if wm_fuel == 0 {
             0
