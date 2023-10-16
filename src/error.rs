@@ -216,6 +216,12 @@ impl<T> From<ErrorKind> for Result<T> {
     }
 }
 
+impl From<wasmtime::Trap> for Error {
+    fn from(trap: wasmtime::Trap) -> Self {
+        Error::new_ext(ErrorKind::WasmMachineFault, format!("Wasm trap: {trap}"))
+    }
+}
+
 impl Error {
     pub fn new_ext<E>(kind: ErrorKind, error: E) -> Error
     where

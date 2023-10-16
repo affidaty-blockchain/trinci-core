@@ -33,10 +33,11 @@ merkledb = { git = "https://github.com/affidaty-blockchain/merkledb", default-fe
 ], optional = true }
 
 # WasmTime
-wasmtime = { version = "0.35.1", default-features = false, features = [
-    "parallel-compilation",
-    "cranelift",
-], optional = true }
+# wasmtime = { version = "0.35.1", default-features = false, features = [
+#     "parallel-compilation",
+#     "cranelift",
+# ], optional = true }
+wasmtime = { version = "11.0.1", optional = true }
 # P2P framework
 libp2p = { version = "0.44.0", default-features = false, features = [
     "tcp-async-io",
