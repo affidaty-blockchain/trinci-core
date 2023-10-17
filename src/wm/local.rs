@@ -82,7 +82,7 @@ mod local_host_func {
         mem: &Memory,
         offset: i32,
         length: i32,
-    ) -> std::result::Result<&[u8], Trap> {
+    ) -> std::result::Result<&[u8], Error> {
         let data = unsafe {
             let len = mem.data_size(caller.as_context());
             let raw = mem.data_ptr(caller.as_context());
@@ -90,15 +90,23 @@ mod local_host_func {
         };
 
         data.get(offset as usize..offset as usize + length as usize)
-            .ok_or_else(|| Trap::MemoryOutOfBounds)
+            .ok_or_else(|| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems to get a slice from wasm memory",
+                )
+            })
     }
 
     /// Get memory export from the caller.
     #[inline]
-    fn mem_from(caller: &mut Caller<CallContext>) -> std::result::Result<Memory, Trap> {
+    fn mem_from(caller: &mut Caller<CallContext>) -> std::result::Result<Memory, Error> {
         match caller.get_export("memory") {
             Some(Extern::Memory(mem)) => Ok(mem),
-            _ => Err(Trap::NullReference),
+            _ => Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "Problems to get memory export from the caller",
+            )),
         }
     }
 
@@ -109,18 +117,33 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         mem: Memory,
         buf: Vec<u8>,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         let alloc = caller
             .get_export("alloc")
             .and_then(|val| val.into_func())
-            .ok_or_else(|| Trap::NullReference)?;
+            .ok_or_else(|| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems getting alloc function export",
+                )
+            })?;
         let alloc = alloc
             .typed::<i32, i32>(caller.as_context())
-            .map_err(|_err| Trap::NullReference)?;
+            .map_err(|_err| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems with alloc native types matching",
+                )
+            })?;
 
         // Copy the vector into wasm memory
-        let offset = write_mem(&mut caller.as_context_mut(), &alloc, &mem, &buf)
-            .map_err(|_err| Trap::MemoryOutOfBounds)?;
+        let offset =
+            write_mem(&mut caller.as_context_mut(), &alloc, &mem, &buf).map_err(|_err| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems writing buf into wasm memory",
+                )
+            })?;
 
         let wslice = wslice_create(offset, buf.len() as i32);
         Ok(wslice)
@@ -764,7 +787,7 @@ mod local_host_func {
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
-                        "wasm import not found",
+                        "host function import not found",
                     ))
                 }
             };
@@ -1056,35 +1079,24 @@ impl Wm for WmLocal {
             args.len() as i32,
         );
 
+        // Call smart contract entry point.
         let wslice = match run_func.call(store.as_context_mut(), params) {
             Ok(wslice) => wslice,
             Err(e) => {
+                let err_text = e.to_string();
                 let e = match e.downcast::<Trap>() {
-                    Ok(trap) => trap.to_string(),
+                    Ok(trap) => {
+                        let trap_text = trap.to_string();
+                        let err_text = err_text.replace("error while executing at", &trap_text);
+                        let err_text = err_text
+                            .replace("instruction executed wasm", "instruction executed\nwasm");
+                        err_text
+                    }
                     Err(e) => e.to_string(),
                 };
                 return (0, Err(Error::new_ext(ErrorKind::WasmMachineFault, e)));
             }
         };
-
-        // Call smart contract entry point.
-        // let wslice = match run_func.call(store.as_context_mut(), params) {
-        //     Ok(wslice) => wslice,
-        //     Err(e) => {
-        //         let err_text = e.to_string();
-        //         let e = match e.downcast::<Trap>() {
-        //             Ok(trap) => {
-        //                 let trap_text = trap.to_string();
-        //                 let err_text = err_text.replace("error while executing at", &trap_text);
-        //                 let err_text = err_text
-        //                     .replace("instruction executed wasm", "instruction executed\nwasm");
-        //                 err_text
-        //             }
-        //             Err(e) => e.to_string(),
-        //         };
-        //         return (0, Err(Error::new_ext(ErrorKind::WasmMachineFault, e)));
-        //     }
-        // };
 
         let consumed_fuel = store.fuel_consumed().unwrap_or_default();
 
