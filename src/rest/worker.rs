@@ -19,7 +19,7 @@ use crate::{
     base::serialize::{rmp_deserialize, rmp_serialize},
     blockchain::{BlockRequestSender, Message},
     crypto::Hash,
-    Error, ErrorKind, Result, VERSION,
+    Block, Error, ErrorKind, Result, VERSION,
 };
 
 use tide::{http::mime, Request, Response, StatusCode};
@@ -36,9 +36,8 @@ impl From<ErrorKind> for StatusCode {
             InvalidSignature => StatusCode::Unauthorized,
             DuplicatedUnconfirmedTx | DuplicatedConfirmedTx => StatusCode::Conflict,
             ResourceNotFound => StatusCode::NotFound,
-            InvalidContract | WasmMachineFault | DatabaseFault | FuelError | TooLargeTx => {
-                StatusCode::InternalServerError
-            }
+            AccountFault | InvalidContract | WasmMachineFault | DatabaseFault | FuelError
+            | TooLargeTx => StatusCode::InternalServerError,
             SmartContractFault => StatusCode::BadRequest,
             NotImplemented => StatusCode::NotImplemented,
             Tpm2Error => StatusCode::InternalServerError,
@@ -117,6 +116,18 @@ async fn put_transaction(mut req: Request<BlockRequestSender>) -> tide::Result {
     };
     tide_result(bc_res)
 }
+
+// async fn put_block(mut req: Request<BlockRequestSender>) -> tide::Result {
+//     let body = req.body_bytes().await?;
+//     let block_msg: Message = rmp_deserialize(&body)?;
+//     match block_msg {
+//         Message::GetBlockResponse { .. } => {
+//             let _bc_res = send_recv(req.state(), block_msg).await?;
+//             return tide_result(Ok(vec![]));
+//         }
+//         _ => return tide_result(Err(Error::new(ErrorKind::MalformedData))),
+//     }
+// }
 
 async fn get_transaction(req: Request<BlockRequestSender>) -> tide::Result {
     let ticket = req.param("0").unwrap_or_default();
@@ -258,7 +269,8 @@ pub fn run(addr: String, port: u16, node_info: NodeInfo, block_chan: BlockReques
     let node_info_str = serde_json::to_string(&node_info).unwrap();
 
     app.at("/api/v1/message").post(message_handler);
-    app.at("/api/v1/submit").post(put_transaction);
+    // app.at("/api/v1/submit_block").post(put_block);
+    app.at("/api/v1/submit_tx").post(put_transaction);
     app.at("/api/v1/ro/exec").post(read_only_sync_exec);
     app.at("/api/v1/account/:0").get(get_account);
     app.at("/api/v1/transaction/:0").get(get_transaction);

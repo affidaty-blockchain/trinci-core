@@ -82,22 +82,31 @@ mod local_host_func {
         mem: &Memory,
         offset: i32,
         length: i32,
-    ) -> std::result::Result<&[u8], Trap> {
+    ) -> std::result::Result<&[u8], Error> {
         let data = unsafe {
             let len = mem.data_size(caller.as_context());
             let raw = mem.data_ptr(caller.as_context());
             slice::from_raw_parts(raw, len)
         };
+
         data.get(offset as usize..offset as usize + length as usize)
-            .ok_or_else(|| Trap::new("out of bounds memory access"))
+            .ok_or_else(|| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems to get a slice from wasm memory",
+                )
+            })
     }
 
     /// Get memory export from the caller.
     #[inline]
-    fn mem_from(caller: &mut Caller<CallContext>) -> std::result::Result<Memory, Trap> {
+    fn mem_from(caller: &mut Caller<CallContext>) -> std::result::Result<Memory, Error> {
         match caller.get_export("memory") {
             Some(Extern::Memory(mem)) => Ok(mem),
-            _ => Err(Trap::new("failed to get caller's exported memory")),
+            _ => Err(Error::new_ext(
+                ErrorKind::WasmMachineFault,
+                "Problems to get memory export from the caller",
+            )),
         }
     }
 
@@ -108,16 +117,33 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         mem: Memory,
         buf: Vec<u8>,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         let alloc = caller
             .get_export("alloc")
             .and_then(|val| val.into_func())
-            .ok_or_else(|| Trap::new("get `alloc` fail"))?;
-        let alloc = alloc.typed::<i32, i32, StoreContext<CallContext>>(caller.as_context())?;
+            .ok_or_else(|| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems getting alloc function export",
+                )
+            })?;
+        let alloc = alloc
+            .typed::<i32, i32>(caller.as_context())
+            .map_err(|_err| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems with alloc native types matching",
+                )
+            })?;
 
         // Copy the vector into wasm memory
-        let offset = write_mem(&mut caller.as_context_mut(), &alloc, &mem, &buf)
-            .map_err(|_err| Trap::new("error writing in wasm memory"))?;
+        let offset =
+            write_mem(&mut caller.as_context_mut(), &alloc, &mem, &buf).map_err(|_err| {
+                Error::new_ext(
+                    ErrorKind::WasmMachineFault,
+                    "Problems writing buf into wasm memory",
+                )
+            })?;
 
         let wslice = wslice_create(offset, buf.len() as i32);
         Ok(wslice)
@@ -128,7 +154,7 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         offset: i32,
         size: i32,
-    ) -> std::result::Result<(), Trap> {
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, offset, size)?;
@@ -147,11 +173,12 @@ mod local_host_func {
         event_name_size: i32,
         event_data_offset: i32,
         event_data_size: i32,
-    ) -> std::result::Result<(), Trap> {
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, event_name_offset, event_name_size)?;
-        let event_name = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let event_name =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         let event_data = slice_from(&mut caller, &mem, event_data_offset, event_data_size)?;
         // Recover execution context.
         let ctx = caller.data_mut();
@@ -165,16 +192,17 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         key_offset: i32,
         key_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, key_offset, key_size)?;
-        let key = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let key =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
         let buf = host_func::load_data(ctx, key);
-        return_buf(caller, mem, buf)
+        Ok(return_buf(caller, mem, buf)?)
     }
 
     /// Store contract data.
@@ -184,11 +212,12 @@ mod local_host_func {
         key_size: i32,
         data_offset: i32,
         data_size: i32,
-    ) -> std::result::Result<(), Trap> {
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, key_offset, key_size)?;
-        let key = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let key =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         let data = slice_from(&mut caller, &mem, data_offset, data_size)?.to_owned();
         // Recover execution context.
         let ctx = caller.data_mut();
@@ -202,11 +231,12 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         pattern_offset: i32,
         pattern_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, pattern_offset, pattern_size)?;
-        let pattern = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let pattern =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         let data;
         let data_buf;
 
@@ -228,7 +258,7 @@ mod local_host_func {
 
         let buf = rmp_serialize(&output).unwrap_or_default();
 
-        return_buf(caller, mem, buf)
+        Ok(return_buf(caller, mem, buf)?)
     }
 
     /// Check if an account has a method
@@ -238,13 +268,15 @@ mod local_host_func {
         account_size: i32,
         method_offset: i32,
         method_size: i32,
-    ) -> std::result::Result<i32, Trap> {
+    ) -> std::result::Result<i32, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
-        let account = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let account =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
-        let method = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let method =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
 
         let consumed_fuel_so_far = caller.fuel_consumed().unwrap_or_default();
         // Recover execution context.
@@ -255,7 +287,9 @@ mod local_host_func {
         // Invoke portable host function.
         let (consumed_fuel, result) = host_func::is_callable(ctx, account, method, remaining_fuel);
 
-        caller.consume_fuel(consumed_fuel)?;
+        caller
+            .consume_fuel(consumed_fuel)
+            .map_err(|e| Error::new_ext(ErrorKind::SmartContractFault, e))?;
 
         match result {
             Ok(val) => Ok(val),
@@ -263,17 +297,17 @@ mod local_host_func {
         }
     }
 
-    /// Store asset
-
+    /// Remove data
     fn remove_data(
         mut caller: Caller<'_, CallContext>,
         key_offset: i32,
         key_size: i32,
-    ) -> std::result::Result<(), Trap> {
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, key_offset, key_size)?;
-        let key = std::str::from_utf8(buf).map_err(|_| Trap::new("invalid utf-8"))?;
+        let key =
+            std::str::from_utf8(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
@@ -285,15 +319,15 @@ mod local_host_func {
     fn store_asset(
         mut caller: Caller<'_, CallContext>,
         account_id_offset: i32,
-        account_id_length: i32,
+        account_id_size: i32,
         value_offset: i32,
-        value_length: i32,
-    ) -> std::result::Result<(), Trap> {
+        value_size: i32,
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
-        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_size)?;
         let account_id = String::from_utf8_lossy(buf);
-        let value = slice_from(&mut caller, &mem, value_offset, value_length)?;
+        let value = slice_from(&mut caller, &mem, value_offset, value_size)?;
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
@@ -305,11 +339,11 @@ mod local_host_func {
     fn remove_asset(
         mut caller: Caller<'_, CallContext>,
         account_id_offset: i32,
-        account_id_length: i32,
-    ) -> std::result::Result<(), Trap> {
+        account_id_size: i32,
+    ) -> std::result::Result<(), Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
-        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_size)?;
         let account_id = String::from_utf8_lossy(buf);
 
         // Recover execution context.
@@ -324,7 +358,7 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         account_id_offset: i32,
         account_id_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_size)?;
@@ -333,18 +367,18 @@ mod local_host_func {
         let ctx = caller.data();
         // Invoke portable host function.
         let value = host_func::load_asset(ctx, &account_id);
-        return_buf(caller, mem, value)
+        Ok(return_buf(caller, mem, value)?)
     }
 
     /// Get contract hash from an account
     fn get_account_contract(
         mut caller: Caller<'_, CallContext>,
         account_id_offset: i32,
-        account_id_length: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+        account_id_size: i32,
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
-        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_length)?;
+        let buf = slice_from(&mut caller, &mem, account_id_offset, account_id_size)?;
         let account_id = String::from_utf8_lossy(buf);
 
         // Recover execution context.
@@ -355,25 +389,26 @@ mod local_host_func {
             None => vec![],
         };
 
-        return_buf(caller, mem, hash)
+        Ok(return_buf(caller, mem, hash)?)
     }
 
     /// Digital signature verification.
     fn verify(
         mut caller: Caller<'_, CallContext>,
         pk_offset: i32,
-        pk_length: i32,
+        pk_size: i32,
         data_offset: i32,
-        data_length: i32,
+        data_size: i32,
         sign_offset: i32,
-        sign_length: i32,
-    ) -> std::result::Result<i32, Trap> {
+        sign_size: i32,
+    ) -> std::result::Result<i32, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
-        let pk = slice_from(&mut caller, &mem, pk_offset, pk_length)?;
-        let pk: PublicKey = rmp_deserialize(pk).map_err(|_err| Trap::new("invalid public key"))?;
-        let data = slice_from(&mut caller, &mem, data_offset, data_length)?;
-        let sign = slice_from(&mut caller, &mem, sign_offset, sign_length)?;
+        let pk = slice_from(&mut caller, &mem, pk_offset, pk_size)?;
+        let pk: PublicKey =
+            rmp_deserialize(pk).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
+        let data = slice_from(&mut caller, &mem, data_offset, data_size)?;
+        let sign = slice_from(&mut caller, &mem, sign_offset, sign_size)?;
         // Recover execution context.
         let ctx = caller.data_mut();
         // Invoke portable host function.
@@ -392,13 +427,14 @@ mod local_host_func {
         method_size: i32,
         args_offset: i32,
         args_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
         let account = String::from_utf8_lossy(buf);
         let buf = slice_from(&mut caller, &mem, contract_offset, contract_size)?;
-        let contract = Hash::from_bytes(buf).map_err(|_| Trap::new("invalid contract hash"))?;
+        let contract =
+            Hash::from_bytes(buf).map_err(|e| Error::new_ext(ErrorKind::WasmMachineFault, e))?;
         let buf = slice_from(&mut caller, &mem, method_offset, method_size)?;
         let method = String::from_utf8_lossy(buf);
         let args = slice_from(&mut caller, &mem, args_offset, args_size)?;
@@ -429,9 +465,11 @@ mod local_host_func {
             };
         let buf = buf.unwrap_or_default();
 
-        caller.consume_fuel(consumed_fuel)?;
+        caller
+            .consume_fuel(consumed_fuel)
+            .map_err(|e| Error::new_ext(ErrorKind::SmartContractFault, e))?;
 
-        return_buf(caller, mem, buf)
+        Ok(return_buf(caller, mem, buf)?)
     }
 
     /// Call contract method.
@@ -443,7 +481,7 @@ mod local_host_func {
         method_size: i32,
         args_offset: i32,
         args_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let buf = slice_from(&mut caller, &mem, account_offset, account_size)?;
@@ -477,9 +515,11 @@ mod local_host_func {
             };
         let buf = buf.unwrap_or_default();
 
-        caller.consume_fuel(consumed_fuel)?;
+        caller
+            .consume_fuel(consumed_fuel)
+            .map_err(|e| Error::new_ext(ErrorKind::SmartContractFault, e))?;
 
-        return_buf(caller, mem, buf)
+        Ok(return_buf(caller, mem, buf)?)
     }
 
     /// Compute Sha256 from given bytes
@@ -487,7 +527,7 @@ mod local_host_func {
         mut caller: Caller<'_, CallContext>,
         data_offset: i32,
         data_size: i32,
-    ) -> std::result::Result<WasmSlice, Trap> {
+    ) -> std::result::Result<WasmSlice, Error> {
         // Recover parameters from wasm memory.
         let mem: Memory = mem_from(&mut caller)?;
         let data = slice_from(&mut caller, &mem, data_offset, data_size)?.to_owned();
@@ -495,11 +535,11 @@ mod local_host_func {
         let ctx = caller.data_mut();
         // Invoke portable host function
         let hash = host_func::sha256(ctx, data);
-        return_buf(caller, mem, hash)
+        Ok(return_buf(caller, mem, hash)?)
     }
 
     /// Generate a pseudo random number deterministically, based on the seed
-    fn drand(mut caller: Caller<'_, CallContext>, max: u64) -> std::result::Result<u64, Trap> {
+    fn drand(mut caller: Caller<'_, CallContext>, max: u64) -> std::result::Result<u64, Error> {
         // seed from ctx
         // Recover execution context.
         let ctx = caller.data_mut();
@@ -508,7 +548,7 @@ mod local_host_func {
     }
 
     /// Return the transaction block timestamp creation.
-    fn get_block_time(mut caller: Caller<'_, CallContext>) -> std::result::Result<u64, Trap> {
+    fn get_block_time(mut caller: Caller<'_, CallContext>) -> std::result::Result<u64, Error> {
         let ctx = caller.data_mut();
         Ok(host_func::get_block_time(ctx))
     }
@@ -522,28 +562,232 @@ mod local_host_func {
         let imports_list = module.imports();
 
         for import in imports_list {
-            let func = match import.name().unwrap_or_default() {
-                "hf_log" => Func::wrap(&mut store, log),
-                "hf_emit" => Func::wrap(&mut store, emit),
-                "hf_load_data" => Func::wrap(&mut store, load_data),
-                "hf_store_data" => Func::wrap(&mut store, store_data),
-                "hf_remove_data" => Func::wrap(&mut store, remove_data),
-                "hf_is_callable" => Func::wrap(&mut store, is_callable),
-                "hf_load_asset" => Func::wrap(&mut store, load_asset),
-                "hf_store_asset" => Func::wrap(&mut store, store_asset),
-                "hf_remove_asset" => Func::wrap(&mut store, remove_asset),
-                "hf_get_account_contract" => Func::wrap(&mut store, get_account_contract),
-                "hf_get_keys" => Func::wrap(&mut store, get_keys),
-                "hf_call" => Func::wrap(&mut store, call),
-                "hf_s_call" => Func::wrap(&mut store, s_call),
-                "hf_verify" => Func::wrap(&mut store, verify),
-                "hf_sha256" => Func::wrap(&mut store, sha256),
-                "hf_drand" => Func::wrap(&mut store, drand),
-                "hf_get_block_time" => Func::wrap(&mut store, get_block_time),
+            let func = match import.name() {
+                "hf_log" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     offset: i32,
+                     size: i32|
+                     -> wasmtime::Result<()> { Ok(log(caller, offset, size)?) },
+                ),
+                "hf_emit" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     event_name_offset: i32,
+                     event_name_size: i32,
+                     event_data_offset: i32,
+                     event_data_size: i32|
+                     -> wasmtime::Result<()> {
+                        Ok(emit(
+                            caller,
+                            event_name_offset,
+                            event_name_size,
+                            event_data_offset,
+                            event_data_size,
+                        )?)
+                    },
+                ),
+                "hf_load_data" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     key_offset: i32,
+                     key_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(load_data(caller, key_offset, key_size)?)
+                    },
+                ),
+                "hf_store_data" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     key_offset: i32,
+                     key_size: i32,
+                     data_offset: i32,
+                     data_size: i32|
+                     -> wasmtime::Result<()> {
+                        Ok(store_data(
+                            caller,
+                            key_offset,
+                            key_size,
+                            data_offset,
+                            data_size,
+                        )?)
+                    },
+                ),
+                "hf_remove_data" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     key_offset: i32,
+                     key_size: i32|
+                     -> wasmtime::Result<()> {
+                        Ok(remove_data(caller, key_offset, key_size)?)
+                    },
+                ),
+                "hf_is_callable" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_offset: i32,
+                     account_size: i32,
+                     method_offset: i32,
+                     method_size: i32|
+                     -> wasmtime::Result<i32> {
+                        Ok(is_callable(
+                            caller,
+                            account_offset,
+                            account_size,
+                            method_offset,
+                            method_size,
+                        )?)
+                    },
+                ),
+                "hf_load_asset" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     offset: i32,
+                     size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(load_asset(caller, offset, size)?)
+                    },
+                ),
+                "hf_store_asset" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_id_offset: i32,
+                     account_id_size: i32,
+                     value_offset: i32,
+                     value_size: i32|
+                     -> wasmtime::Result<()> {
+                        Ok(store_asset(
+                            caller,
+                            account_id_offset,
+                            account_id_size,
+                            value_offset,
+                            value_size,
+                        )?)
+                    },
+                ),
+                "hf_remove_asset" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_id_offset: i32,
+                     account_id_size: i32|
+                     -> wasmtime::Result<()> {
+                        Ok(remove_asset(caller, account_id_offset, account_id_size)?)
+                    },
+                ),
+                "hf_get_account_contract" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_id_offset: i32,
+                     account_id_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(get_account_contract(
+                            caller,
+                            account_id_offset,
+                            account_id_size,
+                        )?)
+                    },
+                ),
+                "hf_get_keys" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     pattern_offset: i32,
+                     pattern_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(get_keys(caller, pattern_offset, pattern_size)?)
+                    },
+                ),
+                "hf_call" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_offset: i32,
+                     account_size: i32,
+                     method_offset: i32,
+                     method_size: i32,
+                     args_offset: i32,
+                     args_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(call(
+                            caller,
+                            account_offset,
+                            account_size,
+                            method_offset,
+                            method_size,
+                            args_offset,
+                            args_size,
+                        )?)
+                    },
+                ),
+                "hf_s_call" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     account_offset: i32,
+                     account_size: i32,
+                     contract_offset: i32,
+                     contract_size: i32,
+                     method_offset: i32,
+                     method_size: i32,
+                     args_offset: i32,
+                     args_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(s_call(
+                            caller,
+                            account_offset,
+                            account_size,
+                            contract_offset,
+                            contract_size,
+                            method_offset,
+                            method_size,
+                            args_offset,
+                            args_size,
+                        )?)
+                    },
+                ),
+                "hf_verify" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     pk_offset: i32,
+                     pk_size: i32,
+                     data_offset: i32,
+                     data_size: i32,
+                     sign_offset: i32,
+                     sign_size: i32|
+                     -> wasmtime::Result<i32> {
+                        Ok(verify(
+                            caller,
+                            pk_offset,
+                            pk_size,
+                            data_offset,
+                            data_size,
+                            sign_offset,
+                            sign_size,
+                        )?)
+                    },
+                ),
+                "hf_sha256" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     data_offset: i32,
+                     data_size: i32|
+                     -> wasmtime::Result<u64> {
+                        Ok(sha256(caller, data_offset, data_size)?)
+                    },
+                ),
+                "hf_drand" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>,
+                     max: u64|
+                     -> wasmtime::Result<u64> { Ok(drand(caller, max)?) },
+                ),
+                "hf_get_block_time" => wasmtime::Func::wrap(
+                    &mut store,
+                    |caller: wasmtime::Caller<'_, CallContext>| -> wasmtime::Result<u64> {
+                        Ok(get_block_time(caller)?)
+                    },
+                ),
                 _ => {
                     return Err(Error::new_ext(
                         ErrorKind::NotImplemented,
-                        "wasm import not found",
+                        "host function import not found",
                     ))
                 }
             };
@@ -599,7 +843,6 @@ impl WmLocal {
         );
 
         let mut config = Config::default();
-        config.interruptable(true); // TODO remove with the new wasmtime crate
         config.consume_fuel(true);
 
         WmLocal {
@@ -683,6 +926,7 @@ fn alloc_mem(
         error!("allocationg memory in the smart contract ({})", err);
         Error::new_ext(ErrorKind::WasmMachineFault, err)
     })
+    // Err(Error::new_ext(ErrorKind::WasmMachineFault, "alloc_mem"))
 }
 
 /// Allocate and write the serialized data in the wasm memory
@@ -765,12 +1009,19 @@ impl Wm for WmLocal {
 
         // Get wasm allocator reference (this component is able to reserve
         // memory that lives within the wasm module).
-        let alloc_func = unwrap_or_return!(instance
-            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
-            .map_err(|_err| {
-                error!("Function 'alloc' not found");
-                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
-            }));
+        let alloc_func = match instance.get_typed_func::<i32, i32>(&mut store, "alloc") {
+            Ok(alloc_func) => alloc_func,
+            Err(e) => {
+                log::error!("Function 'alloc' not found");
+                return (
+                    0,
+                    Err(Error::new_ext(
+                        ErrorKind::ResourceNotFound,
+                        "wasm `alloc` not found",
+                    )),
+                );
+            }
+        };
 
         // Exporting the instance memory
         let mem = unwrap_or_return!(instance.get_memory(&mut store, "memory").ok_or_else(|| {
@@ -804,15 +1055,21 @@ impl Wm for WmLocal {
         ));
 
         // Get function reference.
-        let run_func = unwrap_or_return!(instance
-            .get_typed_func::<(i32, i32, i32, i32), WasmSlice, StoreContextMut<CallContext>>(
-                store.as_context_mut(),
-                "run",
-            )
-            .map_err(|_err| {
-                error!("Function `run` not found!");
-                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `run` not found")
-            }));
+        let run_func = match instance
+            .get_typed_func::<(i32, i32, i32, i32), WasmSlice>(store.as_context_mut(), "run")
+        {
+            Ok(run_func) => run_func,
+            Err(e) => {
+                log::error!("Function 'run' not found");
+                return (
+                    0,
+                    Err(Error::new_ext(
+                        ErrorKind::ResourceNotFound,
+                        "wasm `run` not found",
+                    )),
+                );
+            }
+        };
 
         // Wasm "run" function input parameters list.
         let params = (
@@ -823,13 +1080,23 @@ impl Wm for WmLocal {
         );
 
         // Call smart contract entry point.
-        let wslice =
-            unwrap_or_return!(run_func
-                .call(store.as_context_mut(), params)
-                .map_err(|err| {
-                    // Here the error shall be serious and a probable crash of the wasm sandbox.
-                    Error::new_ext(ErrorKind::WasmMachineFault, err.to_string())
-                }));
+        let wslice = match run_func.call(store.as_context_mut(), params) {
+            Ok(wslice) => wslice,
+            Err(e) => {
+                let err_text = e.to_string();
+                let e = match e.downcast::<Trap>() {
+                    Ok(trap) => {
+                        let trap_text = trap.to_string();
+                        let err_text = err_text.replace("error while executing at", &trap_text);
+                        let err_text = err_text
+                            .replace("instruction executed wasm", "instruction executed\nwasm");
+                        err_text
+                    }
+                    Err(e) => e.to_string(),
+                };
+                return (0, Err(Error::new_ext(ErrorKind::WasmMachineFault, e)));
+            }
+        };
 
         let consumed_fuel = store.fuel_consumed().unwrap_or_default();
 
@@ -1055,12 +1322,19 @@ impl Wm for WmLocal {
 
         // Get wasm allocator reference (this component is able to reserve
         // memory that lives within the wasm module).
-        let alloc_func = unwrap_or_return!(instance
-            .get_typed_func::<i32, i32, &mut Store<CallContext>>(&mut store, "alloc")
-            .map_err(|_err| {
-                error!("Function 'alloc' not found");
-                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `alloc` not found")
-            }));
+        let alloc_func = match instance.get_typed_func::<i32, i32>(&mut store, "alloc") {
+            Ok(alloc_func) => alloc_func,
+            Err(e) => {
+                log::error!("Function 'alloc' not found");
+                return (
+                    0,
+                    Err(Error::new_ext(
+                        ErrorKind::ResourceNotFound,
+                        "wasm `alloc` not found",
+                    )),
+                );
+            }
+        };
 
         // Exporting the instance memory
         let mem = unwrap_or_return!(instance.get_memory(&mut store, "memory").ok_or_else(|| {
@@ -1094,15 +1368,21 @@ impl Wm for WmLocal {
         ));
 
         // Get function reference.
-        let is_callable_func = unwrap_or_return!(instance
-            .get_typed_func::<(i32, i32, i32, i32), i32, StoreContextMut<CallContext>>(
-                store.as_context_mut(),
-                "is_callable", // NOTE this could be passed as argument
-            )
-            .map_err(|_err| {
-                error!("Function `is_callable` not found!");
-                Error::new_ext(ErrorKind::ResourceNotFound, "wasm `is_callable` not found")
-            }));
+        let is_callable_func = match instance
+            .get_typed_func::<(i32, i32, i32, i32), i32>(store.as_context_mut(), "is_callable")
+        {
+            Ok(run_func) => run_func,
+            Err(e) => {
+                log::error!("Function `is_callable` not found!");
+                return (
+                    0,
+                    Err(Error::new_ext(
+                        ErrorKind::ResourceNotFound,
+                        "wasm `is_callable` not found",
+                    )),
+                );
+            }
+        };
 
         // Wasm "run" function input parameters list.
         let params = (

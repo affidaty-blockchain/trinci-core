@@ -45,6 +45,7 @@ pub enum ErrorKind {
     WrongTxType,
     BrokenIntegrity,
     FuelError,
+    AccountFault,
     Other,
 }
 
@@ -66,6 +67,7 @@ pub(super) mod error_kind_str {
     pub const BROKEN_INTEGRITY: &str = "the integrity of the node tx is invalid";
     pub const FUEL_ERROR: &str = "burning fuel error";
     pub const OTHER: &str = "other";
+    pub const ACCOUNT_FAULT: &str = "account fault";
     pub const INVALID_CONTRACT: &str = "invalid contract hash";
 }
 
@@ -90,6 +92,7 @@ impl Display for ErrorKind {
             Other => error_kind_str::OTHER,
             InvalidContract => error_kind_str::INVALID_CONTRACT,
             TooLargeTx => error_kind_str::TOO_LARGE_TX,
+            AccountFault => error_kind_str::ACCOUNT_FAULT,
         };
         write!(f, "{}", kind_str)
     }
@@ -138,6 +141,7 @@ impl<'de> Deserialize<'de> for ErrorKind {
             error_kind_str::TPM2_ERROR => ErrorKind::Tpm2Error,
             error_kind_str::WRONG_TX_TYPE => ErrorKind::WrongTxType,
             error_kind_str::BROKEN_INTEGRITY => ErrorKind::BrokenIntegrity,
+            error_kind_str::ACCOUNT_FAULT => ErrorKind::AccountFault,
             _ => ErrorKind::Other,
         };
         Ok(kind)
@@ -213,6 +217,12 @@ impl From<String> for Error {
 impl<T> From<ErrorKind> for Result<T> {
     fn from(kind: ErrorKind) -> Self {
         Err(kind.into())
+    }
+}
+
+impl From<wasmtime::Trap> for Error {
+    fn from(trap: wasmtime::Trap) -> Self {
+        Error::new_ext(ErrorKind::WasmMachineFault, format!("Wasm trap: {trap}"))
     }
 }
 

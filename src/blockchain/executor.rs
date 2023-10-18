@@ -261,7 +261,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => {
                 return (
                     0,
-                    Err(Error::new_ext(ErrorKind::Other, "Service not found")),
+                    Err(Error::new_ext(
+                        ErrorKind::AccountFault,
+                        "Service account not found",
+                    )),
                 )
             }
         };
@@ -270,7 +273,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => {
                 return (
                     0,
-                    Err(Error::new_ext(ErrorKind::Other, "Service has no contract")),
+                    Err(Error::new_ext(
+                        ErrorKind::AccountFault,
+                        "Service account has no contract",
+                    )),
                 )
             }
         };
