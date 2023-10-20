@@ -428,7 +428,7 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
             };
             pool.confirmed.insert(block.data.height, blk_info);
         // } else if missing_headers.start <= block.data.height {
-        } else if latest_executed_block + 1 < block.data.height {
+        } else if latest_executed_block + 1 <= block.data.height {
             // in this case the node miss some block
             // it needs to be re-aligned
 
