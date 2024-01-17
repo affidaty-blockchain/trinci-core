@@ -251,6 +251,7 @@ pub fn store_asset(ctx: &mut CallContext, account_id: &str, value: &[u8]) {
                 block_hash: Hash::default(),
                 block_timestamp: ctx.block_timestamp,
                 method: ctx.method.to_string(),
+                node: None,
             };
 
             ctx.store_asset_db.push(data);
@@ -266,9 +267,8 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
         .load_account(account_id)
         .unwrap_or_else(|| Account::new(account_id, None));
 
-    #[cfg(feature = "indexer")] 
+    #[cfg(feature = "indexer")]
     let prev_amount = account.load_asset(ctx.owner);
-
 
     account.remove_asset(ctx.owner);
     ctx.db.store_account(account);
@@ -300,6 +300,7 @@ pub fn remove_asset(ctx: &mut CallContext, account_id: &str) {
             block_hash: Hash::default(),
             block_timestamp: ctx.block_timestamp,
             method: ctx.method.to_string(),
+            node: None,
         };
 
         ctx.store_asset_db.push(data);

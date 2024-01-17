@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use curl::easy::{Easy, List};
 use std::{io::Read, thread::spawn};
+
 /// Store asset data to store in the external db
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct StoreAssetDb {
@@ -34,6 +35,13 @@ pub struct StoreAssetDb {
     pub block_height: u64,
     pub block_hash: Hash,
     pub block_timestamp: u64,
+    pub node: Option<NodeInfo>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct NodeInfo {
+    pub tx_hash: Hash,
+    pub origin: String,
 }
 
 #[derive(Serialize, Debug)]
