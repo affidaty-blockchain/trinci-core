@@ -716,9 +716,21 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                             #[cfg(feature = "indexer")]
                                             {
-                                                bulk_store_asset_db
-                                                    .iter_mut()
-                                                    .for_each(|d| d.tx_hash = bulk_hash_tx);
+                                                let root_origin = match &bulk_tx.txs.root.data {
+                                                    TransactionData::BulkRootV1(root) => {
+                                                        root.caller.to_account_id()
+                                                    }
+                                                    _ => "".to_string(), // This should never happen
+                                                };
+
+                                                bulk_store_asset_db.iter_mut().for_each(|d| {
+                                                    d.node = Some(NodeInfo {
+                                                        tx_hash: d.tx_hash,
+                                                        origin: d.origin.clone(),
+                                                    });
+                                                    d.tx_hash = bulk_hash_tx;
+                                                    d.origin = root_origin.clone();
+                                                });
                                                 store_asset_db.append(&mut bulk_store_asset_db);
                                             }
                                         }
