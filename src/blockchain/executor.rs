@@ -27,8 +27,9 @@
 // use rand_core::block;
 use serde_value::value;
 
+#[cfg(feature = "indexer")]
+use super::indexer::NodeInfo;
 use super::{
-    indexer::NodeInfo,
     message::Message,
     pool::{BlockInfo, Pool},
     pubsub::{Event, PubSub},
