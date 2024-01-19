@@ -487,9 +487,6 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut results = Vec::<(String, BulkResult)>::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
-
-        #[cfg(feature = "indexer")]
-        let bulk_hash_tx = tx.data.primary_hash();
         #[cfg(feature = "indexer")]
         let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
@@ -618,18 +615,13 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                         #[cfg(feature = "indexer")]
                         {
-                            let root_origin = match &bulk_tx.txs.root.data {
-                                TransactionData::BulkRootV1(root) => root.caller.to_account_id(),
-                                _ => "".to_string(), // This should never happen
-                            };
-
                             bulk_store_asset_db.iter_mut().for_each(|d| {
                                 d.node = Some(NodeInfo {
                                     tx_hash: d.tx_hash,
                                     origin: d.origin.clone(),
                                 });
-                                d.tx_hash = bulk_hash_tx;
-                                d.origin = root_origin.clone();
+                                d.tx_hash = root_hash;
+                                d.origin = root_tx.data.get_caller().to_account_id();
                             });
                             store_asset_db.append(&mut bulk_store_asset_db);
                         }
@@ -646,6 +638,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         ));
                     }
                 }
+
+                // Nodes TXs handling.
                 if !execution_fail {
                     if let Some(nodes) = &bulk_tx.txs.nodes {
                         for node in nodes {
@@ -716,20 +710,17 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                             #[cfg(feature = "indexer")]
                                             {
-                                                let root_origin = match &bulk_tx.txs.root.data {
-                                                    TransactionData::BulkRootV1(root) => {
-                                                        root.caller.to_account_id()
-                                                    }
-                                                    _ => "".to_string(), // This should never happen
-                                                };
-
                                                 bulk_store_asset_db.iter_mut().for_each(|d| {
                                                     d.node = Some(NodeInfo {
-                                                        tx_hash: d.tx_hash,
-                                                        origin: d.origin.clone(),
+                                                        tx_hash: node.primary_hash(),
+                                                        origin: node
+                                                            .data
+                                                            .get_caller()
+                                                            .to_account_id(),
                                                     });
-                                                    d.tx_hash = bulk_hash_tx;
-                                                    d.origin = root_origin.clone();
+                                                    d.tx_hash = root_hash;
+                                                    d.origin =
+                                                        root_tx.data.get_caller().to_account_id();
                                                 });
                                                 store_asset_db.append(&mut bulk_store_asset_db);
                                             }
