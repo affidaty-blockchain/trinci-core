@@ -487,6 +487,9 @@ impl<D: Db, W: Wm> Executor<D, W> {
         let mut results = Vec::<(String, BulkResult)>::new();
         let mut execution_fail = false;
         let mut burned_fuel = 0;
+
+        #[cfg(feature = "indexer")]
+        let bulk_hash_tx = tx.data.primary_hash();
         #[cfg(feature = "indexer")]
         let mut store_asset_db = Vec::<StoreAssetDb>::new();
 
@@ -620,7 +623,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                     tx_hash: d.tx_hash,
                                     origin: d.origin.clone(),
                                 });
-                                d.tx_hash = root_hash;
+                                d.tx_hash = bulk_hash_tx;
                                 d.origin = root_tx.data.get_caller().to_account_id();
                             });
                             store_asset_db.append(&mut bulk_store_asset_db);
@@ -718,7 +721,7 @@ impl<D: Db, W: Wm> Executor<D, W> {
                                                             .get_caller()
                                                             .to_account_id(),
                                                     });
-                                                    d.tx_hash = root_hash;
+                                                    d.tx_hash = bulk_hash_tx;
                                                     d.origin =
                                                         root_tx.data.get_caller().to_account_id();
                                                 });
