@@ -181,6 +181,7 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
                 };
             }
         }
+
         Ok(hash)
     }
 
@@ -375,16 +376,21 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
         }
 
         // get local last block
-        let opt = self.db.read().load_block(u64::MAX);
+        // let opt = self.db.read().load_block(u64::MAX);
 
         // collect missing blocks by heights
-        let mut missing_headers = match opt {
-            Some(last) => last.data.height + 1..block.data.height,
-            None => 0..block.data.height,
+        // let mut missing_headers = match opt.clone() {
+        //     Some(last) => last.data.height + 1..block.data.height,
+        //     None => 0..block.data.height,
+        // };
+        // if txs_hashes.is_none() {
+        //     missing_headers.end += 1;
+        // }
+
+        let latest_executed_block = match self.db.read().load_block(u64::MAX) {
+            Some(last) => last.data.height,
+            None => 0,
         };
-        if txs_hashes.is_none() {
-            missing_headers.end += 1;
-        }
 
         // Check if whether or not there are missing blocks.
         // In case the received block is the "next block", it means the behaviour
@@ -392,17 +398,12 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
         // Note: this happens only if the node is not in a
         // "alignment" status, shown by the status of the aligner (false -> alignment)
         let aligner_status = self.dispatcher_aligner.1.clone();
-        debug!(
-            "[dispatcher] local last: {}\n received:\t{}\n status\t{}",
-            missing_headers.end,
-            block.data.height,
-            *aligner_status.0.lock().unwrap()
-        );
-        debug!(
-            "[dispatcher] missing_headers.start:\t{}",
-            missing_headers.start
-        );
-        if missing_headers.start + 1 == block.data.height && *aligner_status.0.lock().unwrap() {
+
+        // debug!("local height: {:?}", latest_executed_block);
+        // debug!("block received: {:?}", block.data.height);
+
+        // if missing_headers.end == block.data.height && *aligner_status.0.lock().unwrap() {
+        if latest_executed_block + 1 == block.data.height && *aligner_status.0.lock().unwrap() {
             // if received block contains txs
             //  . remove those from unconfirmed pool
             //  . add txs to pool.txs if not present
@@ -426,7 +427,8 @@ impl<D: Db, W: Wm> Dispatcher<D, W> {
                 timestamp: block.data.timestamp,
             };
             pool.confirmed.insert(block.data.height, blk_info);
-        } else if missing_headers.start <= block.data.height {
+        // } else if missing_headers.start <= block.data.height {
+        } else if latest_executed_block + 1 <= block.data.height {
             // in this case the node miss some block
             // it needs to be re-aligned
 

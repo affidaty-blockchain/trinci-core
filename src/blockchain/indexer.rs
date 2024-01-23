@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use curl::easy::{Easy, List};
 use std::{io::Read, thread::spawn};
+
 /// Store asset data to store in the external db
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct StoreAssetDb {
@@ -34,6 +35,19 @@ pub struct StoreAssetDb {
     pub block_height: u64,
     pub block_hash: Hash,
     pub block_timestamp: u64,
+    pub node: Option<NodeInfo>,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct NodeInfo {
+    pub tx_hash: Hash,
+    pub origin: String,
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct NodeInfoString {
+    pub tx_hash: String,
+    pub origin: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -50,6 +64,8 @@ pub struct StoreAssetDbStr {
     pub block_height: u64,
     pub block_hash: String,
     pub block_timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<NodeInfoString>,
 }
 
 fn get_amount(buf: &[u8]) -> serde_json::Value {
@@ -76,21 +92,44 @@ fn get_amount(buf: &[u8]) -> serde_json::Value {
 }
 
 fn json_string_from_store_asset_db(data: &StoreAssetDb) -> String {
-    let val = serde_json::json!({
-        "_id": Uuid::new_v4().to_string(),
-        "account": data.account.clone(),
-        "origin": data.origin.clone(),
-        "asset": data.asset.clone(),
-        "prev_amount": get_amount(&data.prev_amount),
-        "amount": get_amount(&data.amount),
-        "method": data.method.clone(),
-        "sequence_number": next_sequence(&data.tx_hash),
-        "tx_hash": hex::encode(data.tx_hash.as_bytes()),
-        "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
-        "block_height": data.block_height,
-        "block_hash": hex::encode(data.block_hash.as_bytes()),
-        "block_timestamp": data.block_timestamp,
-    });
+    let val = match &data.node {
+        Some(node) => {
+            serde_json::json!({
+                "_id": Uuid::new_v4().to_string(),
+                "account": data.account.clone(),
+                "origin": data.origin.clone(),
+                "asset": data.asset.clone(),
+                "prev_amount": get_amount(&data.prev_amount),
+                "amount": get_amount(&data.amount),
+                "method": data.method.clone(),
+                "sequence_number": next_sequence(&data.tx_hash),
+                "tx_hash": hex::encode(data.tx_hash.as_bytes()),
+                "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
+                "block_height": data.block_height,
+                "block_hash": hex::encode(data.block_hash.as_bytes()),
+                "block_timestamp": data.block_timestamp,
+                "node": NodeInfoString { tx_hash: hex::encode(node.tx_hash.as_bytes()) , origin: node.origin.clone() }
+            })
+        }
+        None => {
+            serde_json::json!({
+                "_id": Uuid::new_v4().to_string(),
+                "account": data.account.clone(),
+                "origin": data.origin.clone(),
+                "asset": data.asset.clone(),
+                "prev_amount": get_amount(&data.prev_amount),
+                "amount": get_amount(&data.amount),
+                "method": data.method.clone(),
+                "sequence_number": next_sequence(&data.tx_hash),
+                "tx_hash": hex::encode(data.tx_hash.as_bytes()),
+                "smartcontract_hash": hex::encode(data.smartcontract_hash.as_bytes()),
+                "block_height": data.block_height,
+                "block_hash": hex::encode(data.block_hash.as_bytes()),
+                "block_timestamp": data.block_timestamp,
+            })
+        }
+    };
+
     serde_json::to_string(&val).unwrap() // This should be safe
 }
 

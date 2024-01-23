@@ -27,6 +27,8 @@
 // use rand_core::block;
 use serde_value::value;
 
+#[cfg(feature = "indexer")]
+use super::indexer::NodeInfo;
 use super::{
     message::Message,
     pool::{BlockInfo, Pool},
@@ -261,7 +263,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => {
                 return (
                     0,
-                    Err(Error::new_ext(ErrorKind::Other, "Service not found")),
+                    Err(Error::new_ext(
+                        ErrorKind::AccountFault,
+                        "Service account not found",
+                    )),
                 )
             }
         };
@@ -270,7 +275,10 @@ impl<D: Db, W: Wm> Executor<D, W> {
             None => {
                 return (
                     0,
-                    Err(Error::new_ext(ErrorKind::Other, "Service has no contract")),
+                    Err(Error::new_ext(
+                        ErrorKind::AccountFault,
+                        "Service account has no contract",
+                    )),
                 )
             }
         };
@@ -610,9 +618,14 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                         #[cfg(feature = "indexer")]
                         {
-                            bulk_store_asset_db
-                                .iter_mut()
-                                .for_each(|d| d.tx_hash = bulk_hash_tx);
+                            bulk_store_asset_db.iter_mut().for_each(|d| {
+                                d.node = Some(NodeInfo {
+                                    tx_hash: d.tx_hash,
+                                    origin: d.origin.clone(),
+                                });
+                                d.tx_hash = bulk_hash_tx;
+                                d.origin = root_tx.data.get_caller().to_account_id();
+                            });
                             store_asset_db.append(&mut bulk_store_asset_db);
                         }
                     }
@@ -628,6 +641,8 @@ impl<D: Db, W: Wm> Executor<D, W> {
                         ));
                     }
                 }
+
+                // Nodes TXs handling.
                 if !execution_fail {
                     if let Some(nodes) = &bulk_tx.txs.nodes {
                         for node in nodes {
@@ -698,9 +713,18 @@ impl<D: Db, W: Wm> Executor<D, W> {
 
                                             #[cfg(feature = "indexer")]
                                             {
-                                                bulk_store_asset_db
-                                                    .iter_mut()
-                                                    .for_each(|d| d.tx_hash = bulk_hash_tx);
+                                                bulk_store_asset_db.iter_mut().for_each(|d| {
+                                                    d.node = Some(NodeInfo {
+                                                        tx_hash: node.primary_hash(),
+                                                        origin: node
+                                                            .data
+                                                            .get_caller()
+                                                            .to_account_id(),
+                                                    });
+                                                    d.tx_hash = bulk_hash_tx;
+                                                    d.origin =
+                                                        root_tx.data.get_caller().to_account_id();
+                                                });
                                                 store_asset_db.append(&mut bulk_store_asset_db);
                                             }
                                         }
